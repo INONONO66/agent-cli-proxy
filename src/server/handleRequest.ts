@@ -1,5 +1,6 @@
 import { createRequestContext } from "./requestContext";
 import { handleOpenAIRequest } from "../providers/openai/adapter";
+import { handleAnthropicRequest } from "../providers/anthropic/adapter";
 
 export async function handleRequest(req: Request): Promise<Response> {
   const url = new URL(req.url);
@@ -17,11 +18,7 @@ export async function handleRequest(req: Request): Promise<Response> {
 
   try {
     if (path === "/v1/messages" && method === "POST") {
-      // TODO: Wire up Anthropic adapter in Task 8
-      return new Response(JSON.stringify({ error: "Not implemented" }), {
-        status: 501,
-        headers: { "Content-Type": "application/json" },
-      });
+      return handleAnthropicRequest(req, ctx);
     }
 
     if (path === "/v1/chat/completions" && method === "POST") {
