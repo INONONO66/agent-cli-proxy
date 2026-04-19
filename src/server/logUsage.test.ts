@@ -4,9 +4,24 @@ import type { TokenUsage } from "../types/index";
 
 const mockRecordUsage = mock((_log: unknown) => 1);
 
+const today = new Date().toISOString().slice(0, 10);
+
 mock.module("../services/index", () => ({
   usageService: {
     recordUsage: mockRecordUsage,
+    getToday: () => ({ date: today, requests: 0, total_tokens: 0, cost_usd: 0, breakdown: [] }),
+    getDateRange: () => [],
+    getModelBreakdown: () => [],
+    getProviderBreakdown: () => [],
+    getTotalStats: () => ({
+      total_requests: 0,
+      total_tokens: 0,
+      total_cost_usd: 0,
+      first_request_at: null,
+      last_request_at: null,
+    }),
+    getRecentLogs: () => [],
+    getLogById: () => null,
   },
 }));
 
