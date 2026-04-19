@@ -11,7 +11,7 @@ beforeEach(() => {
 });
 
 describe("usageService", () => {
-  it("recordUsage inserts into request_logs and daily_usage", () => {
+  it("recordUsage inserts into request_logs and daily_usage", async () => {
     const service = createUsageService(db);
 
     const log: Omit<RequestLog, "id"> = {
@@ -29,7 +29,7 @@ describe("usageService", () => {
       started_at: "2025-04-20T10:00:00Z",
     };
 
-    const id = service.recordUsage(log);
+    const id = await service.recordUsage(log);
     expect(id).toBeGreaterThan(0);
 
     const stats = service.getTotalStats();
@@ -37,7 +37,7 @@ describe("usageService", () => {
     expect(stats.total_tokens).toBe(150);
   });
 
-  it("two recordUsage calls show request_count=2 in getToday", () => {
+  it("two recordUsage calls show request_count=2 in getToday", async () => {
     const service = createUsageService(db);
     const today = new Date().toISOString().slice(0, 10);
 
@@ -71,8 +71,8 @@ describe("usageService", () => {
       started_at: `${today}T11:00:00Z`,
     };
 
-    service.recordUsage(log1);
-    service.recordUsage(log2);
+    await service.recordUsage(log1);
+    await service.recordUsage(log2);
 
     const todaySummary = service.getToday();
     expect(todaySummary.requests).toBe(2);
@@ -80,7 +80,7 @@ describe("usageService", () => {
     expect(todaySummary.cost_usd).toBeCloseTo(0.003, 5);
   });
 
-  it("getModelBreakdown returns per-model rows", () => {
+  it("getModelBreakdown returns per-model rows", async () => {
     const service = createUsageService(db);
     const day = "2025-04-20";
 
@@ -114,8 +114,8 @@ describe("usageService", () => {
       started_at: `${day}T11:00:00Z`,
     };
 
-    service.recordUsage(log1);
-    service.recordUsage(log2);
+    await service.recordUsage(log1);
+    await service.recordUsage(log2);
 
     const breakdown = service.getModelBreakdown(day);
     expect(breakdown).toHaveLength(2);
@@ -123,7 +123,7 @@ describe("usageService", () => {
     expect(breakdown.some((r) => r.model === "gpt-3.5-turbo")).toBe(true);
   });
 
-  it("getProviderBreakdown aggregates by provider", () => {
+  it("getProviderBreakdown aggregates by provider", async () => {
     const service = createUsageService(db);
     const day = "2025-04-20";
 
@@ -157,8 +157,8 @@ describe("usageService", () => {
       started_at: `${day}T11:00:00Z`,
     };
 
-    service.recordUsage(log1);
-    service.recordUsage(log2);
+    await service.recordUsage(log1);
+    await service.recordUsage(log2);
 
     const breakdown = service.getProviderBreakdown(day);
     expect(breakdown).toHaveLength(2);
@@ -172,7 +172,7 @@ describe("usageService", () => {
     expect(anthropicRow?.total_tokens).toBe(300);
   });
 
-  it("getTotalStats returns correct totals", () => {
+  it("getTotalStats returns correct totals", async () => {
     const service = createUsageService(db);
 
     const log1: Omit<RequestLog, "id"> = {
@@ -205,8 +205,8 @@ describe("usageService", () => {
       started_at: "2025-04-21T10:00:00Z",
     };
 
-    service.recordUsage(log1);
-    service.recordUsage(log2);
+    await service.recordUsage(log1);
+    await service.recordUsage(log2);
 
     const stats = service.getTotalStats();
     expect(stats.total_requests).toBe(2);
@@ -216,7 +216,7 @@ describe("usageService", () => {
     expect(stats.last_request_at).toBe("2025-04-21T10:00:00Z");
   });
 
-  it("getDateRange returns summaries for date range", () => {
+  it("getDateRange returns summaries for date range", async () => {
     const service = createUsageService(db);
 
     const log1: Omit<RequestLog, "id"> = {
@@ -249,8 +249,8 @@ describe("usageService", () => {
       started_at: "2025-04-21T10:00:00Z",
     };
 
-    service.recordUsage(log1);
-    service.recordUsage(log2);
+    await service.recordUsage(log1);
+    await service.recordUsage(log2);
 
     const range = service.getDateRange("2025-04-20", "2025-04-21");
     expect(range).toHaveLength(2);

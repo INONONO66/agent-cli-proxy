@@ -5,7 +5,7 @@ import type { UsageService } from "../../services/usageService";
 const today = new Date().toISOString().slice(0, 10);
 
 const mockUsageService: UsageService = {
-  recordUsage: mock(() => 1),
+  recordUsage: mock(async () => 1),
   getToday: mock(() => ({
     date: today,
     requests: 5,

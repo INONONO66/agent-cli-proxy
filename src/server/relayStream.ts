@@ -87,18 +87,33 @@ export function relayStream(upstreamResponse: Response, options: RelayOptions): 
     },
   });
 
-  const outputStream = upstreamBody.pipeThrough(transform).pipeThrough(
-    new TransformStream({
-      transform(chunk, controller) {
-        controller.enqueue(chunk);
-      },
-      flush() {
+  const transformedStream = upstreamBody.pipeThrough(transform);
+
+  const outputStream = new ReadableStream({
+    async start(controller) {
+      const reader = transformedStream.getReader();
+      try {
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          controller.enqueue(value);
+        }
+        controller.close();
+      } catch (err) {
         if (!streamEnded) {
           fireUsage(true);
+          streamEnded = true;
         }
-      },
-    }),
-  );
+        controller.error(err);
+      }
+    },
+    cancel() {
+      if (!streamEnded) {
+        fireUsage(true);
+        streamEnded = true;
+      }
+    },
+  });
 
   const headers = new Headers(upstreamResponse.headers);
   headers.delete("content-encoding");

@@ -24,7 +24,7 @@ export function withUsageLogging(
     const onUsage = async (usage: TokenUsage): Promise<void> => {
       try {
         const { usageService } = await import("../services/index");
-        usageService.recordUsage({
+        await usageService.recordUsage({
           provider: ctx.provider ?? "unknown",
           model,
           path: ctx.path,
@@ -56,7 +56,7 @@ export function withUsageLogging(
     } catch (err) {
       try {
         const { usageService } = await import("../services/index");
-        usageService.recordUsage({
+        await usageService.recordUsage({
           provider: ctx.provider ?? "unknown",
           model,
           path: ctx.path,

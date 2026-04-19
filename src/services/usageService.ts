@@ -11,7 +11,7 @@ import {
   getDailyUsage,
   getUsageRange,
 } from "../db/usageRepo";
-import { getPricing, calculateCost } from "./pricingService";
+import { getPricing, calculateCost, fetchPricing } from "./pricingService";
 import type {
   RequestLog,
   DailyUsage,
@@ -21,10 +21,16 @@ import type {
 } from "../types/index";
 
 export function createUsageService(db: Database) {
-  function recordUsage(log: Omit<RequestLog, "id">): number {
+  async function recordUsage(log: Omit<RequestLog, "id">): Promise<number> {
     let costUsd = log.cost_usd;
     if (!costUsd && log.model) {
-      const pricing = getPricing(log.model);
+      let pricing = getPricing(log.model);
+      if (!pricing) {
+        try {
+          await fetchPricing();
+        } catch {}
+        pricing = getPricing(log.model);
+      }
       if (pricing) {
         costUsd = calculateCost(
           {
