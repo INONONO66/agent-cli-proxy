@@ -1,20 +1,10 @@
-const port = parseInt(process.env.PROXY_PORT || "3100", 10);
+import { config } from "./config";
+import { handleRequest } from "./server/handleRequest";
 
 const server = Bun.serve({
-  port,
+  port: config.port,
   idleTimeout: 0,
-  fetch(req: Request) {
-    const url = new URL(req.url);
-
-    if (url.pathname === "/health" && req.method === "GET") {
-      return new Response(JSON.stringify({ status: "ok" }), {
-        status: 200,
-        headers: { "Content-Type": "application/json" },
-      });
-    }
-
-    return new Response("Not Found", { status: 404 });
-  },
+  fetch: handleRequest,
 });
 
-console.log(`Server running at http://localhost:${port}`);
+console.log(`Server running at http://localhost:${config.port}`);
