@@ -55,10 +55,10 @@ describe("handleRequest", () => {
     expect(res.status).toBe(501);
   });
 
-  test("GET /admin/usage/today → 501", async () => {
+  test("GET /admin/usage/today → 200", async () => {
     const req = new Request("http://localhost:3100/admin/usage/today", { method: "GET" });
     const res = await handleRequest(req);
-    expect(res.status).toBe(501);
+    expect(res.status).toBe(200);
   });
 
   test("GET /nonexistent → 404", async () => {

@@ -1,6 +1,13 @@
 import { createRequestContext } from "./requestContext";
 import { handleOpenAIRequest } from "../providers/openai/adapter";
 import { handleAnthropicRequest } from "../providers/anthropic/adapter";
+import { withUsageLogging } from "./logUsage";
+import { createAdminRouter } from "./routes/admin";
+import { usageService } from "../services/index";
+
+const anthropicHandler = withUsageLogging(handleAnthropicRequest);
+const openaiHandler = withUsageLogging(handleOpenAIRequest);
+const adminRouter = createAdminRouter(usageService);
 
 export async function handleRequest(req: Request): Promise<Response> {
   const url = new URL(req.url);
@@ -18,19 +25,17 @@ export async function handleRequest(req: Request): Promise<Response> {
 
   try {
     if (path === "/v1/messages" && method === "POST") {
-      return handleAnthropicRequest(req, ctx);
+      return anthropicHandler(req, ctx);
     }
 
     if (path === "/v1/chat/completions" && method === "POST") {
-      return handleOpenAIRequest(req, ctx);
+      return openaiHandler(req, ctx);
     }
 
     if (path.startsWith("/admin/")) {
-      // TODO: Wire up admin routes in Task 12
-      return new Response(JSON.stringify({ error: "Not implemented" }), {
-        status: 501,
-        headers: { "Content-Type": "application/json" },
-      });
+      const adminResponse = await adminRouter(req);
+      if (adminResponse) return adminResponse;
+      return new Response("Not Found", { status: 404 });
     }
 
     return new Response("Not Found", { status: 404 });
