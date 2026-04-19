@@ -1,0 +1,15 @@
+version: "3.8"
+services:
+  agent-cli-proxy:
+    build: .
+    ports:
+      - "3100:3100"
+    volumes:
+      - ./data:/app/data
+    environment:
+      - PROXY_PORT=3100
+      - CLI_PROXY_API_URL=http://host.docker.internal:8317
+      - DB_PATH=/app/data/proxy.db
+    restart: unless-stopped
+    extra_hosts:
+      - "host.docker.internal:host-gateway"

@@ -1,0 +1,7 @@
+node_modules/
+.git/
+data/*.db
+.env
+dist/
+tests/
+*.test.ts
