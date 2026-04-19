@@ -72,7 +72,7 @@ export function updateRequest(
   values.push(id);
   const sql = `UPDATE request_logs SET ${fields.join(", ")} WHERE id = ?`;
   const stmt = db.prepare(sql);
-  stmt.run(...values);
+  stmt.run(...(values as Parameters<typeof stmt.run>));
 }
 
 export function getRequestsByDate(db: Database, date: string): RequestLog[] {

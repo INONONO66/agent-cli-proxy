@@ -1,4 +1,5 @@
 import { createRequestContext } from "./requestContext";
+import { handleOpenAIRequest } from "../providers/openai/adapter";
 
 export async function handleRequest(req: Request): Promise<Response> {
   const url = new URL(req.url);
@@ -24,11 +25,7 @@ export async function handleRequest(req: Request): Promise<Response> {
     }
 
     if (path === "/v1/chat/completions" && method === "POST") {
-      // TODO: Wire up OpenAI adapter in Task 9
-      return new Response(JSON.stringify({ error: "Not implemented" }), {
-        status: 501,
-        headers: { "Content-Type": "application/json" },
-      });
+      return handleOpenAIRequest(req, ctx);
     }
 
     if (path.startsWith("/admin/")) {
