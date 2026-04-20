@@ -33,6 +33,7 @@ export async function handleAnthropicRequest(
     method: "POST",
     headers: {
       "content-type": "application/json",
+      "authorization": `Bearer ${config.cliProxyApiKey}`,
       ...claudeHeaders,
     },
     body: JSON.stringify(body),
