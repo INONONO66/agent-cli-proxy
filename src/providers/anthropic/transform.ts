@@ -8,7 +8,7 @@ import type {
 } from "../../types/anthropic";
 import { buildBillingHeaderValue } from "./cch";
 
-const OPENCODE_IDENTITY = "You are OpenCode, the best coding agent on the planet.";
+const OPENCODE_IDENTITY_PREFIX = "You are OpenCode";
 const CLAUDE_CODE_IDENTITY = "You are a Claude agent, built on Anthropic's Claude Agent SDK.";
 const CLAUDE_CODE_ENTRYPOINT = "sdk-cli";
 
@@ -26,18 +26,15 @@ function prefixName(name: string): string {
 }
 
 function unprefixName(name: string): string {
+  if (name === "StructuredOutput") return name;
   return `${name.charAt(0).toLowerCase()}${name.slice(1)}`;
 }
 
 function sanitizeText(text: string): string {
-  if (!text.includes(OPENCODE_IDENTITY)) return text;
-
   const paragraphs = text.split(/\n\n+/);
 
   const filtered = paragraphs.filter((paragraph) => {
-    if (paragraph.includes(OPENCODE_IDENTITY)) {
-      if (paragraph.trim() === OPENCODE_IDENTITY) return false;
-    }
+    if (paragraph.includes(OPENCODE_IDENTITY_PREFIX)) return false;
 
     for (const anchor of PARAGRAPH_REMOVAL_ANCHORS) {
       if (paragraph.includes(anchor)) return false;
@@ -47,8 +44,6 @@ function sanitizeText(text: string): string {
   });
 
   let result = filtered.join("\n\n");
-
-  result = result.replace(OPENCODE_IDENTITY, "").replace(/\n{3,}/g, "\n\n");
 
   for (const rule of TEXT_REPLACEMENTS) {
     result = result.replace(rule.match, rule.replacement);
@@ -67,17 +62,19 @@ export function prependClaudeCodeIdentity(
   system: SystemBlock[],
   billingHeader: string,
 ): SystemBlock[] {
-  const identityText = billingHeader
-    ? `${billingHeader}\n\n${CLAUDE_CODE_IDENTITY}`
-    : CLAUDE_CODE_IDENTITY;
-
-  const identityBlock: SystemBlock = { type: "text", text: identityText };
+  const identityBlock: SystemBlock = { type: "text", text: CLAUDE_CODE_IDENTITY };
 
   if (system.length > 0 && system[0]?.text === CLAUDE_CODE_IDENTITY) {
     return system;
   }
 
-  return [identityBlock, ...system];
+  const result = [identityBlock, ...system];
+
+  if (billingHeader) {
+    result.unshift({ type: "text", text: billingHeader });
+  }
+
+  return result;
 }
 
 export function prefixToolNames(body: AnthropicRequest): AnthropicRequest {
@@ -157,11 +154,13 @@ export function rewriteRequestBody(body: AnthropicRequest): AnthropicRequest {
 
   const withIdentity = prependClaudeCodeIdentity(sanitized, billingHeader);
 
-  if (withIdentity.length > 1 && result.messages && Array.isArray(result.messages)) {
-    const kept = [withIdentity[0]!];
+  const coreBlockCount = billingHeader ? 2 : 1;
+
+  if (withIdentity.length > coreBlockCount && result.messages && Array.isArray(result.messages)) {
+    const kept = withIdentity.slice(0, coreBlockCount);
     const movedTexts: string[] = [];
 
-    for (let i = 1; i < withIdentity.length; i++) {
+    for (let i = coreBlockCount; i < withIdentity.length; i++) {
       const entry = withIdentity[i]!;
       if (entry.text.length > 0) movedTexts.push(entry.text);
     }

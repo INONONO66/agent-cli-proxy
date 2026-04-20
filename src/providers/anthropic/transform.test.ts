@@ -143,11 +143,12 @@ describe("prependClaudeCodeIdentity", () => {
     expect(result[1]!.text).toBe("Some instructions.");
   });
 
-  test("billing header prepended to identity text", () => {
+  test("billing header as separate block before identity", () => {
     const blocks: SystemBlock[] = [];
     const result = prependClaudeCodeIdentity(blocks, "x-anthropic-billing-header: cc_version=2.1.87.abc;");
+    expect(result).toHaveLength(2);
     expect(result[0]!.text).toContain("x-anthropic-billing-header");
-    expect(result[0]!.text).toContain(CLAUDE_CODE_IDENTITY);
+    expect(result[1]!.text).toBe(CLAUDE_CODE_IDENTITY);
   });
 });
 
@@ -160,8 +161,9 @@ describe("rewriteRequestBody", () => {
     };
     const result = rewriteRequestBody(req);
     const system = result.system as SystemBlock[];
-    expect(system).toHaveLength(1);
-    expect(system[0]!.text).toContain(CLAUDE_CODE_IDENTITY);
+    expect(system).toHaveLength(2);
+    expect(system[0]!.text).toContain("x-anthropic-billing-header");
+    expect(system[1]!.text).toBe(CLAUDE_CODE_IDENTITY);
     expect(result.messages[0]!.content).toContain("Custom instructions.");
   });
 });
