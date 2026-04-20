@@ -1,3 +1,14 @@
+function parseProviders(): Record<string, string> {
+  const providers: Record<string, string> = {};
+  for (const [key, value] of Object.entries(process.env)) {
+    if (key.startsWith("PROVIDER_") && key.endsWith("_BASE_URL") && value) {
+      const name = key.slice("PROVIDER_".length, -"_BASE_URL".length).toLowerCase();
+      providers[name] = value;
+    }
+  }
+  return providers;
+}
+
 export const config = {
   port: Number(process.env.PROXY_PORT ?? 3100),
   cliProxyApiUrl: process.env.CLI_PROXY_API_URL ?? "http://localhost:8317",
@@ -9,6 +20,7 @@ export const config = {
   dbPath: process.env.DB_PATH ?? "data/proxy.db",
   pricingCacheTtlMs: Number(process.env.PRICING_CACHE_TTL_MS ?? 3600000),
   logLevel: process.env.LOG_LEVEL ?? "info",
+  providers: parseProviders(),
 } as const;
 
 export type Config = typeof config;
