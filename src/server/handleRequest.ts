@@ -1,8 +1,6 @@
 import { createRequestContext } from "./requestContext";
 import { handleOpenAIRequest } from "../providers/openai/adapter";
 import { handleAnthropicRequest } from "../providers/anthropic/adapter";
-import { handlePassthroughRequest } from "../providers/passthrough/adapter";
-import { routeByModel } from "../providers/router";
 import { withUsageLogging } from "./logUsage";
 import { createAdminRouter } from "./routes/admin";
 import { usageService } from "../services/index";
@@ -11,12 +9,12 @@ const anthropicHandler = withUsageLogging(handleAnthropicRequest);
 const openaiHandler = withUsageLogging(handleOpenAIRequest);
 const adminRouter = createAdminRouter(usageService);
 
-function extractModel(body: string): string | null {
+function isClaude(body: string): boolean {
   try {
     const parsed = JSON.parse(body) as Record<string, unknown>;
-    return typeof parsed.model === "string" ? parsed.model : null;
+    return typeof parsed.model === "string" && parsed.model.startsWith("claude");
   } catch {
-    return null;
+    return false;
   }
 }
 
@@ -37,25 +35,14 @@ export async function handleRequest(req: Request): Promise<Response> {
   try {
     if (path === "/v1/messages" && method === "POST") {
       const bodyText = await req.text();
-      const model = extractModel(bodyText);
-
-      if (!model) {
-        return new Response(JSON.stringify({ error: { type: "invalid_request_error", message: "Missing model field" } }), {
-          status: 400,
-          headers: { "content-type": "application/json" },
-        });
-      }
-
-      const route = routeByModel(model);
       const rebuiltReq = new Request(req.url, { method: "POST", headers: req.headers, body: bodyText });
 
-      if (route.type === "claude") {
+      if (isClaude(bodyText)) {
         return anthropicHandler(rebuiltReq, ctx);
       }
 
-      return withUsageLogging((r, c, onUsage) =>
-        handlePassthroughRequest(r, c, onUsage, route.baseUrl)
-      )(rebuiltReq, ctx);
+      // Non-claude → passthrough to CLIProxyAPI (no transforms)
+      return openaiHandler(rebuiltReq, ctx);
     }
 
     if (path === "/v1/chat/completions" && method === "POST") {
