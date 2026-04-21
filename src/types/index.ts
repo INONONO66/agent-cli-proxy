@@ -17,6 +17,9 @@ export interface RequestLog {
   started_at: string;
   finished_at?: string;
   meta_json?: string;
+  agent?: string | null;
+  source?: string;
+  msg_id?: string | null;
 }
 
 export interface DailyUsage {

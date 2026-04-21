@@ -40,6 +40,7 @@ export function withUsageLogging(
           latency_ms: Date.now() - ctx.startedAt,
           started_at: startedAt,
           finished_at: new Date().toISOString(),
+          agent: ctx.agent,
         });
       } catch (err) {
         console.error("[logUsage] failed to record usage:", err);
@@ -73,6 +74,7 @@ export function withUsageLogging(
           latency_ms: Date.now() - ctx.startedAt,
           started_at: startedAt,
           finished_at: new Date().toISOString(),
+          agent: ctx.agent,
         });
       } catch {}
       throw err;

@@ -9,6 +9,7 @@ export const config = {
   dbPath: process.env.DB_PATH ?? "data/proxy.db",
   pricingCacheTtlMs: Number(process.env.PRICING_CACHE_TTL_MS ?? 3600000),
   logLevel: process.env.LOG_LEVEL ?? "info",
+  glmApiKey: process.env.GLM_API_KEY ?? "",
 } as const;
 
 export type Config = typeof config;

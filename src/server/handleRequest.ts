@@ -3,11 +3,14 @@ import { handleOpenAIRequest } from "../providers/openai/adapter";
 import { handleAnthropicRequest } from "../providers/anthropic/adapter";
 import { withUsageLogging } from "./logUsage";
 import { createAdminRouter } from "./routes/admin";
+import { createApiRouter } from "./routes/api";
 import { usageService } from "../services/index";
+import { db } from "../db/index";
 
 const anthropicHandler = withUsageLogging(handleAnthropicRequest);
 const openaiHandler = withUsageLogging(handleOpenAIRequest);
 const adminRouter = createAdminRouter(usageService);
+const apiRouter = createApiRouter(db);
 
 function isClaude(body: string): boolean {
   try {
@@ -33,6 +36,12 @@ export async function handleRequest(req: Request): Promise<Response> {
   const ctx = createRequestContext(req);
 
   try {
+    if (path.startsWith("/api/")) {
+      const apiResponse = await apiRouter(req);
+      if (apiResponse) return apiResponse;
+      return new Response("Not Found", { status: 404 });
+    }
+
     if (path === "/v1/messages" && method === "POST") {
       const bodyText = await req.text();
       const rebuiltReq = new Request(req.url, { method: "POST", headers: req.headers, body: bodyText });
@@ -41,7 +50,6 @@ export async function handleRequest(req: Request): Promise<Response> {
         return anthropicHandler(rebuiltReq, ctx);
       }
 
-      // Non-claude → passthrough to CLIProxyAPI (no transforms)
       return openaiHandler(rebuiltReq, ctx);
     }
 
@@ -57,7 +65,7 @@ export async function handleRequest(req: Request): Promise<Response> {
 
     return new Response("Not Found", { status: 404 });
   } catch (err) {
-    console.error("[handleRequest] error:", err);
+    console.error("handleRequest error:", err);
     return new Response(JSON.stringify({ error: "Internal server error" }), {
       status: 500,
       headers: { "Content-Type": "application/json" },

@@ -10,8 +10,8 @@ export function insertRequest(
       provider, model, path, streamed, status, prompt_tokens,
       completion_tokens, cache_creation_tokens, cache_read_tokens,
       total_tokens, cost_usd, incomplete, error_code, latency_ms,
-      started_at, finished_at, meta_json
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      started_at, finished_at, meta_json, agent, source, msg_id
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `);
 
   const result = stmt.run(
@@ -31,7 +31,10 @@ export function insertRequest(
     log.latency_ms ?? null,
     log.started_at,
     log.finished_at ?? null,
-    log.meta_json ?? null
+    log.meta_json ?? null,
+    log.agent ?? null,
+    log.source ?? "proxy",
+    log.msg_id ?? null
   );
 
   return result.lastInsertRowid as number;

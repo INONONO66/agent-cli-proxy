@@ -6,6 +6,7 @@ export interface RequestContext {
   provider: "anthropic" | "openai" | null;
   path: string;
   method: string;
+  agent: string | null;
 }
 
 export function createRequestContext(req: Request): RequestContext {
@@ -20,5 +21,6 @@ export function createRequestContext(req: Request): RequestContext {
     provider,
     path,
     method: req.method,
+    agent: req.headers.get("x-agent-name") ?? null,
   };
 }
