@@ -1,12 +1,5 @@
-import { config } from "../../config";
-import type {
-  AnthropicRequest,
-  AnthropicResponse,
-  ContentBlock,
-  Message,
-  SystemBlock,
-} from "../../types/anthropic";
-import { buildBillingHeaderValue } from "./cch";
+import { Config } from "../../config";
+import { Anthropic } from "./index";
 
 const OPENCODE_IDENTITY_PREFIX = "You are OpenCode";
 const CLAUDE_CODE_IDENTITY = "You are a Claude agent, built on Anthropic's Claude Agent SDK.";
@@ -22,7 +15,7 @@ const TEXT_REPLACEMENTS: { match: string; replacement: string }[] = [
 ];
 
 function prefixName(name: string): string {
-  return `${config.toolPrefix}${name.charAt(0).toUpperCase()}${name.slice(1)}`;
+  return `${Config.toolPrefix}${name.charAt(0).toUpperCase()}${name.slice(1)}`;
 }
 
 function unprefixName(name: string): string {
@@ -52,17 +45,17 @@ function sanitizeText(text: string): string {
   return result.trim();
 }
 
-export function sanitizeSystemText(system: SystemBlock[]): SystemBlock[] {
+export function sanitizeSystemText(system: Anthropic.SystemBlock[]): Anthropic.SystemBlock[] {
   return system
     .map((block) => ({ ...block, text: sanitizeText(block.text) }))
     .filter((block) => block.text.length > 0);
 }
 
 export function prependClaudeCodeIdentity(
-  system: SystemBlock[],
+  system: Anthropic.SystemBlock[],
   billingHeader: string,
-): SystemBlock[] {
-  const identityBlock: SystemBlock = { type: "text", text: CLAUDE_CODE_IDENTITY };
+): Anthropic.SystemBlock[] {
+  const identityBlock: Anthropic.SystemBlock = { type: "text", text: CLAUDE_CODE_IDENTITY };
 
   if (system.length > 0 && system[0]?.text === CLAUDE_CODE_IDENTITY) {
     return system;
@@ -77,7 +70,7 @@ export function prependClaudeCodeIdentity(
   return result;
 }
 
-export function prefixToolNames(body: AnthropicRequest): AnthropicRequest {
+export function prefixToolNames(body: Anthropic.Request): Anthropic.Request {
   const result = { ...body };
 
   if (result.tools && Array.isArray(result.tools)) {
@@ -107,14 +100,14 @@ export function prefixToolNames(body: AnthropicRequest): AnthropicRequest {
   return result;
 }
 
-export function stripToolPrefix(body: AnthropicResponse): AnthropicResponse {
+export function stripToolPrefix(body: Anthropic.Response): Anthropic.Response {
   return {
     ...body,
     content: body.content.map((block) => {
-      if (block.type === "tool_use" && block.name?.startsWith(config.toolPrefix)) {
+      if (block.type === "tool_use" && block.name?.startsWith(Config.toolPrefix)) {
         return {
           ...block,
-          name: unprefixName(block.name.slice(config.toolPrefix.length)),
+          name: unprefixName(block.name.slice(Config.toolPrefix.length)),
         };
       }
       return block;
@@ -129,7 +122,7 @@ export function stripToolPrefixFromLine(line: string): string {
   );
 }
 
-function normalizeSystem(system: AnthropicRequest["system"]): SystemBlock[] {
+function normalizeSystem(system: Anthropic.Request["system"]): Anthropic.SystemBlock[] {
   if (system == null) return [];
   if (typeof system === "string") {
     return system.length > 0 ? [{ type: "text", text: system }] : [];
@@ -137,11 +130,11 @@ function normalizeSystem(system: AnthropicRequest["system"]): SystemBlock[] {
   return system;
 }
 
-function hasUserMessage(messages: Message[]): boolean {
+function hasUserMessage(messages: Anthropic.Message[]): boolean {
   return messages.some((m) => m.role === "user");
 }
 
-export function rewriteRequestBody(body: AnthropicRequest): AnthropicRequest {
+export function rewriteRequestBody(body: Anthropic.Request): Anthropic.Request {
   const result = { ...body };
 
   const rawSystem = normalizeSystem(result.system);
@@ -149,7 +142,7 @@ export function rewriteRequestBody(body: AnthropicRequest): AnthropicRequest {
 
   const billingHeader =
     result.messages && hasUserMessage(result.messages)
-      ? buildBillingHeaderValue(result.messages, CLAUDE_CODE_ENTRYPOINT)
+      ? Anthropic.buildBillingHeaderValue(result.messages, CLAUDE_CODE_ENTRYPOINT)
       : "";
 
   const withIdentity = prependClaudeCodeIdentity(sanitized, billingHeader);
@@ -181,7 +174,7 @@ export function rewriteRequestBody(body: AnthropicRequest): AnthropicRequest {
             return {
               ...msg,
               content: [
-                { type: "text" as const, text: prefix } as ContentBlock,
+                { type: "text" as const, text: prefix } as Anthropic.ContentBlock,
                 ...msg.content,
               ],
             };

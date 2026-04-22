@@ -1,39 +1,33 @@
-import { config } from "../../config";
-import type { RequestContext } from "../../server/requestContext";
-import { relayStream } from "../../server/relayStream";
-import type { TokenUsage } from "../../types/index";
-import type { AnthropicRequest, AnthropicResponse } from "../../types/anthropic";
-import {
-  rewriteRequestBody,
-  stripToolPrefix,
-  stripToolPrefixFromLine,
-} from "./transform";
-import { buildClaudeCodeHeaders } from "./headers";
+import { Config } from "../../config";
+import { Anthropic } from "./index";
+import { RelayStream } from "../../server/relay-stream";
+import { rewriteRequestBody, stripToolPrefix, stripToolPrefixFromLine } from "./transform";
+import type { Usage } from "../../usage";
 
 export async function handleAnthropicRequest(
   req: Request,
-  ctx: RequestContext,
-  onUsage?: (usage: TokenUsage) => void
+  ctx: { provider: string; path: string },
+  onUsage?: (usage: Usage.TokenUsage) => void,
 ): Promise<Response> {
-  let body: AnthropicRequest;
+  let body: Anthropic.Request;
   try {
-    body = await req.json() as AnthropicRequest;
+    body = await req.json() as Anthropic.Request;
   } catch {
-    return new Response(JSON.stringify({ error: { type: "invalid_request_error", message: "Invalid JSON body" } }), {
-      status: 400,
-      headers: { "content-type": "application/json" },
-    });
+    return new Response(
+      JSON.stringify({ error: { type: "invalid_request_error", message: "Invalid JSON body" } }),
+      { status: 400, headers: { "content-type": "application/json" } },
+    );
   }
 
   body = rewriteRequestBody(body);
 
-  const claudeHeaders = buildClaudeCodeHeaders();
+  const claudeHeaders = Anthropic.buildClaudeCodeHeaders();
 
-  const upstreamReq = new Request(`${config.cliProxyApiUrl}/v1/messages`, {
+  const upstreamReq = new Request(`${Config.cliProxyApiUrl}/v1/messages`, {
     method: "POST",
     headers: {
       "content-type": "application/json",
-      "authorization": `Bearer ${config.cliProxyApiKey}`,
+      authorization: `Bearer ${Config.cliProxyApiKey}`,
       ...claudeHeaders,
     },
     body: JSON.stringify(body),
@@ -43,14 +37,14 @@ export async function handleAnthropicRequest(
   try {
     upstreamResponse = await fetch(upstreamReq);
   } catch {
-    return new Response(JSON.stringify({ error: { type: "api_error", message: "Failed to reach CLIProxyAPI" } }), {
-      status: 502,
-      headers: { "content-type": "application/json" },
-    });
+    return new Response(
+      JSON.stringify({ error: { type: "api_error", message: "Failed to reach CLIProxyAPI" } }),
+      { status: 502, headers: { "content-type": "application/json" } },
+    );
   }
 
   if (body.stream === true) {
-    return relayStream(upstreamResponse, {
+    return RelayStream.relay(upstreamResponse, {
       provider: "anthropic",
       onUsage: onUsage ?? (() => {}),
       transformLine: stripToolPrefixFromLine,
@@ -66,9 +60,9 @@ export async function handleAnthropicRequest(
     });
   }
 
-  let responseJson: AnthropicResponse;
+  let responseJson: Anthropic.Response;
   try {
-    responseJson = JSON.parse(responseText) as AnthropicResponse;
+    responseJson = JSON.parse(responseText) as Anthropic.Response;
   } catch {
     return new Response(responseText, {
       status: upstreamResponse.status,
