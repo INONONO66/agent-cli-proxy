@@ -2,6 +2,8 @@ CREATE TABLE IF NOT EXISTS request_logs (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   provider TEXT NOT NULL,
   model TEXT NOT NULL,
+  tool TEXT DEFAULT 'unknown',
+  client_id TEXT DEFAULT 'unknown',
   path TEXT NOT NULL,
   streamed INTEGER NOT NULL DEFAULT 0,
   status INTEGER,
@@ -34,4 +36,6 @@ CREATE TABLE IF NOT EXISTS daily_usage (
 );
 
 CREATE INDEX IF NOT EXISTS idx_request_logs_started_at ON request_logs(started_at);
+CREATE INDEX IF NOT EXISTS idx_request_logs_tool ON request_logs(tool);
+CREATE INDEX IF NOT EXISTS idx_request_logs_client_id ON request_logs(client_id);
 CREATE INDEX IF NOT EXISTS idx_daily_usage_day ON daily_usage(day);
