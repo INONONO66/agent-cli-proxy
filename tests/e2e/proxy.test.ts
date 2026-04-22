@@ -16,7 +16,14 @@ describe.if(MOCK_MODE)("E2E Proxy Tests (mock mode)", () => {
 
     mockServer = startMockCliProxyApi(MOCK_PORT);
 
-    const { handleRequest } = await import("../../src/server/handleRequest");
+    const { Handler } = await import("../../src/server/handler");
+    const { Storage } = await import("../../src/storage/db");
+    const { UsageService } = await import("../../src/storage/service");
+    const { Config } = await import("../../src/config");
+    
+    const db = Storage.initDb(":memory:");
+    const usageService = UsageService.create(db);
+    const handleRequest = Handler.create(usageService);
 
     proxyServer = Bun.serve({
       port: PROXY_PORT,

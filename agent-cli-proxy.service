@@ -1,0 +1,16 @@
+[Unit]
+Description=Agent CLI Proxy
+After=network.target
+
+[Service]
+Type=simple
+User=agent-proxy
+WorkingDirectory=/opt/agent-cli-proxy
+ExecStart=/usr/local/bin/bun run /opt/agent-cli-proxy/src/index.ts
+Restart=always
+RestartSec=5
+Environment="NODE_ENV=production"
+EnvironmentFile=/opt/agent-cli-proxy/.env
+
+[Install]
+WantedBy=multi-user.target
