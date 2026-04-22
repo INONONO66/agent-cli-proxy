@@ -1,38 +1,46 @@
 # agent-cli-proxy
 
-Generic AI API proxy with usage monitoring. Sits between AI coding tools and CLIProxyAPI.
+AI API proxy with per-tool usage monitoring. Sits between AI coding tools and upstream API providers, tracking usage per tool and per instance.
 
 ## Architecture
 
 ```
-Client (opencode, aider) → agent-cli-proxy (port 3100) → CLIProxyAPI (port 8317) → Upstream APIs
+OpenCode  ─┐
+OpenClaw  ─┤── agent-cli-proxy (3100) ── CLIProxyAPI (8317) ── Upstream APIs
+Hermes    ─┘
 ```
+
+Each tool is automatically identified by request headers and tracked separately.
 
 ## Quick Start
 
-### Local
-
 ```bash
 bun install
-bun run dev
-```
-
-### Docker
-
-```bash
-docker-compose up -d
+cp .env.example .env   # edit with your settings
+bun run src/index.ts
 ```
 
 ## Configuration
 
-Copy `.env.example` to `.env` and adjust:
-
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `PROXY_PORT` | `3100` | Proxy server port |
-| `CLI_PROXY_API_URL` | `http://localhost:8317` | CLIProxyAPI URL |
-| `CLAUDE_CODE_VERSION` | `2.1.87` | Claude Code version for bypass |
+| `CLI_PROXY_API_URL` | `http://localhost:8317` | Upstream API URL |
+| `CLAUDE_CODE_VERSION` | `2.1.87` | Claude Code version for bypass headers |
 | `DB_PATH` | `data/proxy.db` | SQLite database path |
+| `CLIENT_NAME_MAPPING` | | API key to name mapping (e.g. `key1=alice,key2=bob`) |
+
+## Tool Identification
+
+Tools are identified automatically by request headers:
+
+| Tool | Detected By |
+|------|------------|
+| OpenCode | `x-opencode-session`, `x-initiator`, or `User-Agent: opencode/*` |
+| OpenClaw | `x-openclaw-session-id`, `originator: openclaw`, or `X-Agent-Name` |
+| Hermes | `User-Agent: HermesAgent/*` or `x-activity-request-id` |
+
+Multiple instances of the same tool are distinguished by `X-Agent-Name` header or session IDs.
 
 ## API
 
@@ -41,13 +49,39 @@ Copy `.env.example` to `.env` and adjust:
 | `POST` | `/v1/messages` | Anthropic Messages API (with Claude bypass) |
 | `POST` | `/v1/chat/completions` | OpenAI Chat Completions (pass-through) |
 | `GET` | `/health` | Health check |
-| `GET` | `/admin/usage/today` | Today's usage |
+
+### Admin API (localhost only)
+
+| Method | Path | Description |
+|--------|------|-------------|
+| `GET` | `/admin/usage/today` | Today's usage summary |
+| `GET` | `/admin/usage/range?from=&to=` | Usage by date range |
 | `GET` | `/admin/stats` | Total statistics |
 | `GET` | `/admin/logs` | Request logs |
+| `GET` | `/admin/logs?tool=openclaw` | Filter by tool |
+| `GET` | `/admin/logs?client_id=openclaw-jongi` | Filter by instance |
+
+## Project Structure
+
+```
+src/
+├── config/           # Environment configuration
+├── identification/   # Plugin-based tool identification
+├── provider/
+│   ├── anthropic/    # Claude bypass + request transform
+│   └── openai/       # OpenAI pass-through
+├── server/           # HTTP handler, stream relay, usage logging
+├── storage/          # SQLite repos, pricing, usage service
+├── usage/            # Usage type definitions
+└── admin/            # Admin API routes
+```
 
 ## Testing
 
 ```bash
-bun test                    # Unit tests
-bun run test:e2e:mock       # E2E tests (mock mode, no CLIProxyAPI needed)
+bun test
 ```
+
+## License
+
+MIT
