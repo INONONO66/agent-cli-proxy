@@ -1,15 +1,21 @@
-import { config } from "./config";
-import { handleRequest } from "./server/handleRequest";
-import { fetchPricing } from "./services/pricingService";
+import { Storage } from "./storage/db";
+import { UsageService } from "./storage/service";
+import { Pricing } from "./storage/pricing";
+import { Handler } from "./server/handler";
+import { Config } from "./config";
 
-fetchPricing().catch((err) => {
+Pricing.fetchPricing().catch((err) => {
   console.warn("[startup] pricing fetch failed:", err);
 });
 
+const db = Storage.initDb(Config.dbPath);
+const usageService = UsageService.create(db);
+const handleRequest = Handler.create(usageService);
+
 const server = Bun.serve({
-  port: config.port,
+  port: Config.port,
   idleTimeout: 0,
   fetch: handleRequest,
 });
 
-console.log(`Server running at http://localhost:${config.port}`);
+console.log(`Server running at http://localhost:${Config.port}`);
