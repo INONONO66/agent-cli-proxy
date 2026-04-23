@@ -1,7 +1,7 @@
 -- Add agent attribution columns to request_logs
-ALTER TABLE request_logs ADD COLUMN agent TEXT;
-ALTER TABLE request_logs ADD COLUMN source TEXT DEFAULT 'proxy';
-ALTER TABLE request_logs ADD COLUMN msg_id TEXT;
+ALTER TABLE request_logs ADD COLUMN IF NOT EXISTS agent TEXT;
+ALTER TABLE request_logs ADD COLUMN IF NOT EXISTS source TEXT DEFAULT 'proxy';
+ALTER TABLE request_logs ADD COLUMN IF NOT EXISTS msg_id TEXT;
 
 -- Unique index for dedup (only for non-null msg_id)
 CREATE UNIQUE INDEX IF NOT EXISTS idx_request_logs_msg_id 
