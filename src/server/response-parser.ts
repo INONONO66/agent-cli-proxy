@@ -48,6 +48,13 @@ export namespace ResponseParser {
         };
       }
 
+      if (json.usage && !json.choices) {
+        return {
+          actualModel: typeof json.model === "string" ? json.model : null,
+          usage: extractOpenAIUsage(json),
+        };
+      }
+
       return { actualModel: null, usage: null };
     } catch {
       return { actualModel: null, usage: null };
