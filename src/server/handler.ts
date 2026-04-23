@@ -1,24 +1,12 @@
-import { RequestContext } from "./request-context";
-import { LogUsage } from "./log-usage";
-import { handleAnthropicRequest } from "../provider/anthropic/adapter";
-import { handleOpenAIRequest } from "../provider/openai/adapter";
+import { RequestInspector } from "./request-inspector";
+import { PassThroughProxy } from "./pass-through";
 import { Admin } from "../admin";
 import { DashboardApi } from "../dashboard/api";
 import type { UsageService } from "../storage/service";
 
-function isClaude(body: string): boolean {
-  try {
-    const parsed = JSON.parse(body) as Record<string, unknown>;
-    return typeof parsed.model === "string" && parsed.model.startsWith("claude");
-  } catch {
-    return false;
-  }
-}
-
 export namespace Handler {
   export function create(usageService: UsageService.UsageService) {
-    const anthropicHandler = LogUsage.withLogging(handleAnthropicRequest);
-    const openaiHandler = LogUsage.withLogging(handleOpenAIRequest);
+    const passThrough = PassThroughProxy.create(usageService);
     const adminRouter = Admin.createRouter(usageService);
     const dashboardRouter = DashboardApi.createRouter(usageService);
 
@@ -30,28 +18,11 @@ export namespace Handler {
       if (path === "/health" && method === "GET") {
         return new Response(JSON.stringify({ status: "ok" }), {
           status: 200,
-          headers: { "Content-Type": "application/json" },
+          headers: { "content-type": "application/json" },
         });
       }
 
-      const ctx = RequestContext.create(req);
-
       try {
-        if (path === "/v1/messages" && method === "POST") {
-          const bodyText = await req.text();
-          const rebuiltReq = new Request(req.url, { method: "POST", headers: req.headers, body: bodyText });
-
-          if (isClaude(bodyText)) {
-            return anthropicHandler(rebuiltReq, ctx);
-          }
-
-          return openaiHandler(rebuiltReq, ctx);
-        }
-
-        if (path === "/v1/chat/completions" && method === "POST") {
-          return openaiHandler(req, ctx);
-        }
-
         if (path.startsWith("/api/dashboard/")) {
           const dashboardResponse = await dashboardRouter(req);
           if (dashboardResponse) return dashboardResponse;
@@ -64,7 +35,7 @@ export namespace Handler {
           if (!isLocal) {
             return new Response(JSON.stringify({ error: "Forbidden" }), {
               status: 403,
-              headers: { "Content-Type": "application/json" },
+              headers: { "content-type": "application/json" },
             });
           }
           const adminResponse = await adminRouter(req);
@@ -72,12 +43,17 @@ export namespace Handler {
           return new Response("Not Found", { status: 404 });
         }
 
+        if ((path === "/v1/messages" || path === "/v1/chat/completions") && method === "POST") {
+          const info = await RequestInspector.inspect(req);
+          return passThrough(req, info);
+        }
+
         return new Response("Not Found", { status: 404 });
       } catch (err) {
         console.error("[handleRequest] error:", err);
         return new Response(JSON.stringify({ error: "Internal server error" }), {
           status: 500,
-          headers: { "Content-Type": "application/json" },
+          headers: { "content-type": "application/json" },
         });
       }
     };

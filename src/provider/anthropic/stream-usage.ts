@@ -20,6 +20,7 @@ export function parseAnthropicSSELine(line: string): Partial<Anthropic.TokenUsag
       const usage = json.usage as Record<string, number>;
       return {
         completion_tokens: usage.output_tokens ?? 0,
+        total_tokens: usage.output_tokens ?? 0,
       };
     }
   } catch {
