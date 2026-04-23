@@ -12,9 +12,17 @@
     "start": "bun run dist/index.js"
   },
   "devDependencies": {
-    "@types/bun": "latest"
+    "@types/bun": "latest",
+    "@types/react": "^19.2.14",
+    "@types/react-dom": "^19.2.3"
   },
   "peerDependencies": {
     "typescript": "^5"
+  },
+  "dependencies": {
+    "jose": "^6.2.2",
+    "react": "^19.2.5",
+    "react-dom": "^19.2.5",
+    "uplot": "^1.6.32"
   }
 }

@@ -22,4 +22,10 @@ export namespace Config {
   export const pricingCacheTtlMs = Number(process.env.PRICING_CACHE_TTL_MS ?? 3600000);
   export const logLevel = process.env.LOG_LEVEL ?? "info";
   export const clientNameMapping = loadClientMapping();
+  export const dashboardUsername = process.env.DASHBOARD_USERNAME ?? "admin";
+  export const dashboardPasswordHash = process.env.DASHBOARD_PASSWORD_HASH ?? "";
+  export const dashboardJwtSecret = process.env.DASHBOARD_JWT_SECRET ?? crypto.randomUUID();
+  export const dashboardSessionTtl = process.env.DASHBOARD_SESSION_TTL ?? "24h";
+  export const prometheusUrl = process.env.PROMETHEUS_URL ?? "http://localhost:9090";
+  export const lokiUrl = process.env.LOKI_URL ?? "http://localhost:3101";
 }

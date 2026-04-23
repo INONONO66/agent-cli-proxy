@@ -3,6 +3,7 @@ import { LogUsage } from "./log-usage";
 import { handleAnthropicRequest } from "../provider/anthropic/adapter";
 import { handleOpenAIRequest } from "../provider/openai/adapter";
 import { Admin } from "../admin";
+import { DashboardApi } from "../dashboard/api";
 import type { UsageService } from "../storage/service";
 
 function isClaude(body: string): boolean {
@@ -19,6 +20,7 @@ export namespace Handler {
     const anthropicHandler = LogUsage.withLogging(handleAnthropicRequest);
     const openaiHandler = LogUsage.withLogging(handleOpenAIRequest);
     const adminRouter = Admin.createRouter(usageService);
+    const dashboardRouter = DashboardApi.createRouter(usageService);
 
     return async function handleRequest(req: Request): Promise<Response> {
       const url = new URL(req.url);
@@ -48,6 +50,12 @@ export namespace Handler {
 
         if (path === "/v1/chat/completions" && method === "POST") {
           return openaiHandler(req, ctx);
+        }
+
+        if (path.startsWith("/api/dashboard/")) {
+          const dashboardResponse = await dashboardRouter(req);
+          if (dashboardResponse) return dashboardResponse;
+          return new Response("Not Found", { status: 404 });
         }
 
         if (path.startsWith("/admin/")) {
