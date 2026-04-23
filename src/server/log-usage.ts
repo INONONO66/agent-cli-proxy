@@ -11,10 +11,15 @@ export namespace LogUsage {
   export function withLogging(handler: RequestHandler): RequestHandler {
     return async (req, ctx, onUsageCallback) => {
       let model = "unknown";
+      let rawBody: Record<string, unknown> | undefined;
       try {
-        const parsed = (await req.clone().json()) as Record<string, unknown>;
-        if (typeof parsed.model === "string") model = parsed.model;
-      } catch {}
+        rawBody = (await req.clone().json()) as Record<string, unknown>;
+        if (typeof rawBody.model === "string") model = rawBody.model;
+        console.log("[REQUEST] tool=" + ctx.tool + " client=" + ctx.clientId + " model=" + model + " path=" + ctx.path);
+        console.log("[REQUEST BODY]", JSON.stringify(rawBody, null, 2).substring(0, 500));
+      } catch (err) {
+        console.log("[REQUEST] tool=" + ctx.tool + " client=" + ctx.clientId + " path=" + ctx.path + " (failed to parse body)");
+      }
 
       const startedAt = new Date(ctx.startedAt).toISOString();
       let responseStatus = 0;
