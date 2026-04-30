@@ -2,6 +2,7 @@ import { Storage } from "./storage/db";
 import { UsageService } from "./storage/service";
 import { Pricing } from "./storage/pricing";
 import { Handler } from "./server/handler";
+import { Correlator } from "./cliproxy/correlator";
 import { Config } from "./config";
 import dashboard from "./dashboard/frontend/index.html";
 
@@ -12,6 +13,8 @@ Pricing.fetchPricing().catch((err) => {
 const db = Storage.initDb(Config.dbPath);
 const usageService = UsageService.create(db);
 const handleRequest = Handler.create(usageService);
+
+Correlator.start(usageService);
 
 const server = Bun.serve({
   port: Config.port,

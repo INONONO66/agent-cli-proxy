@@ -21,6 +21,10 @@ export namespace LogUsage {
         console.log("[REQUEST] tool=" + ctx.tool + " client=" + ctx.clientId + " path=" + ctx.path + " (failed to parse body)");
       }
 
+      const userAgent = req.headers.get("user-agent") ?? undefined;
+      const sourceIp =
+        req.headers.get("x-forwarded-for")?.split(",")[0]?.trim() ?? undefined;
+
       const startedAt = new Date(ctx.startedAt).toISOString();
       let responseStatus = 0;
       let isStreaming = false;
@@ -29,6 +33,7 @@ export namespace LogUsage {
         try {
           const { usageService } = await import("../storage");
           await usageService.recordUsage({
+            request_id: ctx.id,
             provider: ctx.provider ?? "unknown",
             model,
             tool: ctx.tool,
@@ -40,12 +45,15 @@ export namespace LogUsage {
             completion_tokens: usage.completion_tokens,
             cache_creation_tokens: usage.cache_creation_tokens,
             cache_read_tokens: usage.cache_read_tokens,
+            reasoning_tokens: usage.reasoning_tokens ?? 0,
             total_tokens: usage.total_tokens,
             cost_usd: 0,
             incomplete: usage.incomplete ? 1 : 0,
             latency_ms: Date.now() - ctx.startedAt,
             started_at: startedAt,
             finished_at: new Date().toISOString(),
+            user_agent: userAgent,
+            source_ip: sourceIp,
           });
         } catch (err) {
           console.error("[logUsage] failed to record usage:", err);
@@ -61,6 +69,7 @@ export namespace LogUsage {
         try {
           const { usageService } = await import("../storage");
           await usageService.recordUsage({
+            request_id: ctx.id,
             provider: ctx.provider ?? "unknown",
             model,
             tool: ctx.tool,
@@ -72,6 +81,7 @@ export namespace LogUsage {
             completion_tokens: 0,
             cache_creation_tokens: 0,
             cache_read_tokens: 0,
+            reasoning_tokens: 0,
             total_tokens: 0,
             cost_usd: 0,
             incomplete: 1,
@@ -79,6 +89,8 @@ export namespace LogUsage {
             latency_ms: Date.now() - ctx.startedAt,
             started_at: startedAt,
             finished_at: new Date().toISOString(),
+            user_agent: userAgent,
+            source_ip: sourceIp,
           });
         } catch (logErr) {
           console.error("[logUsage] failed to record error usage:", logErr);
@@ -92,6 +104,7 @@ export namespace LogUsage {
           completion_tokens: 0,
           cache_creation_tokens: 0,
           cache_read_tokens: 0,
+          reasoning_tokens: 0,
           total_tokens: 0,
           incomplete: true,
         });

@@ -2,11 +2,12 @@ import { Config } from "../../config";
 import { Anthropic } from "./index";
 import { RelayStream } from "../../server/relay-stream";
 import { rewriteRequestBody, stripToolPrefix, stripToolPrefixFromLine } from "./transform";
+import type { RequestContext } from "../../server/request-context";
 import type { Usage } from "../../usage";
 
 export async function handleAnthropicRequest(
   req: Request,
-  ctx: { provider: string; path: string },
+  ctx: RequestContext.Context,
   onUsage?: (usage: Usage.TokenUsage) => void,
 ): Promise<Response> {
   let body: Anthropic.Request;

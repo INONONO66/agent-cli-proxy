@@ -28,4 +28,11 @@ export namespace Config {
   export const dashboardSessionTtl = process.env.DASHBOARD_SESSION_TTL ?? "24h";
   export const prometheusUrl = process.env.PROMETHEUS_URL ?? "http://localhost:9090";
   export const lokiUrl = process.env.LOKI_URL ?? "http://localhost:3101";
+  export const cliproxyMgmtKey = process.env.CLIPROXY_MGMT_KEY ?? "";
+  export const cliproxyCorrelationIntervalMs = Number(
+    process.env.CLIPROXY_CORRELATION_INTERVAL_MS ?? 15000,
+  );
+  export const cliproxyCorrelationLookbackMs = Number(
+    process.env.CLIPROXY_CORRELATION_LOOKBACK_MS ?? 300000,
+  );
 }

@@ -1,9 +1,9 @@
 import { DashboardAuth } from "./auth";
 import { Config } from "../config";
-import type { UsageService } from "../storage/service";
+import { UsageService } from "../storage/service";
 
 export namespace DashboardApi {
-  export function createRouter(usageService: UsageService) {
+  export function createRouter(usageService: UsageService.UsageService) {
     return async function handleDashboardRequest(
       req: Request,
     ): Promise<Response | null> {

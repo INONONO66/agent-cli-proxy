@@ -1,8 +1,7 @@
-import type { UsageService } from "../storage/service";
-import { Usage } from "../usage";
+import { UsageService } from "../storage/service";
 
 export namespace Admin {
-  export function createRouter(usageService: UsageService) {
+  export function createRouter(usageService: UsageService.UsageService) {
     return async function handleAdminRequest(req: Request): Promise<Response | null> {
       const url = new URL(req.url);
       const path = url.pathname;
@@ -34,6 +33,29 @@ export namespace Admin {
           return json(usageService.getProviderBreakdown(day));
         }
 
+        if (path === "/admin/usage/accounts") {
+          const day =
+            url.searchParams.get("day") ?? new Date().toISOString().slice(0, 10);
+          return json(usageService.getAccountDaily(day));
+        }
+
+        if (path === "/admin/usage/accounts/range") {
+          const from = url.searchParams.get("from");
+          const to = url.searchParams.get("to");
+          if (!from || !to)
+            return json({ error: "Missing from or to parameter" }, 400);
+          return json(usageService.getAccountRange(from, to));
+        }
+
+        if (path === "/admin/usage/accounts/summary") {
+          const from =
+            url.searchParams.get("from") ??
+            new Date(Date.now() - 7 * 86400 * 1000).toISOString().slice(0, 10);
+          const to =
+            url.searchParams.get("to") ?? new Date().toISOString().slice(0, 10);
+          return json(usageService.getAccountSummary(from, to));
+        }
+
         if (path === "/admin/stats") {
           return json(usageService.getTotalStats());
         }
@@ -48,7 +70,14 @@ export namespace Admin {
           const clientId = url.searchParams.get("client_id");
           if (isNaN(limit) || isNaN(offset))
             return json({ error: "Invalid limit or offset" }, 400);
-          return json(usageService.getRecentLogs(limit, offset, tool ?? undefined, clientId ?? undefined));
+          return json(
+            usageService.getRecentLogs(
+              limit,
+              offset,
+              tool ?? undefined,
+              clientId ?? undefined,
+            ),
+          );
         }
 
         const logsMatch = path.match(/^\/admin\/logs\/(\d+)$/);

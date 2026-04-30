@@ -5,16 +5,19 @@ export namespace RequestRepo {
   export function insert(db: Database, log: Omit<Usage.RequestLog, "id">): number {
     const stmt = db.prepare(`
       INSERT INTO request_logs (
-        provider, model, tool, client_id, path, streamed, status, prompt_tokens,
-        completion_tokens, cache_creation_tokens, cache_read_tokens,
+        request_id, provider, model, actual_model, tool, client_id, path,
+        streamed, status, prompt_tokens, completion_tokens,
+        cache_creation_tokens, cache_read_tokens, reasoning_tokens,
         total_tokens, cost_usd, incomplete, error_code, latency_ms,
-        started_at, finished_at, meta_json
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        started_at, finished_at, meta_json, user_agent, source_ip
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `);
 
     const result = stmt.run(
+      log.request_id ?? null,
       log.provider,
       log.model,
+      log.actual_model ?? null,
       log.tool,
       log.client_id,
       log.path,
@@ -24,6 +27,7 @@ export namespace RequestRepo {
       log.completion_tokens,
       log.cache_creation_tokens,
       log.cache_read_tokens,
+      log.reasoning_tokens ?? 0,
       log.total_tokens,
       log.cost_usd,
       log.incomplete,
@@ -32,6 +36,8 @@ export namespace RequestRepo {
       log.started_at,
       log.finished_at ?? null,
       log.meta_json ?? null,
+      log.user_agent ?? null,
+      log.source_ip ?? null,
     );
 
     return result.lastInsertRowid as number;
@@ -67,6 +73,55 @@ export namespace RequestRepo {
     const stmt = db.prepare("SELECT * FROM request_logs WHERE id = ?");
     return (stmt.get(id) as Usage.RequestLog) || null;
   }
+
+  export function getUncorrelated(
+    db: Database,
+    sinceMs: number,
+    limit: number,
+  ): Usage.RequestLog[] {
+    const sinceIso = new Date(Date.now() - sinceMs).toISOString();
+    const stmt = db.prepare(`
+      SELECT * FROM request_logs
+      WHERE cliproxy_account IS NULL
+        AND status = 200
+        AND started_at >= ?
+      ORDER BY started_at DESC
+      LIMIT ?
+    `);
+    return stmt.all(sinceIso, limit) as Usage.RequestLog[];
+  }
+
+  export function applyCorrelation(
+    db: Database,
+    id: number,
+    fields: {
+      cliproxy_account?: string;
+      cliproxy_auth_index?: string;
+      cliproxy_source?: string;
+      reasoning_tokens?: number;
+      actual_model?: string;
+    },
+  ): void {
+    const stmt = db.prepare(`
+      UPDATE request_logs
+      SET cliproxy_account = COALESCE(?, cliproxy_account),
+          cliproxy_auth_index = COALESCE(?, cliproxy_auth_index),
+          cliproxy_source = COALESCE(?, cliproxy_source),
+          reasoning_tokens = COALESCE(?, reasoning_tokens),
+          actual_model = COALESCE(?, actual_model),
+          correlated_at = ?
+      WHERE id = ?
+    `);
+    stmt.run(
+      fields.cliproxy_account ?? null,
+      fields.cliproxy_auth_index ?? null,
+      fields.cliproxy_source ?? null,
+      fields.reasoning_tokens ?? null,
+      fields.actual_model ?? null,
+      new Date().toISOString(),
+      id,
+    );
+  }
 }
 
 export namespace UsageRepo {
@@ -101,6 +156,46 @@ export namespace UsageRepo {
     );
   }
 
+  export function upsertDailyAccount(
+    db: Database,
+    usage: Usage.DailyAccountUsage,
+  ): void {
+    const stmt = db.prepare(`
+      INSERT INTO daily_account_usage (
+        day, provider, model, cliproxy_account, cliproxy_auth_index,
+        request_count, prompt_tokens, completion_tokens,
+        cache_creation_tokens, cache_read_tokens, reasoning_tokens,
+        total_tokens, cost_usd
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      ON CONFLICT(day, provider, model, cliproxy_account) DO UPDATE SET
+        cliproxy_auth_index = COALESCE(excluded.cliproxy_auth_index, cliproxy_auth_index),
+        request_count = request_count + excluded.request_count,
+        prompt_tokens = prompt_tokens + excluded.prompt_tokens,
+        completion_tokens = completion_tokens + excluded.completion_tokens,
+        cache_creation_tokens = cache_creation_tokens + excluded.cache_creation_tokens,
+        cache_read_tokens = cache_read_tokens + excluded.cache_read_tokens,
+        reasoning_tokens = reasoning_tokens + excluded.reasoning_tokens,
+        total_tokens = total_tokens + excluded.total_tokens,
+        cost_usd = cost_usd + excluded.cost_usd
+    `);
+
+    stmt.run(
+      usage.day,
+      usage.provider,
+      usage.model,
+      usage.cliproxy_account,
+      usage.cliproxy_auth_index ?? null,
+      usage.request_count,
+      usage.prompt_tokens,
+      usage.completion_tokens,
+      usage.cache_creation_tokens,
+      usage.cache_read_tokens,
+      usage.reasoning_tokens,
+      usage.total_tokens,
+      usage.cost_usd,
+    );
+  }
+
   export function getDaily(db: Database, day: string): Usage.DailyUsage[] {
     const stmt = db.prepare(`
       SELECT * FROM daily_usage
@@ -110,6 +205,18 @@ export namespace UsageRepo {
     return stmt.all(day) as Usage.DailyUsage[];
   }
 
+  export function getDailyByAccount(
+    db: Database,
+    day: string,
+  ): Usage.DailyAccountUsage[] {
+    const stmt = db.prepare(`
+      SELECT * FROM daily_account_usage
+      WHERE day = ?
+      ORDER BY cliproxy_account, provider, model
+    `);
+    return stmt.all(day) as Usage.DailyAccountUsage[];
+  }
+
   export function getRange(db: Database, from: string, to: string): Usage.DailyUsage[] {
     const stmt = db.prepare(`
       SELECT * FROM daily_usage
@@ -117,5 +224,39 @@ export namespace UsageRepo {
       ORDER BY day DESC, provider, model
     `);
     return stmt.all(from, to) as Usage.DailyUsage[];
+  }
+
+  export function getAccountRange(
+    db: Database,
+    from: string,
+    to: string,
+  ): Usage.DailyAccountUsage[] {
+    const stmt = db.prepare(`
+      SELECT * FROM daily_account_usage
+      WHERE day >= ? AND day <= ?
+      ORDER BY day DESC, cliproxy_account, provider, model
+    `);
+    return stmt.all(from, to) as Usage.DailyAccountUsage[];
+  }
+
+  export function getAccountSummary(
+    db: Database,
+    from: string,
+    to: string,
+  ): Usage.AccountSummary[] {
+    const stmt = db.prepare(`
+      SELECT
+        cliproxy_account,
+        cliproxy_auth_index,
+        provider,
+        SUM(request_count) AS request_count,
+        SUM(total_tokens) AS total_tokens,
+        SUM(cost_usd) AS cost_usd
+      FROM daily_account_usage
+      WHERE day >= ? AND day <= ?
+      GROUP BY cliproxy_account, cliproxy_auth_index, provider
+      ORDER BY cost_usd DESC
+    `);
+    return stmt.all(from, to) as Usage.AccountSummary[];
   }
 }

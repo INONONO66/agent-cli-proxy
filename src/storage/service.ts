@@ -146,6 +146,57 @@ export namespace UsageService {
       return RequestRepo.getById(db, id);
     }
 
+    function getUncorrelatedLogs(sinceMs: number, limit: number): Usage.RequestLog[] {
+      return RequestRepo.getUncorrelated(db, sinceMs, limit);
+    }
+
+    function applyCorrelation(
+      id: number,
+      log: Usage.RequestLog,
+      fields: {
+        cliproxy_account?: string;
+        cliproxy_auth_index?: string;
+        cliproxy_source?: string;
+        reasoning_tokens?: number;
+        actual_model?: string;
+      },
+    ): void {
+      const txn = db.transaction(() => {
+        RequestRepo.applyCorrelation(db, id, fields);
+
+        if (fields.cliproxy_account) {
+          UsageRepo.upsertDailyAccount(db, {
+            day: log.started_at.slice(0, 10),
+            provider: log.provider,
+            model: log.model,
+            cliproxy_account: fields.cliproxy_account,
+            cliproxy_auth_index: fields.cliproxy_auth_index,
+            request_count: 1,
+            prompt_tokens: log.prompt_tokens,
+            completion_tokens: log.completion_tokens,
+            cache_creation_tokens: log.cache_creation_tokens,
+            cache_read_tokens: log.cache_read_tokens,
+            reasoning_tokens: fields.reasoning_tokens ?? 0,
+            total_tokens: log.total_tokens,
+            cost_usd: log.cost_usd,
+          });
+        }
+      });
+      txn();
+    }
+
+    function getAccountSummary(from: string, to: string): Usage.AccountSummary[] {
+      return UsageRepo.getAccountSummary(db, from, to);
+    }
+
+    function getAccountDaily(day: string): Usage.DailyAccountUsage[] {
+      return UsageRepo.getDailyByAccount(db, day);
+    }
+
+    function getAccountRange(from: string, to: string): Usage.DailyAccountUsage[] {
+      return UsageRepo.getAccountRange(db, from, to);
+    }
+
     return {
       recordUsage,
       getToday,
@@ -155,8 +206,13 @@ export namespace UsageService {
       getTotalStats,
       getRecentLogs,
       getLogById,
+      getUncorrelatedLogs,
+      applyCorrelation,
+      getAccountSummary,
+      getAccountDaily,
+      getAccountRange,
     };
   }
-}
 
-export type UsageService = ReturnType<typeof UsageService.create>;
+  export type UsageService = ReturnType<typeof create>;
+}
