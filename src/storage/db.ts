@@ -19,6 +19,7 @@ export namespace Storage {
       const ignorable =
         msg.includes("duplicate column name") ||
         msg.includes("already exists") ||
+        msg.includes("no such column") ||
         (statement.toUpperCase().includes("ADD COLUMN") &&
           msg.includes("syntax error"));
       if (!ignorable) throw err;
@@ -98,6 +99,27 @@ export namespace Storage {
     );
     db.exec(
       "CREATE INDEX IF NOT EXISTS idx_request_logs_request_id ON request_logs(request_id)",
+    );
+    db.exec(
+      "CREATE UNIQUE INDEX IF NOT EXISTS idx_request_logs_msg_id ON request_logs(msg_id) WHERE msg_id IS NOT NULL",
+    );
+
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS quota_snapshots (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        timestamp TEXT NOT NULL,
+        provider TEXT NOT NULL,
+        account TEXT NOT NULL,
+        quota_type TEXT NOT NULL,
+        used_pct REAL,
+        remaining REAL,
+        remaining_raw TEXT,
+        resets_at TEXT,
+        raw_json TEXT
+      )
+    `);
+    db.exec(
+      "CREATE INDEX IF NOT EXISTS idx_quota_snapshots_provider ON quota_snapshots(provider, account, timestamp)",
     );
 
     db.exec(`

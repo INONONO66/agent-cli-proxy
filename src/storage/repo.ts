@@ -260,3 +260,75 @@ export namespace UsageRepo {
     return stmt.all(from, to) as Usage.AccountSummary[];
   }
 }
+
+export namespace QuotaRepo {
+  export function insertSnapshot(db: Database, snapshot: Usage.QuotaSnapshot): number {
+    const stmt = db.prepare(`
+      INSERT INTO quota_snapshots (
+        timestamp, provider, account, quota_type, used_pct,
+        remaining, remaining_raw, resets_at, raw_json
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `);
+    const result = stmt.run(
+      snapshot.timestamp,
+      snapshot.provider,
+      snapshot.account,
+      snapshot.quota_type,
+      snapshot.used_pct ?? null,
+      snapshot.remaining ?? null,
+      snapshot.remaining_raw ?? null,
+      snapshot.resets_at ?? null,
+      snapshot.raw_json ?? null,
+    );
+    return result.lastInsertRowid as number;
+  }
+
+  export function getLatest(db: Database): Usage.QuotaSnapshot[] {
+    const stmt = db.prepare(`
+      SELECT q.*
+      FROM quota_snapshots q
+      JOIN (
+        SELECT provider, account, quota_type, MAX(timestamp) AS max_timestamp
+        FROM quota_snapshots
+        GROUP BY provider, account, quota_type
+      ) latest
+        ON latest.provider = q.provider
+       AND latest.account = q.account
+       AND latest.quota_type = q.quota_type
+       AND latest.max_timestamp = q.timestamp
+      ORDER BY q.provider, q.account, q.quota_type
+    `);
+    return stmt.all() as Usage.QuotaSnapshot[];
+  }
+
+  export function getLocalWindowUsage(
+    db: Database,
+    provider: string,
+    account: string,
+    sinceIso: string,
+  ): Usage.AccountUsageWindow {
+    const row = db
+      .prepare(`
+        SELECT
+          COUNT(*) AS requests,
+          COALESCE(SUM(total_tokens), 0) AS total_tokens,
+          COALESCE(SUM(cost_usd), 0) AS cost_usd
+        FROM request_logs
+        WHERE provider = ?
+          AND cliproxy_account = ?
+          AND started_at >= ?
+      `)
+      .get(provider, account, sinceIso) as {
+      requests?: number;
+      total_tokens?: number;
+      cost_usd?: number;
+    };
+
+    return {
+      since: sinceIso,
+      requests: Number(row.requests ?? 0),
+      total_tokens: Number(row.total_tokens ?? 0),
+      cost_usd: Number(row.cost_usd ?? 0),
+    };
+  }
+}

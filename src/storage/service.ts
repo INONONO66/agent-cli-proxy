@@ -1,19 +1,22 @@
 import type { Database } from "bun:sqlite";
-import { RequestRepo, UsageRepo } from "./repo";
+import { QuotaRepo, RequestRepo, UsageRepo } from "./repo";
 import { Pricing } from "./pricing";
 import { Usage } from "../usage";
+import { QuotaProbe } from "../cliproxy/quota";
 
 export namespace UsageService {
   export function create(db: Database) {
     async function recordUsage(log: Omit<Usage.RequestLog, "id">): Promise<number> {
       let costUsd = log.cost_usd;
       if (!costUsd && log.model) {
-        let pricing = Pricing.getPricing(log.model);
+        let pricing = Pricing.getPricing(log.model, log.provider);
         if (!pricing) {
           try {
             await Pricing.fetchPricing();
-          } catch {}
-          pricing = Pricing.getPricing(log.model);
+          } catch (err) {
+            console.warn("[usage] pricing refresh failed:", err);
+          }
+          pricing = Pricing.getPricing(log.model, log.provider);
         }
         if (pricing) {
           costUsd = Pricing.calculateCost(
@@ -22,8 +25,10 @@ export namespace UsageService {
               completion_tokens: log.completion_tokens,
               cache_creation_tokens: log.cache_creation_tokens,
               cache_read_tokens: log.cache_read_tokens,
+              reasoning_tokens: log.reasoning_tokens ?? 0,
             },
             pricing,
+            log.provider,
           );
         }
       }
@@ -51,6 +56,71 @@ export namespace UsageService {
       });
 
       return txn();
+    }
+
+    async function backfillCosts(options: { onlyZeroCost?: boolean; limit?: number } = {}): Promise<{ scanned: number; updated: number }> {
+      await Pricing.fetchPricing();
+      const onlyZeroCost = options.onlyZeroCost ?? true;
+      const limitClause = options.limit && options.limit > 0 ? " LIMIT ?" : "";
+      const params = options.limit && options.limit > 0 ? [options.limit] : [];
+      const rows = db.query(`
+        SELECT id, provider, model, prompt_tokens, completion_tokens,
+               cache_creation_tokens, cache_read_tokens, reasoning_tokens, cost_usd
+        FROM request_logs
+        WHERE total_tokens > 0 ${onlyZeroCost ? "AND cost_usd = 0" : ""}
+        ORDER BY id ASC${limitClause}
+      `).all(...params) as Array<{
+        id: number;
+        provider: string;
+        model: string;
+        prompt_tokens: number;
+        completion_tokens: number;
+        cache_creation_tokens: number;
+        cache_read_tokens: number;
+        reasoning_tokens?: number | null;
+        cost_usd: number;
+      }>;
+
+      let updated = 0;
+      const updateTxn = db.transaction(() => {
+        const updateLog = db.prepare("UPDATE request_logs SET cost_usd = ? WHERE id = ?");
+        for (const row of rows) {
+          const pricing = Pricing.getPricing(row.model, row.provider);
+          if (!pricing) continue;
+          const cost = Pricing.calculateCost(
+            {
+              prompt_tokens: row.prompt_tokens,
+              completion_tokens: row.completion_tokens,
+              cache_creation_tokens: row.cache_creation_tokens,
+              cache_read_tokens: row.cache_read_tokens,
+              reasoning_tokens: row.reasoning_tokens ?? 0,
+            },
+            pricing,
+            row.provider,
+          );
+          if (cost === row.cost_usd) continue;
+          updateLog.run(cost, row.id);
+          updated += 1;
+        }
+
+        db.exec(`
+          DELETE FROM daily_usage;
+          INSERT INTO daily_usage (
+            day, provider, model, request_count, prompt_tokens,
+            completion_tokens, cache_creation_tokens, cache_read_tokens,
+            total_tokens, cost_usd
+          )
+          SELECT
+            substr(started_at, 1, 10), provider, model, COUNT(*),
+            SUM(prompt_tokens), SUM(completion_tokens), SUM(cache_creation_tokens),
+            SUM(cache_read_tokens), SUM(total_tokens), SUM(cost_usd)
+          FROM request_logs
+          GROUP BY substr(started_at, 1, 10), provider, model;
+        `);
+      });
+
+      updateTxn();
+      return { scanned: rows.length, updated };
     }
 
     function getToday(): Usage.DailyUsageSummary {
@@ -197,6 +267,52 @@ export namespace UsageService {
       return UsageRepo.getAccountRange(db, from, to);
     }
 
+    function withLocalUsage(
+      report: Usage.AccountQuotaReport,
+    ): Usage.AccountQuotaReport {
+      const now = Date.now();
+      const fiveHourSince = new Date(now - 5 * 60 * 60 * 1000).toISOString();
+      const sevenDaySince = new Date(now - 7 * 24 * 60 * 60 * 1000).toISOString();
+      const localProvider = report.provider === "claude" ? "anthropic" : "openai";
+      return {
+        ...report,
+        local_usage: {
+          five_hour: QuotaRepo.getLocalWindowUsage(
+            db,
+            localProvider,
+            report.account,
+            fiveHourSince,
+          ),
+          seven_day: QuotaRepo.getLocalWindowUsage(
+            db,
+            localProvider,
+            report.account,
+            sevenDaySince,
+          ),
+        },
+      };
+    }
+
+    async function refreshQuotas(): Promise<Usage.QuotaRefreshResult> {
+      const result = await QuotaProbe.refresh();
+      let inserted = 0;
+      const accounts = result.accounts.map(withLocalUsage);
+      const txn = db.transaction(() => {
+        for (const account of accounts) {
+          for (const snapshot of account.windows) {
+            QuotaRepo.insertSnapshot(db, snapshot);
+            inserted += 1;
+          }
+        }
+      });
+      txn();
+      return { ...result, inserted, accounts };
+    }
+
+    function getLatestQuotas(): Usage.QuotaSnapshot[] {
+      return QuotaRepo.getLatest(db);
+    }
+
     return {
       recordUsage,
       getToday,
@@ -206,11 +322,14 @@ export namespace UsageService {
       getTotalStats,
       getRecentLogs,
       getLogById,
+      backfillCosts,
       getUncorrelatedLogs,
       applyCorrelation,
       getAccountSummary,
       getAccountDaily,
       getAccountRange,
+      refreshQuotas,
+      getLatestQuotas,
     };
   }
 
