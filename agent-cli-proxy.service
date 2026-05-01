@@ -6,7 +6,7 @@ After=network.target
 Type=simple
 User=agent-proxy
 WorkingDirectory=/opt/agent-cli-proxy
-ExecStart=/usr/local/bin/bun run /opt/agent-cli-proxy/src/index.ts
+ExecStart=/usr/bin/env bun run dist/index.js
 Restart=always
 RestartSec=5
 Environment="NODE_ENV=production"

@@ -1,0 +1,16 @@
+[Unit]
+Description=agent-cli-proxy runtime - AI API Proxy with Usage Monitoring
+After=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=%h/.local/share/agent-cli-proxy
+Environment=NODE_ENV=production
+Environment=PATH=%h/.bun/bin:/usr/local/bin:/usr/bin:/bin
+EnvironmentFile=%h/.local/share/agent-cli-proxy/.env
+ExecStart=%h/.bun/bin/bun run index.js
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=default.target
