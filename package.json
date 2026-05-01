@@ -1,28 +1,33 @@
 {
   "name": "agent-cli-proxy",
+  "version": "0.1.0",
   "module": "src/index.ts",
   "type": "module",
-  "private": true,
+  "private": false,
+  "bin": {
+    "agent-cli-proxy": "./dist/cli.js"
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE",
+    "package.json"
+  ],
   "scripts": {
     "dev": "bun run --watch src/index.ts",
-    "build": "bun build src/index.ts --target=bun --outdir=./dist",
+    "build": "bun build src/index.ts src/cli.ts --target=bun --outdir=./dist && rm -rf dist/migrations && cp -R src/storage/migrations dist/migrations",
     "test": "bun test",
     "test:e2e": "bun test tests/e2e/",
     "test:e2e:mock": "MOCK_CLI_PROXY=1 CLI_PROXY_API_URL=http://localhost:18317 bun test tests/e2e/",
-    "start": "bun run dist/index.js"
+    "start": "bun run dist/index.js",
+    "backfill:costs": "bun run src/cli.ts backfill-costs --env .env"
   },
   "devDependencies": {
     "@types/bun": "latest",
-    "@types/react": "^19.2.14",
-    "@types/react-dom": "^19.2.3"
+    "@tokscale/core": "^1.4.3"
   },
   "peerDependencies": {
     "typescript": "^5"
   },
-  "dependencies": {
-    "jose": "^6.2.2",
-    "react": "^19.2.5",
-    "react-dom": "^19.2.5",
-    "uplot": "^1.6.32"
-  }
+  "dependencies": {}
 }
