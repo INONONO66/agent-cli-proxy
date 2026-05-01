@@ -103,4 +103,47 @@ export namespace Usage {
     first_request_at: string | null;
     last_request_at: string | null;
   }
+
+  export interface QuotaSnapshot {
+    id?: number;
+    timestamp: string;
+    provider: string;
+    account: string;
+    quota_type: string;
+    used_pct?: number | null;
+    remaining?: number | null;
+    remaining_raw?: string | null;
+    resets_at?: string | null;
+    raw_json?: string | null;
+  }
+
+  export interface AccountQuotaReport {
+    provider: string;
+    account: string;
+    auth_index?: string;
+    status: string;
+    unavailable: boolean;
+    disabled: boolean;
+    plan?: string;
+    refreshed_at?: string;
+    error?: string;
+    windows: QuotaSnapshot[];
+    local_usage: {
+      five_hour: AccountUsageWindow;
+      seven_day: AccountUsageWindow;
+    };
+  }
+
+  export interface AccountUsageWindow {
+    since: string;
+    requests: number;
+    total_tokens: number;
+    cost_usd: number;
+  }
+
+  export interface QuotaRefreshResult {
+    timestamp: string;
+    accounts: AccountQuotaReport[];
+    inserted: number;
+  }
 }
