@@ -1,18 +1,21 @@
 import { Config } from "../config";
 import { RequestInspector, type RequestInfo } from "./request-inspector";
 import { ResponseParser } from "./response-parser";
-import type { UsageService } from "../storage/service";
+import { UsageService } from "../storage/service";
+import { Anthropic } from "../provider/anthropic";
+import { rewriteRequestBody, stripToolPrefix, stripToolPrefixFromLine } from "../provider/anthropic/transform";
 
 export namespace PassThroughProxy {
-  export function create(usageService: UsageService) {
+  export function create(usageService: UsageService.UsageService) {
     return async function handle(req: Request, info: RequestInfo): Promise<Response> {
       const upstreamUrl = `${Config.cliProxyApiUrl}${info.path}`;
       const startTime = Date.now();
+      const body = await buildBody(req, info);
 
       const upstreamReq = new Request(upstreamUrl, {
         method: req.method,
-        headers: buildHeaders(req.headers),
-        body: req.body,
+        headers: buildHeaders(req.headers, info),
+        body,
       });
 
       let upstreamResponse: Response;
@@ -40,9 +43,26 @@ export namespace PassThroughProxy {
     };
   }
 
-  function buildHeaders(headers: Headers): Headers {
+  async function buildBody(req: Request, info: RequestInfo): Promise<BodyInit | null> {
+    if (!info.path.includes("messages")) return req.body;
+    const text = await req.text();
+    try {
+      const rewritten = rewriteRequestBody(JSON.parse(text) as Anthropic.Request);
+      return JSON.stringify(rewritten);
+    } catch (err) {
+      console.warn("[pass-through] anthropic rewrite failed, forwarding original body:", err);
+      return text;
+    }
+  }
+
+  function buildHeaders(headers: Headers, info: RequestInfo): Headers {
     const result = new Headers(headers);
     result.set("authorization", `Bearer ${Config.cliProxyApiKey}`);
+    if (info.path.includes("messages")) {
+      for (const [key, value] of Object.entries(Anthropic.buildClaudeCodeHeaders())) {
+        result.set(key, value);
+      }
+    }
     result.delete("host");
     return result;
   }
@@ -50,10 +70,17 @@ export namespace PassThroughProxy {
   async function handleNonStreaming(
     upstreamResponse: Response,
     info: RequestInfo,
-    usageService: UsageService,
+    usageService: UsageService.UsageService,
     startTime: number,
   ): Promise<Response> {
-    const responseText = await upstreamResponse.text();
+    let responseText = await upstreamResponse.text();
+    if (info.path.includes("messages")) {
+      try {
+        responseText = JSON.stringify(stripToolPrefix(JSON.parse(responseText) as Anthropic.Response));
+      } catch (err) {
+        console.warn("[pass-through] anthropic response transform failed:", err);
+      }
+    }
 
     const parsed = ResponseParser.parseResponseBody(responseText);
     await logUsage(usageService, info, parsed, upstreamResponse.status, false, startTime);
@@ -69,7 +96,7 @@ export namespace PassThroughProxy {
   function handleStreaming(
     upstreamResponse: Response,
     info: RequestInfo,
-    usageService: UsageService,
+    usageService: UsageService.UsageService,
     startTime: number,
   ): Response {
     const upstreamBody = upstreamResponse.body;
@@ -82,7 +109,6 @@ export namespace PassThroughProxy {
     let partialLine = "";
     let accumulated: ReturnType<typeof ResponseParser.parseSSELine>["usage"] = null;
     let actualModel: string | null = null;
-    let streamEnded = false;
 
     const transform = new TransformStream<Uint8Array, Uint8Array>({
       transform(chunk, controller) {
@@ -93,7 +119,7 @@ export namespace PassThroughProxy {
 
         let output = "";
         for (const line of lines) {
-          output += `${line}\n`;
+          output += `${info.path.includes("messages") ? stripToolPrefixFromLine(line) : line}\n`;
           if (line.startsWith("data: ")) {
             const dataContent = line.slice(6);
             const parsed = ResponseParser.parseSSELine(dataContent);
@@ -113,7 +139,6 @@ export namespace PassThroughProxy {
             if (parsed.usage) accumulated = mergeUsage(accumulated, parsed.usage);
           }
         }
-        streamEnded = true;
         logUsage(
           usageService,
           info,
@@ -149,11 +174,12 @@ export namespace PassThroughProxy {
       total_tokens: acc.total_tokens + partial.total_tokens,
       cache_creation_tokens: acc.cache_creation_tokens + partial.cache_creation_tokens,
       cache_read_tokens: acc.cache_read_tokens + partial.cache_read_tokens,
+      reasoning_tokens: acc.reasoning_tokens + partial.reasoning_tokens,
     };
   }
 
   async function logUsage(
-    usageService: UsageService,
+    usageService: UsageService.UsageService,
     info: RequestInfo,
     parsed: { actualModel: string | null; usage: ReturnType<typeof ResponseParser.parseSSELine>["usage"] },
     status: number,
@@ -166,6 +192,7 @@ export namespace PassThroughProxy {
     await usageService.recordUsage({
       provider: info.path.includes("messages") ? "anthropic" : "openai",
       model: parsed.actualModel ?? info.model ?? "unknown",
+      actual_model: parsed.actualModel ?? undefined,
       tool,
       client_id: clientId,
       path: info.path,
@@ -175,12 +202,15 @@ export namespace PassThroughProxy {
       completion_tokens: parsed.usage?.completion_tokens ?? 0,
       cache_creation_tokens: parsed.usage?.cache_creation_tokens ?? 0,
       cache_read_tokens: parsed.usage?.cache_read_tokens ?? 0,
+      reasoning_tokens: parsed.usage?.reasoning_tokens ?? 0,
       total_tokens: parsed.usage?.total_tokens ?? 0,
       cost_usd: 0,
       incomplete: 0,
       latency_ms: Date.now() - startTime,
       started_at: new Date(startTime).toISOString(),
       finished_at: new Date().toISOString(),
+      source_ip: info.clientIp ?? undefined,
+      user_agent: info.userAgent ?? undefined,
     });
   }
 }

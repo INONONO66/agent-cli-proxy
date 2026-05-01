@@ -1,11 +1,11 @@
 import { Config } from "../../config";
 import { RelayStream } from "../../server/relay-stream";
-import type { RequestContext } from "../../server/request-context";
+import { finalizeOpenAIUsage } from "./stream-usage";
 import type { Usage } from "../../usage";
 
 export async function handleOpenAIRequest(
   req: Request,
-  ctx: RequestContext.Context,
+  ctx: { provider: string; path: string },
   onUsage?: (usage: Usage.TokenUsage) => void,
 ): Promise<Response> {
   const upstreamUrl = `${Config.cliProxyApiUrl}/v1/chat/completions`;
@@ -51,24 +51,19 @@ export async function handleOpenAIRequest(
     try {
       const responseJson = JSON.parse(responseText) as Record<string, unknown>;
       if (responseJson.usage && typeof responseJson.usage === "object") {
-        const u = responseJson.usage as Record<string, unknown>;
-        const promptDetails = u.prompt_tokens_details as
-          | Record<string, number>
-          | undefined;
-        const completionDetails = u.completion_tokens_details as
-          | Record<string, number>
-          | undefined;
+        const u = responseJson.usage as Record<string, number>;
         onUsage({
           prompt_tokens: typeof u.prompt_tokens === "number" ? u.prompt_tokens : 0,
           completion_tokens: typeof u.completion_tokens === "number" ? u.completion_tokens : 0,
           cache_creation_tokens: 0,
-          cache_read_tokens: promptDetails?.cached_tokens ?? 0,
-          reasoning_tokens: completionDetails?.reasoning_tokens ?? 0,
+          cache_read_tokens: 0,
           total_tokens: typeof u.total_tokens === "number" ? u.total_tokens : 0,
           incomplete: false,
         });
       }
-    } catch {}
+    } catch (err) {
+      console.warn("[openai-adapter] usage parse failed:", err);
+    }
   }
 
   return new Response(responseText, {
