@@ -10,6 +10,7 @@ dist/
 data/*.db
 data/*.db-shm
 data/*.db-wal
+data/pricing-cache.json
 
 # code coverage
 coverage
@@ -30,6 +31,7 @@ report.[0-9]_.[0-9]_.[0-9]_.[0-9]_.json
 # caches
 .eslintcache
 .cache
+.runtime-package/
 *.tsbuildinfo
 
 # IntelliJ based IDEs
