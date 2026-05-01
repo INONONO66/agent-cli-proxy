@@ -12,6 +12,8 @@ function loadClientMapping(): Map<string, string> {
 
 export namespace Config {
   export const port = Number(process.env.PROXY_PORT ?? 3100);
+  export const host = process.env.PROXY_HOST ?? "127.0.0.1";
+  export const adminApiKey = process.env.ADMIN_API_KEY ?? "";
   export const cliProxyApiUrl = process.env.CLI_PROXY_API_URL ?? "http://localhost:8317";
   export const claudeCodeVersion = process.env.CLAUDE_CODE_VERSION ?? "2.1.87";
   export const cchSalt = process.env.CCH_SALT ?? "59cf53e54c78";
@@ -20,19 +22,18 @@ export namespace Config {
   export const cliProxyApiKey = process.env.CLI_PROXY_API_KEY ?? "proxy";
   export const dbPath = process.env.DB_PATH ?? "data/proxy.db";
   export const pricingCacheTtlMs = Number(process.env.PRICING_CACHE_TTL_MS ?? 3600000);
+  export const pricingCachePath = process.env.PRICING_CACHE_PATH ?? "data/pricing-cache.json";
   export const logLevel = process.env.LOG_LEVEL ?? "info";
   export const clientNameMapping = loadClientMapping();
-  export const dashboardUsername = process.env.DASHBOARD_USERNAME ?? "admin";
-  export const dashboardPasswordHash = process.env.DASHBOARD_PASSWORD_HASH ?? "";
-  export const dashboardJwtSecret = process.env.DASHBOARD_JWT_SECRET ?? crypto.randomUUID();
-  export const dashboardSessionTtl = process.env.DASHBOARD_SESSION_TTL ?? "24h";
-  export const prometheusUrl = process.env.PROMETHEUS_URL ?? "http://localhost:9090";
-  export const lokiUrl = process.env.LOKI_URL ?? "http://localhost:3101";
   export const cliproxyMgmtKey = process.env.CLIPROXY_MGMT_KEY ?? "";
   export const cliproxyCorrelationIntervalMs = Number(
     process.env.CLIPROXY_CORRELATION_INTERVAL_MS ?? 15000,
   );
   export const cliproxyCorrelationLookbackMs = Number(
     process.env.CLIPROXY_CORRELATION_LOOKBACK_MS ?? 300000,
+  );
+  export const cliproxyAuthDir = process.env.CLIPROXY_AUTH_DIR ?? "";
+  export const quotaRefreshTimeoutMs = Number(
+    process.env.QUOTA_REFRESH_TIMEOUT_MS ?? 15000,
   );
 }

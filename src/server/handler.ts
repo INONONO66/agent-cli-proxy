@@ -1,14 +1,13 @@
 import { RequestInspector } from "./request-inspector";
 import { PassThroughProxy } from "./pass-through";
 import { Admin } from "../admin";
-import { DashboardApi } from "../dashboard/api";
-import type { UsageService } from "../storage/service";
+import { UsageService } from "../storage/service";
+import { Config } from "../config";
 
 export namespace Handler {
   export function create(usageService: UsageService.UsageService) {
     const passThrough = PassThroughProxy.create(usageService);
     const adminRouter = Admin.createRouter(usageService);
-    const dashboardRouter = DashboardApi.createRouter(usageService);
 
     return async function handleRequest(req: Request): Promise<Response> {
       const url = new URL(req.url);
@@ -23,16 +22,8 @@ export namespace Handler {
       }
 
       try {
-        if (path.startsWith("/api/dashboard/")) {
-          const dashboardResponse = await dashboardRouter(req);
-          if (dashboardResponse) return dashboardResponse;
-          return new Response("Not Found", { status: 404 });
-        }
-
         if (path.startsWith("/admin/")) {
-          const clientIp = req.headers.get("x-forwarded-for")?.split(",")[0]?.trim();
-          const isLocal = !clientIp || clientIp === "127.0.0.1" || clientIp === "::1" || clientIp === "localhost";
-          if (!isLocal) {
+          if (!isAdminAuthorized(req)) {
             return new Response(JSON.stringify({ error: "Forbidden" }), {
               status: 403,
               headers: { "content-type": "application/json" },
@@ -57,5 +48,15 @@ export namespace Handler {
         });
       }
     };
+  }
+
+  function isAdminAuthorized(req: Request): boolean {
+    if (!Config.adminApiKey) {
+      return Config.host === "127.0.0.1" || Config.host === "localhost" || Config.host === "::1";
+    }
+
+    const bearer = req.headers.get("authorization")?.replace(/^Bearer\s+/i, "").trim();
+    const token = req.headers.get("x-admin-token")?.trim() || bearer;
+    return token === Config.adminApiKey;
   }
 }

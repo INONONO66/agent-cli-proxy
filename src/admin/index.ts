@@ -56,6 +56,12 @@ export namespace Admin {
           return json(usageService.getAccountSummary(from, to));
         }
 
+        if (path === "/admin/quotas" || path === "/admin/quotas/refresh") {
+          const refresh = path.endsWith("/refresh") || url.searchParams.get("refresh") === "true";
+          if (refresh) return json(await usageService.refreshQuotas());
+          return json({ snapshots: usageService.getLatestQuotas() });
+        }
+
         if (path === "/admin/stats") {
           return json(usageService.getTotalStats());
         }
@@ -68,7 +74,7 @@ export namespace Admin {
           const offset = Number(url.searchParams.get("offset") ?? 0);
           const tool = url.searchParams.get("tool");
           const clientId = url.searchParams.get("client_id");
-          if (isNaN(limit) || isNaN(offset))
+          if (!Number.isFinite(limit) || !Number.isFinite(offset) || limit < 1 || offset < 0)
             return json({ error: "Invalid limit or offset" }, 400);
           return json(
             usageService.getRecentLogs(
