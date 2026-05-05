@@ -367,3 +367,56 @@ test("stream flush forwards final SSE line without trailing newline and finalize
     completion_tokens: 5,
   });
 });
+
+test("stream relay does not eagerly drain upstream before downstream reads", async () => {
+  const labels = ["one", "two", "three", "four", "five", "six", "seven", "eight"];
+  const events = labels.map((label, index) => ({
+    model: index === 0 ? "gpt-4o" : undefined,
+    choices: [{ delta: { content: label }, index: 0 }],
+    usage: index === labels.length - 1 ? { prompt_tokens: 10, completion_tokens: 5, total_tokens: 15 } : undefined,
+  }));
+  const chunks = events.map((event) => `data: ${JSON.stringify(event)}\n\n`);
+  let upstreamPulls = 0;
+  const upstream = new ReadableStream<Uint8Array>({
+    pull(controller) {
+      const chunk = chunks[upstreamPulls];
+      upstreamPulls += 1;
+      if (chunk) controller.enqueue(encoder.encode(chunk));
+      if (upstreamPulls === chunks.length) controller.close();
+    },
+  });
+  const { db, handle } = createHarness(async () => new Response(upstream, {
+    status: 200,
+    headers: { "content-type": "text/event-stream" },
+  }));
+
+  const req = request("/v1/chat/completions", { model: "gpt-4o", stream: true, messages: [{ role: "user", content: "hi" }] });
+  const res = await handle(req, await inspect(req));
+
+  expect(upstreamPulls).toBeLessThan(chunks.length);
+
+  const reader = res.body?.getReader();
+
+  expect(reader).toBeDefined();
+  expect(upstreamPulls).toBeLessThan(chunks.length);
+
+  const first = await reader?.read();
+  expect(first?.done).toBe(false);
+  expect(upstreamPulls).toBeLessThan(chunks.length);
+
+  let text = first?.value ? new TextDecoder().decode(first.value) : "";
+  while (true) {
+    const next = await reader?.read();
+    if (next?.done) break;
+    if (next?.value) text += new TextDecoder().decode(next.value);
+  }
+
+  expect(text.indexOf("one")).toBeLessThan(text.indexOf("two"));
+  expect(text.indexOf("seven")).toBeLessThan(text.indexOf("eight"));
+  expect(upstreamPulls).toBe(chunks.length);
+  expect(latest(db)).toMatchObject({
+    lifecycle_status: "completed",
+    status: 200,
+    total_tokens: 15,
+  });
+});
