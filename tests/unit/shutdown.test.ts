@@ -104,7 +104,7 @@ async function runShutdown(options: {
   const capture = captureLogger();
   const server = options.server ?? new FakeServer();
   const supervisor = createSupervisor();
-  let exitCode: number | null = null;
+  const exitCodes: number[] = [];
   const code = await Shutdown.__runForTests("SIGTERM", {
     server,
     db: options.db ?? Storage.initDb(":memory:"),
@@ -113,10 +113,17 @@ async function runShutdown(options: {
     hardKillMs: options.hardKillMs ?? 20,
     logger: capture.logger,
     exit: (code) => {
-      exitCode = code;
+      exitCodes.push(code);
     },
   });
-  return { code, exitCode, server, supervisor, logs: parseLogs(capture.stdout), errors: parseLogs(capture.stderr) };
+  return {
+    code,
+    exitCode: exitCodes[0] ?? null,
+    server,
+    supervisor,
+    logs: parseLogs(capture.stdout),
+    errors: parseLogs(capture.stderr),
+  };
 }
 
 afterEach(() => {

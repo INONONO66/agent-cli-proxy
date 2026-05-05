@@ -1,0 +1,33 @@
+=== bun run release-check (excerpt) ===
+$ bun build src/index.ts src/cli.ts --target=bun --outdir=./dist && rm -rf dist/migrations && cp -R src/storage/migrations dist/migrations && mkdir -p dist/data && cp data/plans.default.json dist/data/plans.default.json && bun run scripts/post-build.ts
+Bundled 31 modules in 4ms
+
+  index.js  179.62 KB  (entry point)
+  cli.js    156.85 KB  (entry point)
+
+[31mUnable to read package.json at /Users/ino/Develop/agent-cli-proxy/dist[39m
+Fallback release artifact check passed
+
+=== bun pm pack --dry-run ===
+bun pack v1.3.11 (af24e281)
+
+packed 1.99KB package.json
+packed 1.1KB LICENSE
+packed 9.34KB README.md
+packed 156.85KB dist/cli.js
+packed 3.17KB dist/data/plans.default.json
+packed 179.62KB dist/index.js
+packed 1.36KB dist/migrations/001_init.sql
+packed 0.84KB dist/migrations/002_agent_attribution.sql
+packed 160B dist/migrations/003_enhanced_logging.sql
+packed 1.61KB dist/migrations/004_cliproxy_attribution.sql
+packed 1.48KB dist/migrations/005_lifecycle_cost_subscription.sql
+packed 296B dist/migrations/006_account_subscriptions.sql
+
+agent-cli-proxy-0.1.0.tgz
+
+Total files: 12
+Unpacked size: 0.36MB
+
+=== dist/cli.js shebang ===
+#!/usr/bin/env bun

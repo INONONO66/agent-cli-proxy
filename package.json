@@ -1,23 +1,51 @@
 {
   "name": "agent-cli-proxy",
   "version": "0.1.0",
+  "description": "Self-hosted AI API proxy with per-tool usage monitoring, usage attribution, cost tracking, and subscription metadata for OpenAI/Anthropic-compatible APIs.",
   "module": "src/index.ts",
   "type": "module",
   "private": false,
+  "author": "Agent CLI Proxy contributors",
+  "license": "MIT",
+  "homepage": "https://github.com/INONONO66/agent-cli-proxy",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/INONONO66/agent-cli-proxy.git"
+  },
+  "bugs": {
+    "url": "https://github.com/INONONO66/agent-cli-proxy/issues"
+  },
+  "keywords": [
+    "ai",
+    "proxy",
+    "anthropic",
+    "openai",
+    "claude",
+    "cli",
+    "usage-tracking",
+    "cost-tracking",
+    "self-hosted"
+  ],
+  "engines": {
+    "bun": ">=1.0.0",
+    "node": ">=20.0.0"
+  },
   "bin": {
     "agent-cli-proxy": "./dist/cli.js"
   },
   "files": [
     "dist",
-    "data",
     "README.md",
-    "LICENSE",
-    "package.json"
+    "LICENSE"
   ],
   "scripts": {
     "dev": "bun run --watch src/index.ts",
-    "build": "bun build src/index.ts src/cli.ts --target=bun --outdir=./dist && rm -rf dist/migrations && cp -R src/storage/migrations dist/migrations && mkdir -p dist/data && cp data/plans.default.json dist/data/plans.default.json",
+    "build": "bun build src/index.ts src/cli.ts --target=bun --outdir=./dist && rm -rf dist/migrations && cp -R src/storage/migrations dist/migrations && mkdir -p dist/data && cp data/plans.default.json dist/data/plans.default.json && bun run scripts/post-build.ts",
+    "typecheck": "bunx tsc --noEmit",
     "test": "bun test",
+    "release-check": "bun run typecheck && bun run test && bun run build && (bunx publint dist || bun run scripts/release-fallback-check.ts)",
+    "prepublishOnly": "bun run release-check",
+    "pack:check": "bun pm pack --dry-run",
     "test:e2e": "bun test tests/e2e/",
     "test:e2e:mock": "MOCK_CLI_PROXY=1 CLI_PROXY_API_URL=http://localhost:18317 bun test tests/e2e/",
     "start": "bun run dist/index.js",

@@ -113,7 +113,7 @@ test("pricing fallback after first fetch failure is immediately stale and retrie
   globalThis.fetch = (() => {
     attempts += 1;
     return Promise.reject(new Error("network down"));
-  }) as typeof fetch;
+  }) as unknown as typeof fetch;
 
   await Pricing.fetchPricing();
   await Pricing.fetchPricing();
@@ -128,7 +128,7 @@ test("pricing lookup does not match unsafe key-substring aliases", () => {
 });
 
 test("backfill transitions pending priced rows to ok and writes audit", async () => {
-  globalThis.fetch = (() => Promise.reject(new Error("use in-memory pricing"))) as typeof fetch;
+  globalThis.fetch = (() => Promise.reject(new Error("use in-memory pricing"))) as unknown as typeof fetch;
   Pricing.__setPricingForTests([["openai/gpt-5.4-mini", unitPrice]]);
   const db = Storage.initDb(":memory:");
   const service = UsageService.create(db);

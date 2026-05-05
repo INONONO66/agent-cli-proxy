@@ -9,5 +9,6 @@
     "jsxImportSource": "react",
     "lib": ["ESNext", "DOM", "DOM.Iterable"],
     "types": ["bun-types"]
-  }
+  },
+  "exclude": ["test-inspector.ts"]
 }
