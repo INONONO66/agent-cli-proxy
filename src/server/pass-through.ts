@@ -7,6 +7,7 @@ import { rewriteRequestBody, stripToolPrefix, stripToolPrefixFromLine } from "..
 import { UpstreamClient } from "../upstream/client";
 import { Logger } from "../util/logger";
 import type { Usage } from "../usage";
+import { Shutdown } from "../runtime/shutdown";
 
 const logger = Logger.fromConfig().child({ component: "pass-through" });
 const FINALIZE_ATTEMPTS = 3;
@@ -38,11 +39,24 @@ interface LifecycleContext {
   msgId?: string;
   finalized: boolean;
   finalizing: Promise<void> | null;
+  handle: LifecycleHandle;
+}
+
+interface LifecycleHandle extends Shutdown.ActiveLifecycleHandle {
+  finish(): void;
 }
 
 export namespace PassThroughProxy {
+  const activeLifecycleHandles = new Set<LifecycleHandle>();
+
   export interface Dependencies {
     fetch?: FetchUpstream;
+  }
+
+  Shutdown.registerActiveLifecycleHandlesProvider(activeLifecycleHandlesSnapshot);
+
+  export function activeLifecycleHandlesSnapshot(): readonly Shutdown.ActiveLifecycleHandle[] {
+    return Array.from(activeLifecycleHandles);
   }
 
   export function create(usageService: UsageService.UsageService, dependencies: Dependencies = {}) {
@@ -53,6 +67,7 @@ export namespace PassThroughProxy {
       const lifecycle = preLog(req, info, usageService, startTime);
       const requestInfo: RequestInfo = { ...info, requestId: lifecycle?.requestId ?? info.requestId };
       const upstreamUrl = `${Config.cliProxyApiUrl}${requestInfo.path}`;
+      const passthroughSignal = lifecycle ? composeSignals([req.signal, lifecycle.handle.signal]) : req.signal;
       let streamHandedOff = false;
 
       try {
@@ -64,7 +79,7 @@ export namespace PassThroughProxy {
           body,
           providerId: lifecycle?.provider ?? providerForPath(requestInfo.path),
           idempotent: isIdempotentMethod(req.method),
-          signal: req.signal,
+          signal: passthroughSignal,
         });
 
         const isStreaming = upstreamResponse.headers
@@ -202,7 +217,42 @@ export namespace PassThroughProxy {
       msgId,
       finalized: false,
       finalizing: null,
+      handle: registerLifecycleHandle(id, requestId),
     };
+  }
+
+  function registerLifecycleHandle(id: number, requestId: string): LifecycleHandle {
+    const controller = new AbortController();
+    let done = false;
+    let resolveDone: () => void = () => undefined;
+    const donePromise = new Promise<void>((resolve) => {
+      resolveDone = resolve;
+    });
+    const handle: LifecycleHandle = {
+      id,
+      requestId,
+      done: donePromise,
+      signal: controller.signal,
+      abort(reason?: unknown) {
+        if (!controller.signal.aborted) controller.abort(reason);
+      },
+      isDone() {
+        return done;
+      },
+      finish() {
+        if (done) return;
+        done = true;
+        activeLifecycleHandles.delete(handle);
+        resolveDone();
+      },
+    };
+    activeLifecycleHandles.add(handle);
+    return handle;
+  }
+
+  function composeSignals(signals: AbortSignal[]): AbortSignal {
+    if (signals.length === 1) return signals[0];
+    return AbortSignal.any(signals);
   }
 
   async function buildBody(req: Request, info: RequestInfo): Promise<BodyBuildResult> {
@@ -377,9 +427,23 @@ export namespace PassThroughProxy {
     UpstreamClient.releaseBodyTimeout(upstreamResponse);
 
     let queuedFirstChunk: Uint8Array | null = firstRead.value;
+    let shutdownAbortError: Error | null = null;
+
+    const onShutdownAbort = () => {
+      const reason = lifecycle?.handle.signal.reason;
+      const err = reason instanceof Error ? reason : new Error(typeof reason === "string" && reason ? reason : "shutdown");
+      shutdownAbortError = err;
+      void upstreamReader.cancel(err).catch(() => undefined);
+    };
+    if (lifecycle) {
+      if (lifecycle.handle.signal.aborted) onShutdownAbort();
+      else lifecycle.handle.signal.addEventListener("abort", onShutdownAbort, { once: true });
+    }
+
     const outputStream = new ReadableStream<Uint8Array>({
       async pull(controller) {
         try {
+          if (shutdownAbortError) throw shutdownAbortError;
           while (true) {
             let value: Uint8Array;
             if (queuedFirstChunk) {
@@ -415,7 +479,7 @@ export namespace PassThroughProxy {
           if (!streamDone) {
             streamDone = true;
             const upstreamBodyTimeout = isUpstreamBodyTimeout(err);
-            const aborted = !upstreamBodyTimeout && isAbortLike(err);
+            const aborted = !upstreamBodyTimeout && (isAbortLike(err) || lifecycle?.handle.signal.aborted === true);
             await finalizeOnce(usageService, lifecycle, {
               parsed: { actualModel, usage: accumulated },
               status: upstreamBodyTimeout ? 504 : aborted ? 499 : upstreamResponse.status,
@@ -544,6 +608,8 @@ export namespace PassThroughProxy {
           path: lifecycle.path,
         });
         await markFinalizeFailure(usageService, lifecycle, finishedAt, err);
+      } finally {
+        lifecycle.handle.finish();
       }
     })();
 
