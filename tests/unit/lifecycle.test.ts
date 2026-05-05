@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, expect, test } from "bun:test";
-import type { Database } from "bun:sqlite";
+import { Database } from "bun:sqlite";
 import { unlinkSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
@@ -66,6 +66,12 @@ function allLogs(db: Database): Usage.RequestLog[] {
   return db.query("SELECT * FROM request_logs ORDER BY id ASC").all() as Usage.RequestLog[];
 }
 
+function isMsgIdIndexUnique(db: Database): boolean {
+  const indexes = db.query("PRAGMA index_list(request_logs)").all() as Array<{ name: string; unique: number }>;
+  const msgIdIndex = indexes.find((index) => index.name === "idx_request_logs_msg_id");
+  return msgIdIndex?.unique === 1;
+}
+
 test("pre-log row exists immediately after request entry", async () => {
   const capturedRows: Usage.RequestLog[] = [];
   const { db, handle } = createHarness(async () => {
@@ -112,6 +118,26 @@ test("successful request finalizes one row as completed with priced usage", asyn
   });
   expect(latest(db).cost_usd).toBeGreaterThan(0);
   expect(latest(db).finalized_at).toBeString();
+});
+
+test("duplicate external x-request-id values keep distinct proxy request ids", async () => {
+  const { db, handle } = createHarness(async () => new Response(JSON.stringify({
+    model: "gpt-5.4-mini",
+    usage: { prompt_tokens: 10, completion_tokens: 5, total_tokens: 15 },
+  }), { status: 200, headers: { "content-type": "application/json" } }));
+  const headers = { "x-request-id": "external-msg-id" };
+
+  const first = request("/v1/chat/completions", { model: "gpt-5.4-mini", messages: [{ role: "user", content: "hi" }] }, headers);
+  const second = request("/v1/chat/completions", { model: "gpt-5.4-mini", messages: [{ role: "user", content: "again" }] }, headers);
+  await (await handle(first, await inspect(first))).text();
+  await (await handle(second, await inspect(second))).text();
+
+  const rows = allLogs(db);
+  expect(rows).toHaveLength(2);
+  expect(rows.map((row) => row.msg_id)).toEqual(["external-msg-id", "external-msg-id"]);
+  expect(rows[0]?.request_id).toBeString();
+  expect(rows[1]?.request_id).toBeString();
+  expect(rows[0]?.request_id).not.toBe(rows[1]?.request_id);
 });
 
 test("upstream 502 finalizes the pre-log row as error", async () => {
@@ -200,6 +226,87 @@ test("boot recovery aborts stale pending rows", () => {
   restarted.close();
   unlinkSync(dbPath);
 });
+
+test("migration replaces legacy unique msg_id index with non-unique lookup index", () => {
+  const dbPath = join(tmpdir(), `agent-cli-proxy-msg-id-${crypto.randomUUID()}.db`);
+  const legacy = new Database(dbPath);
+  for (const statement of legacySchemaStatements) legacy.query(statement).run();
+  expect(isMsgIdIndexUnique(legacy)).toBe(true);
+  legacy.close();
+
+  const migrated = Storage.initDb(dbPath);
+  expect(isMsgIdIndexUnique(migrated)).toBe(false);
+  const firstId = RequestRepo.insert(migrated, baseLogForDuplicateMsgId("proxy-req-1"));
+  const secondId = RequestRepo.insert(migrated, baseLogForDuplicateMsgId("proxy-req-2"));
+
+  expect(firstId).not.toBe(secondId);
+  expect(allLogs(migrated).map((row) => row.request_id)).toEqual(["proxy-req-1", "proxy-req-2"]);
+  expect(allLogs(migrated).map((row) => row.msg_id)).toEqual(["external-msg-id", "external-msg-id"]);
+  migrated.close();
+  unlinkSync(dbPath);
+});
+
+const legacySchemaStatements = [
+  `CREATE TABLE schema_migrations (
+    name TEXT PRIMARY KEY,
+    applied_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+  )`,
+  `CREATE TABLE request_logs (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    provider TEXT NOT NULL,
+    model TEXT NOT NULL,
+    tool TEXT DEFAULT 'unknown',
+    client_id TEXT DEFAULT 'unknown',
+    path TEXT NOT NULL,
+    streamed INTEGER NOT NULL DEFAULT 0,
+    status INTEGER,
+    prompt_tokens INTEGER DEFAULT 0,
+    completion_tokens INTEGER DEFAULT 0,
+    cache_creation_tokens INTEGER DEFAULT 0,
+    cache_read_tokens INTEGER DEFAULT 0,
+    total_tokens INTEGER DEFAULT 0,
+    cost_usd REAL DEFAULT 0,
+    incomplete INTEGER NOT NULL DEFAULT 0,
+    error_code TEXT,
+    latency_ms INTEGER,
+    started_at TEXT NOT NULL,
+    finished_at TEXT,
+    meta_json TEXT,
+    msg_id TEXT
+  )`,
+  "CREATE UNIQUE INDEX idx_request_logs_msg_id ON request_logs(msg_id) WHERE msg_id IS NOT NULL",
+  `INSERT INTO schema_migrations (name) VALUES
+    ('001_init.sql'),
+    ('002_agent_attribution.sql'),
+    ('003_enhanced_logging.sql'),
+    ('004_cliproxy_attribution.sql'),
+    ('005_lifecycle_cost_subscription.sql'),
+    ('006_account_subscriptions.sql')`,
+];
+
+function baseLogForDuplicateMsgId(requestId: string): Omit<Usage.RequestLog, "id"> {
+  return {
+    request_id: requestId,
+    provider: "openai",
+    model: "gpt-4o",
+    tool: "opencode",
+    client_id: "opencode-test",
+    path: "/v1/chat/completions",
+    streamed: 0,
+    status: 200,
+    prompt_tokens: 1,
+    completion_tokens: 1,
+    cache_creation_tokens: 0,
+    cache_read_tokens: 0,
+    reasoning_tokens: 0,
+    total_tokens: 2,
+    cost_usd: 0,
+    incomplete: 0,
+    started_at: "2026-05-04T10:00:00.000Z",
+    finished_at: "2026-05-04T10:00:01.000Z",
+    msg_id: "external-msg-id",
+  };
+}
 
 test("Anthropic body rewrite strips stale transfer headers before upstream fetch", async () => {
   let forwardedHeaders = new Headers();
