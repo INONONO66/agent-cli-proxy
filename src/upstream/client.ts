@@ -38,18 +38,24 @@ export namespace UpstreamClient {
     openedAt: number;
   }
 
-  type TimeoutKind = "connect" | "total";
+  type TimeoutKind = "connect" | "total" | "body";
+  type BodyReadResult = Awaited<ReturnType<ReadableStreamDefaultReader<Uint8Array>["read"]>>;
+
+  const BODY_TIMEOUT_MESSAGE = "upstream_body_timeout";
 
   const MAX_RETRIES = 2;
   const OPEN_AFTER_FAILURES = 5;
   const HALF_OPEN_AFTER_MS = 30_000;
 
   const breakers = new Map<string, CircuitBreaker>();
+  let responseTimeouts = new WeakMap<Response, () => void>();
 
   let logger = Logger.fromConfig().child({ component: "upstream-client" });
   let sleep = (ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms));
   let now = (): number => Date.now();
   let random = (): number => Math.random();
+  let upstreamTimeoutMs: number | null = null;
+  let upstreamConnectTimeoutMs: number | null = null;
 
   export async function fetch(options: FetchOptions): Promise<Response> {
     const providerId = options.providerId || "unknown";
@@ -70,7 +76,10 @@ export namespace UpstreamClient {
     let attempt = 0;
 
     while (true) {
-      const timeout = createTimeoutSignal(Config.upstreamTimeoutMs, Config.upstreamConnectTimeoutMs);
+      const timeout = createTimeoutSignal(
+        upstreamTimeoutMs ?? Config.upstreamTimeoutMs,
+        upstreamConnectTimeoutMs ?? Config.upstreamConnectTimeoutMs,
+      );
       const signal = composeSignals([timeout.signal, options.signal]);
       try {
         const response = await globalThis.fetch(options.url, {
@@ -79,7 +88,7 @@ export namespace UpstreamClient {
           body: options.body,
           signal,
         });
-        timeout.clear();
+        timeout.beginBody();
 
         if (response.status >= 500) {
           const normalized = normalizeHttpFailure(response, providerId, canRetry(idempotent, streaming));
@@ -92,11 +101,11 @@ export namespace UpstreamClient {
             continue;
           }
           recordFailure(breaker);
-          return response;
+          return withBodyTimeout(response, timeout);
         }
 
         recordSuccess(breaker);
-        return response;
+        return withBodyTimeout(response, timeout);
       } catch (err) {
         timeout.clear();
         const normalized = normalizeThrownFailure(err, providerId, canRetry(idempotent, streaming), timeout.kind);
@@ -115,10 +124,13 @@ export namespace UpstreamClient {
 
   export function __resetForTests(): void {
     breakers.clear();
+    responseTimeouts = new WeakMap<Response, () => void>();
     logger = Logger.fromConfig().child({ component: "upstream-client" });
     sleep = (ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms));
     now = (): number => Date.now();
     random = (): number => Math.random();
+    upstreamTimeoutMs = null;
+    upstreamConnectTimeoutMs = null;
   }
 
   export function __setTestHooks(hooks: {
@@ -126,11 +138,19 @@ export namespace UpstreamClient {
     sleep?: (ms: number) => Promise<void>;
     now?: () => number;
     random?: () => number;
+    upstreamTimeoutMs?: number;
+    upstreamConnectTimeoutMs?: number;
   }): void {
     if (hooks.logger) logger = hooks.logger;
     if (hooks.sleep) sleep = hooks.sleep;
     if (hooks.now) now = hooks.now;
     if (hooks.random) random = hooks.random;
+    if (hooks.upstreamTimeoutMs !== undefined) upstreamTimeoutMs = hooks.upstreamTimeoutMs;
+    if (hooks.upstreamConnectTimeoutMs !== undefined) upstreamConnectTimeoutMs = hooks.upstreamConnectTimeoutMs;
+  }
+
+  export function releaseBodyTimeout(response: Response): void {
+    responseTimeouts.get(response)?.();
   }
 
   function breakerFor(providerId: string): CircuitBreaker {
@@ -192,19 +212,25 @@ export namespace UpstreamClient {
   function createTimeoutSignal(totalMs: number, connectMs: number): {
     signal: AbortSignal;
     clear: () => void;
+    beginBody: () => void;
     readonly kind: TimeoutKind | null;
   } {
     const controller = new AbortController();
     let kind: TimeoutKind | null = null;
+    let totalKind: TimeoutKind = "total";
     const abort = (nextKind: TimeoutKind): void => {
       if (controller.signal.aborted) return;
       kind = nextKind;
-      controller.abort(new Error(`upstream ${nextKind} timeout`));
+      controller.abort(new Error(nextKind === "body" ? BODY_TIMEOUT_MESSAGE : `upstream ${nextKind} timeout`));
     };
     const connectTimer = setTimeout(() => abort("connect"), connectMs);
-    const totalTimer = setTimeout(() => abort("total"), totalMs);
+    const totalTimer = setTimeout(() => abort(totalKind), totalMs);
     return {
       signal: controller.signal,
+      beginBody() {
+        clearTimeout(connectTimer);
+        totalKind = "body";
+      },
       clear() {
         clearTimeout(connectTimer);
         clearTimeout(totalTimer);
@@ -213,6 +239,88 @@ export namespace UpstreamClient {
         return kind;
       },
     };
+  }
+
+  function withBodyTimeout(
+    response: Response,
+    timeout: ReturnType<typeof createTimeoutSignal>,
+  ): Response {
+    const body = response.body;
+    if (!body) {
+      timeout.clear();
+      return response;
+    }
+
+    const reader = body.getReader();
+    let released = false;
+    const release = (): void => {
+      if (released) return;
+      released = true;
+      timeout.clear();
+    };
+    const timeoutError = (): Error => new Error(BODY_TIMEOUT_MESSAGE);
+
+    const wrappedBody = new ReadableStream<Uint8Array>({
+      async pull(controller) {
+        try {
+          const { done, value } = await readWithTimeout(reader, timeout);
+          if (done) {
+            release();
+            controller.close();
+            return;
+          }
+          controller.enqueue(value);
+        } catch (err) {
+          release();
+          if (timeout.kind === "body") {
+            const marker = timeoutError();
+            await reader.cancel(marker).catch((cancelErr) => {
+              logger.debug("upstream body cancel after timeout failed", {
+                event: "upstream.body_timeout_cancel_failed",
+                err: cancelErr,
+              });
+            });
+            controller.error(marker);
+            return;
+          }
+          controller.error(err);
+        }
+      },
+      async cancel(reason) {
+        release();
+        await reader.cancel(reason);
+      },
+    });
+
+    const wrapped = new Response(wrappedBody, {
+      status: response.status,
+      statusText: response.statusText,
+      headers: response.headers,
+    });
+    responseTimeouts.set(wrapped, release);
+    return wrapped;
+  }
+
+  function readWithTimeout(
+    reader: ReadableStreamDefaultReader<Uint8Array>,
+    timeout: ReturnType<typeof createTimeoutSignal>,
+  ): Promise<BodyReadResult> {
+    if (timeout.signal.aborted) return Promise.reject(bodyTimeoutError(timeout));
+
+    return new Promise((resolve, reject) => {
+      const onAbort = (): void => reject(bodyTimeoutError(timeout));
+      timeout.signal.addEventListener("abort", onAbort, { once: true });
+      reader.read().then(resolve, reject).finally(() => {
+        timeout.signal.removeEventListener("abort", onAbort);
+      });
+    });
+  }
+
+  function bodyTimeoutError(timeout: ReturnType<typeof createTimeoutSignal>): Error {
+    if (timeout.kind === "body") return new Error(BODY_TIMEOUT_MESSAGE);
+    const reason = timeout.signal.reason;
+    if (reason instanceof Error) return reason;
+    return new Error("upstream timeout");
   }
 
   function composeSignals(signals: Array<AbortSignal | undefined>): AbortSignal {
