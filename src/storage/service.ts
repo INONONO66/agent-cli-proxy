@@ -315,7 +315,8 @@ export namespace UsageService {
       },
     ): void {
       const txn = db.transaction(() => {
-        RequestRepo.applyCorrelation(db, id, fields);
+        const updated = RequestRepo.applyCorrelation(db, id, fields);
+        if (updated !== 1) return;
 
         if (fields.cliproxy_account) {
           applySubscriptionAttribution(

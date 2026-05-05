@@ -1,7 +1,7 @@
 import { expect, test } from "bun:test";
 import { Storage } from "../../src/storage/db";
 import { AccountSubscriptionRepo } from "../../src/storage/account-subscriptions";
-import { RequestRepo } from "../../src/storage/repo";
+import { RequestRepo, UsageRepo } from "../../src/storage/repo";
 import { Plans } from "../../src/plans";
 import type { Logger } from "../../src/util/logger";
 import type { Usage } from "../../src/usage";
@@ -131,6 +131,36 @@ test("correlation applies subscription_code from account binding", async () => {
     cliproxy_account: "acc-bound",
     subscription_code: "claude_pro",
   });
+});
+
+test("duplicate correlation attempts only count one daily account request", async () => {
+  const { UsageService } = await loadUsageService();
+  const db = Storage.initDb(":memory:");
+  const service = UsageService.create(db);
+  const id = RequestRepo.insert(db, baseLog({ lifecycle_status: "pending", finished_at: undefined }));
+  const log = RequestRepo.getById(db, id)!;
+
+  service.applyCorrelation(id, log, {
+    cliproxy_account: "acc-idempotent",
+    cliproxy_auth_index: "0",
+    cliproxy_source: "acc-idempotent",
+    reasoning_tokens: 3,
+    actual_model: "claude-sonnet",
+  });
+  service.applyCorrelation(id, log, {
+    cliproxy_account: "acc-idempotent",
+    cliproxy_auth_index: "0",
+    cliproxy_source: "acc-idempotent",
+    reasoning_tokens: 3,
+    actual_model: "claude-sonnet",
+  });
+
+  expect(UsageRepo.getDailyByAccount(db, "2026-05-05")).toEqual([
+    expect.objectContaining({
+      cliproxy_account: "acc-idempotent",
+      request_count: 1,
+    }),
+  ]);
 });
 
 test("unmapped subscription warning logs once per account and day", async () => {
