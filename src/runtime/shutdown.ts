@@ -19,6 +19,17 @@ export namespace Shutdown {
     stopAll(timeoutMs?: number): Promise<void>;
   }
 
+  export interface ActiveLifecycleHandle {
+    readonly id: number;
+    readonly requestId: string;
+    readonly done: Promise<void>;
+    readonly signal: AbortSignal;
+    abort(reason?: unknown): void;
+    isDone(): boolean;
+  }
+
+  export type ActiveLifecycleHandlesProvider = () => readonly ActiveLifecycleHandle[];
+
   export interface Options {
     server: ServerLike;
     db: Database;
@@ -65,6 +76,15 @@ export namespace Shutdown {
   let shutdownPromise: Promise<number> | null = null;
   let crashPromise: Promise<void> | null = null;
   let shutdownStarted = false;
+  let activeLifecycleHandlesProvider: ActiveLifecycleHandlesProvider = () => [];
+
+  export function registerActiveLifecycleHandlesProvider(provider: ActiveLifecycleHandlesProvider): () => void {
+    const previous = activeLifecycleHandlesProvider;
+    activeLifecycleHandlesProvider = provider;
+    return () => {
+      if (activeLifecycleHandlesProvider === provider) activeLifecycleHandlesProvider = previous;
+    };
+  }
 
   export function register(options: Options): Promise<number> {
     if (handlersRegistered) return shutdownPromise ?? new Promise(() => undefined);
@@ -134,6 +154,7 @@ export namespace Shutdown {
     shutdownPromise = null;
     crashPromise = null;
     shutdownStarted = false;
+    activeLifecycleHandlesProvider = () => [];
   }
 
   export function __runForTests(signal: Signal, options: Options): Promise<number> {
@@ -213,28 +234,23 @@ export namespace Shutdown {
     while (true) {
       const pendingRequests = server.pendingRequests;
       const pendingWebSockets = server.pendingWebSockets;
+      const activeHandles = activeLifecycleHandlesProvider().filter((handle) => !handle.isDone());
       const elapsedMs = Date.now() - startedAt;
 
-      if (pendingRequests === 0 && pendingWebSockets === 0) {
+      if (pendingRequests === 0 && pendingWebSockets === 0 && activeHandles.length === 0) {
         logger.info("shutdown drain", {
           event: "shutdown.drain",
           pending_requests: pendingRequests,
           pending_websockets: pendingWebSockets,
+          active_lifecycle_handles: 0,
           elapsed_ms: elapsedMs,
         });
         return;
       }
 
       if (elapsedMs >= hardKillMs) {
-        const remaining = pendingRequests + pendingWebSockets;
-        logger.warn("shutdown hard kill", { event: "shutdown.hard_kill", remaining });
-        server.stop(true);
-        logger.info("shutdown drain", {
-          event: "shutdown.drain",
-          pending_requests: server.pendingRequests,
-          pending_websockets: server.pendingWebSockets,
-          elapsed_ms: Date.now() - startedAt,
-        });
+        abortActiveHandles(activeHandles);
+        forceCloseActive(server, logger, startedAt, activeHandles.length);
         return;
       }
 
@@ -243,13 +259,65 @@ export namespace Shutdown {
           event: "shutdown.drain",
           pending_requests: pendingRequests,
           pending_websockets: pendingWebSockets,
+          active_lifecycle_handles: activeHandles.length,
           elapsed_ms: elapsedMs,
         });
+        if (activeHandles.length > 0) {
+          abortActiveHandles(activeHandles);
+          await waitForAbortedHandles(server, logger, startedAt, hardKillMs);
+        }
         return;
       }
 
-      await sleep(Math.min(POLL_MS, drainMs - elapsedMs, hardKillMs - elapsedMs));
+      await waitForDrainTick(activeHandles, Math.min(POLL_MS, drainMs - elapsedMs, hardKillMs - elapsedMs));
     }
+  }
+
+  async function waitForAbortedHandles(
+    server: ServerLike,
+    logger: Logger.Logger,
+    startedAt: number,
+    hardKillMs: number,
+  ): Promise<void> {
+    while (true) {
+      const activeHandles = activeLifecycleHandlesProvider().filter((handle) => !handle.isDone());
+      if (activeHandles.length === 0) return;
+
+      const elapsedMs = Date.now() - startedAt;
+      if (elapsedMs >= hardKillMs) {
+        forceCloseActive(server, logger, startedAt, activeHandles.length);
+        return;
+      }
+
+      await waitForDrainTick(activeHandles, Math.min(POLL_MS, hardKillMs - elapsedMs));
+    }
+  }
+
+  function abortActiveHandles(handles: readonly ActiveLifecycleHandle[]): void {
+    for (const handle of handles) {
+      handle.abort(new Error("shutdown"));
+    }
+  }
+
+  function forceCloseActive(server: ServerLike, logger: Logger.Logger, startedAt: number, activeHandleCount: number): void {
+    const remaining = server.pendingRequests + server.pendingWebSockets + activeHandleCount;
+    logger.warn("shutdown hard kill", { event: "shutdown.hard_kill", remaining });
+    server.stop(true);
+    logger.info("shutdown drain", {
+      event: "shutdown.drain",
+      pending_requests: server.pendingRequests,
+      pending_websockets: server.pendingWebSockets,
+      active_lifecycle_handles: activeHandleCount,
+      elapsed_ms: Date.now() - startedAt,
+    });
+  }
+
+  async function waitForDrainTick(handles: readonly ActiveLifecycleHandle[], ms: number): Promise<void> {
+    if (handles.length === 0) {
+      await sleep(ms);
+      return;
+    }
+    await Promise.race([sleep(ms), ...handles.map((handle) => handle.done)]);
   }
 
   function finalizePendingRows(db: Database): number {
