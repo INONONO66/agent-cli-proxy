@@ -4,6 +4,9 @@ import { Logger } from "../util/logger";
 
 export namespace Shutdown {
   export type Signal = "SIGTERM" | "SIGINT" | "SIGHUP";
+  export type CrashReason =
+    | { type: "uncaughtException"; error: Error; origin?: string }
+    | { type: "unhandledRejection"; reason: unknown };
 
   export interface ServerLike {
     readonly pendingRequests: number;
@@ -28,6 +31,7 @@ export namespace Shutdown {
   const DEFAULT_DRAIN_MS = 10_000;
   const DEFAULT_HARD_KILL_MS = 15_000;
   const POLL_MS = 25;
+  const CRASH_EXIT_CODE = 1;
   const EXIT_CODES: Record<Signal, number> = {
     SIGINT: 0,
     SIGTERM: 143,
@@ -39,9 +43,26 @@ export namespace Shutdown {
     handler: () => void;
   };
 
+  type RegisteredCrashHandler =
+    | {
+      event: "uncaughtException";
+      handler: (err: Error, origin: string) => void;
+    }
+    | {
+      event: "unhandledRejection";
+      handler: (reason: unknown, promise: Promise<unknown>) => void;
+    };
+
+  type ShutdownCause =
+    | { type: "signal"; signal: Signal; exitCode: number }
+    | { type: "crash"; reason: CrashReason; exitCode: number };
+
   let handlersRegistered = false;
   let registeredHandlers: RegisteredHandler[] = [];
+  let crashHandlersRegistered = false;
+  let registeredCrashHandlers: RegisteredCrashHandler[] = [];
   let shutdownPromise: Promise<number> | null = null;
+  let crashPromise: Promise<void> | null = null;
   let shutdownStarted = false;
 
   export function register(options: Options): Promise<number> {
@@ -53,7 +74,7 @@ export namespace Shutdown {
         const handler = () => {
           if (!shutdownStarted) {
             shutdownStarted = true;
-            void run(signal, options).then(resolve);
+            void run({ type: "signal", signal, exitCode: EXIT_CODES[signal] }, options).then(resolve);
           }
         };
         process.on(signal, handler);
@@ -64,29 +85,69 @@ export namespace Shutdown {
     return shutdownPromise;
   }
 
+  export function registerCrashHandlers(options: Options): Promise<void> {
+    if (crashHandlersRegistered) return crashPromise ?? new Promise(() => undefined);
+
+    crashHandlersRegistered = true;
+    crashPromise = new Promise<void>((resolve) => {
+      const uncaughtHandler = (error: Error, origin: string) => {
+        void runFromCrash({ type: "uncaughtException", error, origin }, options).then(resolve);
+      };
+      const rejectionHandler = (reason: unknown, _promise: Promise<unknown>) => {
+        void runFromCrash({ type: "unhandledRejection", reason }, options).then(resolve);
+      };
+
+      process.on("uncaughtException", uncaughtHandler);
+      process.on("unhandledRejection", rejectionHandler);
+      registeredCrashHandlers.push(
+        { event: "uncaughtException", handler: uncaughtHandler },
+        { event: "unhandledRejection", handler: rejectionHandler },
+      );
+    });
+
+    return crashPromise;
+  }
+
+  export async function runFromCrash(reason: CrashReason, options: Options): Promise<void> {
+    if (shutdownStarted) return;
+
+    shutdownStarted = true;
+    await run({ type: "crash", reason, exitCode: CRASH_EXIT_CODE }, options);
+  }
+
   export function __resetForTests(): void {
     for (const { signal, handler } of registeredHandlers) {
       process.removeListener(signal, handler);
     }
+    for (const entry of registeredCrashHandlers) {
+      if (entry.event === "uncaughtException") {
+        process.removeListener(entry.event, entry.handler);
+      } else {
+        process.removeListener(entry.event, entry.handler);
+      }
+    }
     registeredHandlers = [];
+    registeredCrashHandlers = [];
     handlersRegistered = false;
+    crashHandlersRegistered = false;
     shutdownPromise = null;
+    crashPromise = null;
     shutdownStarted = false;
   }
 
   export function __runForTests(signal: Signal, options: Options): Promise<number> {
-    return run(signal, options);
+    return run({ type: "signal", signal, exitCode: EXIT_CODES[signal] }, options);
   }
 
-  async function run(signal: Signal, options: Options): Promise<number> {
+  async function run(cause: ShutdownCause, options: Options): Promise<number> {
     const logger = (options.logger ?? Logger.fromConfig()).child({ component: "shutdown" });
     const drainMs = normalizeTimeout(options.drainMs, DEFAULT_DRAIN_MS);
     const hardKillMs = normalizeTimeout(options.hardKillMs, DEFAULT_HARD_KILL_MS);
     const exit = options.exit ?? ((code: number) => process.exit(code));
     const startedAt = Date.now();
-    const exitCode = EXIT_CODES[signal];
+    const exitCode = cause.exitCode;
 
-    logger.info("shutdown signal", { event: "shutdown.signal", signal });
+    logShutdownCause(logger, cause);
 
     try {
       options.server.stop(false);
@@ -98,7 +159,7 @@ export namespace Shutdown {
       const abortedRows = finalizePendingRows(options.db);
       logger.info("shutdown finalize", { event: "shutdown.finalize", aborted_rows: abortedRows });
 
-      options.db.exec("PRAGMA wal_checkpoint(TRUNCATE)");
+      options.db.run("PRAGMA wal_checkpoint(TRUNCATE)");
       logger.info("shutdown checkpoint", { event: "shutdown.checkpoint" });
     } catch (err) {
       logger.error("shutdown error", { event: "shutdown.error", err });
@@ -118,6 +179,27 @@ export namespace Shutdown {
     }
 
     return exitCode;
+  }
+
+  function logShutdownCause(logger: Logger.Logger, cause: ShutdownCause): void {
+    if (cause.type === "signal") {
+      logger.info("shutdown signal", { event: "shutdown.signal", signal: cause.signal });
+      return;
+    }
+
+    if (cause.reason.type === "uncaughtException") {
+      logger.error("uncaught exception", {
+        event: "process.uncaught",
+        err: cause.reason.error,
+        origin: cause.reason.origin,
+      });
+      return;
+    }
+
+    logger.error("unhandled rejection", {
+      event: "process.unhandled_rejection",
+      err: cause.reason.reason,
+    });
   }
 
   async function drainServer(

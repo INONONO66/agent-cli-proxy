@@ -39,7 +39,9 @@ async function main(): Promise<void> {
   });
 
   if (process.env.NODE_ENV !== "test" && process.env.DISABLE_SHUTDOWN_HANDLERS !== "1") {
-    Shutdown.register({ server, db, supervisor: Supervisor });
+    const shutdownOptions = { server, db, supervisor: Supervisor };
+    Shutdown.register(shutdownOptions);
+    Shutdown.registerCrashHandlers(shutdownOptions);
   }
 
   logger.info("server running", { host: Config.host, port: Config.port, url: `http://${Config.host}:${Config.port}` });
