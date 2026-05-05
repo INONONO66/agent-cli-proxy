@@ -75,6 +75,11 @@ export namespace Pricing {
     cache = { data: new Map(entries), fetchedAt: Date.now() };
   }
 
+  export function __clearPricingForTests(): void {
+    cache = null;
+    inFlightFetch = null;
+  }
+
   export function findPricing(model: string, provider?: string): PricingMatch | null {
     if (!cache) return null;
     const normalizedModel = normalizeKey(model);
@@ -169,7 +174,10 @@ export namespace Pricing {
       }
       const fallback = new Map<string, ModelPricing>();
       addLocalOverrides(fallback);
-      cache = { data: fallback, fetchedAt: now };
+      // Fetch failed before any usable disk cache existed. Keep local overrides
+      // available, but mark them stale immediately so the next caller retries
+      // models.dev instead of treating fallback pricing as fresh for the full TTL.
+      cache = { data: fallback, fetchedAt: 0 };
       return fallback;
     }
   }
@@ -264,7 +272,7 @@ export namespace Pricing {
     const broad = Array.from(map.entries()).find(([key, pricing]) => {
       if (pricing.input === 0 && pricing.output === 0) return false;
       const normalizedKey = normalizeKey(key);
-      return normalizedKey.includes(normalizedModel) || normalizedModel.includes(normalizedKey);
+      return normalizedKey.length >= 6 && normalizedModel.includes(normalizedKey);
     });
 
     if (!broad) return null;

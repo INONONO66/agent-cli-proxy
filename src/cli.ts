@@ -156,10 +156,10 @@ async function backfillCostsCommand(): Promise<void> {
   const db = Storage.initDb(dbPath);
   const usageService = UsageService.create(db);
   const result = await usageService.backfillCosts({
-    onlyZeroCost: !process.argv.includes("--all"),
+    all: process.argv.includes("--all"),
     limit: parsePositiveLimit(),
   });
-  writeOut(`[backfill-costs] scanned=${result.scanned} updated=${result.updated}`);
+  writeOut(`[backfill-costs] scanned=${result.scanned} updated=${result.updated} ok=${result.ok} pending=${result.pending} unsupported=${result.unsupported}`);
   db.close();
 }
 

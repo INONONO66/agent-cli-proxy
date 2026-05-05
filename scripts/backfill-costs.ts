@@ -13,9 +13,9 @@ const db = Storage.initDb(Config.dbPath);
 const usageService = UsageService.create(db);
 
 const result = await usageService.backfillCosts({
-  onlyZeroCost: !process.argv.includes("--all"),
+  all: process.argv.includes("--all"),
   limit: parseLimit(),
 });
 
-console.log(`[backfill-costs] scanned=${result.scanned} updated=${result.updated}`);
+console.log(`[backfill-costs] scanned=${result.scanned} updated=${result.updated} ok=${result.ok} pending=${result.pending} unsupported=${result.unsupported}`);
 db.close();

@@ -1,0 +1,13 @@
+Task T9 backfill evidence
+
+Command:
+  bun run src/cli.ts backfill-costs --env /var/folders/70/44j59lmn1x95z003s9fg4qlm0000gn/T/opencode/agent-cli-proxy-t9/manual.env --all
+
+Output:
+  [backfill-costs] scanned=1 updated=1 ok=1 pending=0 unsupported=0
+
+Verification query:
+  {"row":{"id":1,"cost_status":"ok","cost_usd":0.75},"audits":[{"source":"pricing","base_cost_usd":0.75}]}
+
+Result:
+  Pending completed request_log transitioned to cost_status='ok' with positive cost_usd and a new cost_audit row.

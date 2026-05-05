@@ -223,6 +223,16 @@ try {
 3. Kubernetes Probes: https://kubernetes.io/docs/tasks/configure-pod-container/configure-liveness-readiness-startup-probes/
 4. RFC Health Check: https://datatracker.ietf.org/doc/html/draft-inadarei-api-health-check
 5. Bun Graceful Shutdown (claude-code): https://github.com/claude-code-best/claude-code/blob/main/src/utils/gracefulShutdown.ts
+
+---
+
+# T9 Strict Cost Mode Learnings (May 2026)
+
+- Centralizing pricing math in `Cost.compute()` prevents record/finalize/backfill paths from drifting; audit insertion should happen at the same transaction boundary as the request row mutation.
+- Fallback local pricing after a failed first fetch must be immediately stale (`fetchedAt = 0`) so models.dev is retried on the next call instead of masking outages for the cache TTL.
+- Fuzzy pricing lookup should never match by `known_key.includes(input_alias)`: short aliases such as `gpt-5` can incorrectly price future variants. Keeping only `input_alias.includes(known_key)` with a minimum key length avoids the dangerous direction.
+- To preserve the application invariant needed by cost-summary consumers, `cost_status='ok'` should mean `cost_usd > 0`; zero-token usage stays pending/guarded rather than creating ok zero-cost rows.
+- With the Supervisor module present, cost backfill should be registered as a supervised loop (`cost-backfill`) and share the shutdown `AbortSignal` instead of using a raw `setInterval`.
 # Bun Package Distribution & Release Workflow Research
 
 **Date**: May 4, 2026  
@@ -841,3 +851,10 @@ Added `src/util/logger.ts` with dependency-free structured logging and migrated 
 - A final SSE line without a trailing newline must be processed by the same line parser as normal chunks and then enqueued; otherwise the final usage-bearing event can update storage while disappearing from the client response.
 - Rewritten Anthropic JSON bodies cannot reuse inbound transfer headers. Strip `content-length`, `content-encoding`, and `accept-encoding`; set `content-type: application/json` on rewritten `/v1/messages` requests and let fetch recompute length.
 - Boot recovery stays outside `initDb()` and is wired in `src/index.ts` immediately after migrations so tests and CLI callers can opt into `Storage.recoverStalePending(db, maxAgeMs)` without surprising side effects.
+
+## 2026-05-05 T11 supervisor
+- `Supervisor.run()` keeps loop crash isolation centralized: loop callbacks should not swallow scheduling-level errors if we want exponential backoff and structured `loop.error` telemetry to work.
+- Startup one-shot work and periodic work should be distinct. Pricing still does the startup `fetchPricing()` while `Pricing.startBackgroundRefresh()` schedules the later refresh interval with `runOnStart: false`.
+- Quota refresh should not tick forever when local auth is not configured. `UsageService.startQuotaRefresh()` checks `CLIPROXY_AUTH_DIR` and JSON auth files once, logs a single skip event, and only registers a supervised loop when there is something to probe.
+- Shutdown composition is registry-first: individual handles abort their loop and `Supervisor.stopAll()` drains registered loops in parallel with bounded timeout logging for abandoned loops.
+- Tests are easiest with a supervisor test logger sink and real small millisecond intervals; jitter disabled (`jitterRatio: 0`) makes backoff assertions deterministic without new dependencies.

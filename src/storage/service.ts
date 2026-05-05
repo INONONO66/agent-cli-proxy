@@ -1,51 +1,26 @@
 import type { Database } from "bun:sqlite";
 import { QuotaRepo, RequestRepo, UsageRepo } from "./repo";
 import { Pricing } from "./pricing";
+import { Cost } from "./cost";
 import { Usage } from "../usage";
 import { QuotaProbe } from "../cliproxy/quota";
 import { Logger } from "../util/logger";
 
 const logger = Logger.fromConfig().child({ component: "usage-service" });
+const costBackfillLogger = Logger.fromConfig().child({ component: "cost" });
+
+const DEFAULT_COST_BACKFILL_INTERVAL_MS = 1_800_000;
+const DEFAULT_COST_BACKFILL_LOOKBACK_MS = 604_800_000;
 
 export namespace UsageService {
   export function create(db: Database) {
-    async function priceUsage(log: Omit<Usage.RequestLog, "id">): Promise<number> {
-      let costUsd = log.cost_usd;
-      if (!costUsd && log.model) {
-        let pricing = Pricing.getPricing(log.model, log.provider);
-        if (!pricing) {
-          try {
-            await Pricing.fetchPricing();
-          } catch (err) {
-            logger.warn("pricing refresh failed", { err, provider: log.provider, model: log.model });
-          }
-          pricing = Pricing.getPricing(log.model, log.provider);
-        }
-        if (pricing) {
-          costUsd = Pricing.calculateCost(
-            {
-              prompt_tokens: log.prompt_tokens,
-              completion_tokens: log.completion_tokens,
-              cache_creation_tokens: log.cache_creation_tokens,
-              cache_read_tokens: log.cache_read_tokens,
-              reasoning_tokens: log.reasoning_tokens ?? 0,
-            },
-            pricing,
-            log.provider,
-          );
-        }
-      }
-      return costUsd;
-    }
-
     function preLog(log: Omit<Usage.RequestLog, "id">): number {
       return RequestRepo.insert(db, log);
     }
 
     async function finalizeUsage(id: number, log: Omit<Usage.RequestLog, "id">): Promise<boolean> {
-      const costUsd = await priceUsage(log);
-      const costStatus: Usage.CostStatus = costUsd > 0 ? "ok" : "pending";
-      const logWithCost = { ...log, cost_usd: costUsd, cost_status: log.cost_status ?? costStatus };
+      const cost = computeCost(log);
+      const logWithCost = { ...log, cost_usd: cost.cost_usd, cost_status: cost.cost_status };
 
       const txn = db.transaction(() => {
         const updated = RequestRepo.updateFinalize(db, id, {
@@ -60,7 +35,7 @@ export namespace UsageService {
           cache_read_tokens: logWithCost.cache_read_tokens,
           reasoning_tokens: logWithCost.reasoning_tokens ?? 0,
           total_tokens: logWithCost.total_tokens,
-          cost_usd: costUsd,
+          cost_usd: cost.cost_usd,
           incomplete: logWithCost.incomplete,
           error_code: logWithCost.error_code,
           latency_ms: logWithCost.latency_ms,
@@ -68,11 +43,13 @@ export namespace UsageService {
           lifecycle_status: logWithCost.lifecycle_status ?? "completed",
           finalized_at: logWithCost.finalized_at ?? logWithCost.finished_at ?? new Date().toISOString(),
           error_message: logWithCost.error_message,
-          cost_status: logWithCost.cost_status ?? costStatus,
+          cost_status: cost.cost_status,
           subscription_code: logWithCost.subscription_code,
         });
 
         if (updated === 0) return false;
+
+        insertCostAudit(id, logWithCost, cost);
 
         const day = logWithCost.started_at.slice(0, 10);
         UsageRepo.upsertDaily(db, {
@@ -85,7 +62,7 @@ export namespace UsageService {
           cache_creation_tokens: logWithCost.cache_creation_tokens,
           cache_read_tokens: logWithCost.cache_read_tokens,
           total_tokens: logWithCost.total_tokens,
-          cost_usd: costUsd,
+          cost_usd: cost.cost_usd,
         });
 
         return true;
@@ -95,12 +72,12 @@ export namespace UsageService {
     }
 
     async function recordUsage(log: Omit<Usage.RequestLog, "id">): Promise<number> {
-      const costUsd = await priceUsage(log);
-
-      const logWithCost = { ...log, cost_usd: costUsd };
+      const cost = computeCost(log);
+      const logWithCost = { ...log, cost_usd: cost.cost_usd, cost_status: cost.cost_status };
 
       const txn = db.transaction(() => {
         const id = RequestRepo.insert(db, logWithCost);
+        insertCostAudit(id, logWithCost, cost);
 
         const day = log.started_at.slice(0, 10);
         UsageRepo.upsertDaily(db, {
@@ -113,7 +90,7 @@ export namespace UsageService {
           cache_creation_tokens: log.cache_creation_tokens,
           cache_read_tokens: log.cache_read_tokens,
           total_tokens: log.total_tokens,
-          cost_usd: costUsd,
+          cost_usd: cost.cost_usd,
         });
 
         return id;
@@ -122,16 +99,27 @@ export namespace UsageService {
       return txn();
     }
 
-    async function backfillCosts(options: { onlyZeroCost?: boolean; limit?: number } = {}): Promise<{ scanned: number; updated: number }> {
-      await Pricing.fetchPricing();
-      const onlyZeroCost = options.onlyZeroCost ?? true;
+    async function backfillCosts(options: { all?: boolean; limit?: number; lookbackMs?: number } = {}): Promise<BackfillCostsResult> {
+      try {
+        await Pricing.fetchPricing({ force: true });
+      } catch (err) {
+        logger.warn("pricing refresh failed before cost backfill", { err, event: "cost.backfill_pricing_failed" });
+      }
+
+      const lookbackMs = options.lookbackMs ?? readPositiveEnvNumber("COST_BACKFILL_LOOKBACK_MS", DEFAULT_COST_BACKFILL_LOOKBACK_MS);
       const limitClause = options.limit && options.limit > 0 ? " LIMIT ?" : "";
-      const params = options.limit && options.limit > 0 ? [options.limit] : [];
+      const sinceClause = options.all ? "" : "AND started_at >= ?";
+      const sinceIso = new Date(Date.now() - lookbackMs).toISOString();
+      const params: Array<string | number> = [];
+      if (!options.all) params.push(sinceIso);
+      if (options.limit && options.limit > 0) params.push(options.limit);
       const rows = db.query(`
         SELECT id, provider, model, prompt_tokens, completion_tokens,
-               cache_creation_tokens, cache_read_tokens, reasoning_tokens, cost_usd
+               cache_creation_tokens, cache_read_tokens, reasoning_tokens, cost_usd, cost_status
         FROM request_logs
-        WHERE total_tokens > 0 ${onlyZeroCost ? "AND cost_usd = 0" : ""}
+        WHERE lifecycle_status IN ('completed', 'error')
+          AND cost_status IN ('pending', 'unresolved')
+          ${sinceClause}
         ORDER BY id ASC${limitClause}
       `).all(...params) as Array<{
         id: number;
@@ -143,28 +131,21 @@ export namespace UsageService {
         cache_read_tokens: number;
         reasoning_tokens?: number | null;
         cost_usd: number;
+        cost_status: Usage.CostStatus;
       }>;
 
       let updated = 0;
+      const statusCounts = { ok: 0, pending: 0, unsupported: 0 };
       const updateTxn = db.transaction(() => {
-        const updateLog = db.prepare("UPDATE request_logs SET cost_usd = ? WHERE id = ?");
+        const updateLog = db.prepare("UPDATE request_logs SET cost_usd = ?, cost_status = 'ok' WHERE id = ? AND cost_status IN ('pending', 'unresolved')");
         for (const row of rows) {
-          const pricing = Pricing.getPricing(row.model, row.provider);
-          if (!pricing) continue;
-          const cost = Pricing.calculateCost(
-            {
-              prompt_tokens: row.prompt_tokens,
-              completion_tokens: row.completion_tokens,
-              cache_creation_tokens: row.cache_creation_tokens,
-              cache_read_tokens: row.cache_read_tokens,
-              reasoning_tokens: row.reasoning_tokens ?? 0,
-            },
-            pricing,
-            row.provider,
-          );
-          if (cost === row.cost_usd) continue;
-          updateLog.run(cost, row.id);
-          updated += 1;
+          const cost = computeCost(row);
+          statusCounts[cost.cost_status] += 1;
+          insertCostAudit(row.id, row, cost);
+          if ((row.cost_status === "pending" || row.cost_status === "unresolved") && cost.cost_status === "ok") {
+            const result = updateLog.run(cost.cost_usd, row.id);
+            updated += result.changes;
+          }
         }
 
         db.exec(`
@@ -184,7 +165,33 @@ export namespace UsageService {
       });
 
       updateTxn();
-      return { scanned: rows.length, updated };
+      return { scanned: rows.length, updated, ...statusCounts };
+    }
+
+    function computeCost(log: {
+      provider: string;
+      model: string;
+      prompt_tokens: number;
+      completion_tokens: number;
+      cache_creation_tokens: number;
+      cache_read_tokens: number;
+      reasoning_tokens?: number | null;
+    }): Cost.CostResult {
+      return Cost.compute(Cost.inputsFromLog(log));
+    }
+
+    function insertCostAudit(
+      requestLogId: number,
+      log: Pick<Usage.RequestLog, "provider" | "model">,
+      cost: Cost.CostResult,
+    ): void {
+      RequestRepo.insertCostAudit(db, {
+        request_log_id: requestLogId,
+        model: log.model,
+        provider: log.provider,
+        source: cost.source,
+        base_cost_usd: cost.cost_usd,
+      });
     }
 
     function getToday(): Usage.DailyUsageSummary {
@@ -401,4 +408,34 @@ export namespace UsageService {
   }
 
   export type UsageService = ReturnType<typeof create>;
+
+  export interface BackfillCostsResult {
+    scanned: number;
+    updated: number;
+    ok: number;
+    pending: number;
+    unsupported: number;
+  }
+
+  export function startCostBackfillLoop(service: UsageService): ReturnType<typeof setInterval> {
+    const intervalMs = readPositiveEnvNumber("COST_BACKFILL_INTERVAL_MS", DEFAULT_COST_BACKFILL_INTERVAL_MS);
+    const runBackfill = (): void => {
+      service.backfillCosts().then((result) => {
+        costBackfillLogger.info("cost backfill completed", { event: "cost.backfill", ...result });
+      }).catch((err) => {
+        costBackfillLogger.warn("cost backfill failed", { event: "cost.backfill_failed", err });
+      });
+    };
+
+    runBackfill();
+    // TODO(T11): migrate to Supervisor.run when supervisor module exists
+    return setInterval(runBackfill, intervalMs);
+  }
+}
+
+function readPositiveEnvNumber(key: string, fallback: number): number {
+  const raw = process.env[key];
+  if (raw === undefined) return fallback;
+  const parsed = Number(raw);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
 }
