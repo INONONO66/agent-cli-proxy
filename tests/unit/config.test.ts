@@ -89,6 +89,7 @@ test("invalid port and timeout values fail fast", () => {
     CLIPROXY_CORRELATION_LOOKBACK_MS: "NaN",
     QUOTA_REFRESH_INTERVAL_MS: "0",
     QUOTA_REFRESH_TIMEOUT_MS: "Infinity",
+    READY_PRICING_MAX_AGE_MS: "0",
   })));
 
   expect(err.issues.map((issue) => issue.path)).toEqual(expect.arrayContaining([
@@ -101,6 +102,7 @@ test("invalid port and timeout values fail fast", () => {
     "CLIPROXY_CORRELATION_LOOKBACK_MS",
     "QUOTA_REFRESH_INTERVAL_MS",
     "QUOTA_REFRESH_TIMEOUT_MS",
+    "READY_PRICING_MAX_AGE_MS",
   ]));
 });
 

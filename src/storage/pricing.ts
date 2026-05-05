@@ -50,6 +50,7 @@ export namespace Pricing {
 
   let cache: CacheEntry | null = null;
   let inFlightFetch: Promise<PricingMap> | null = null;
+  let bypassDiskCacheForTests = false;
 
   export async function fetchPricing(options: { force?: boolean } = {}): Promise<PricingMap> {
     const now = Date.now();
@@ -72,6 +73,12 @@ export namespace Pricing {
     return findPricing(model, provider)?.pricing ?? null;
   }
 
+  export async function getPricingFreshness(): Promise<{ fetchedAt: number; ageMs: number } | null> {
+    const entry = cache ?? await readDiskCache();
+    if (!entry) return null;
+    return { fetchedAt: entry.fetchedAt, ageMs: Date.now() - entry.fetchedAt };
+  }
+
   export function startBackgroundRefresh(options: { intervalMs?: number; signal?: AbortSignal } = {}): Supervisor.Handle {
     const intervalMs = options.intervalMs ?? Config.pricingRefreshIntervalMs;
     return Supervisor.run("pricing-refresh", async () => {
@@ -83,13 +90,15 @@ export namespace Pricing {
     });
   }
 
-  export function __setPricingForTests(entries: Array<[string, ModelPricing]>): void {
-    cache = { data: new Map(entries), fetchedAt: Date.now() };
+  export function __setPricingForTests(entries: Array<[string, ModelPricing]>, fetchedAt: number = Date.now()): void {
+    bypassDiskCacheForTests = false;
+    cache = { data: new Map(entries), fetchedAt };
   }
 
   export function __clearPricingForTests(): void {
     cache = null;
     inFlightFetch = null;
+    bypassDiskCacheForTests = true;
   }
 
   export function findPricing(model: string, provider?: string): PricingMatch | null {
@@ -158,7 +167,7 @@ export namespace Pricing {
   async function refreshPricing(force: boolean): Promise<PricingMap> {
     const now = Date.now();
 
-    if (!force) {
+    if (!force && !bypassDiskCacheForTests) {
       const diskCache = await readDiskCache();
       if (diskCache && now - diskCache.fetchedAt < Config.pricingCacheTtlMs) {
         cache = diskCache;
@@ -179,7 +188,7 @@ export namespace Pricing {
     } catch (err) {
       logger.warn("pricing fetch failed, using cached data", { err, source: "models.dev" });
       if (cache) return cache.data;
-      const diskCache = await readDiskCache();
+      const diskCache = bypassDiskCacheForTests ? null : await readDiskCache();
       if (diskCache) {
         cache = diskCache;
         return diskCache.data;

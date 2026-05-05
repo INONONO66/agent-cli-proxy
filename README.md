@@ -60,6 +60,7 @@ Provider API keys are intentionally **not** stored by this proxy unless CLIProxy
 | `CLAUDE_CODE_VERSION` | `2.1.87` | Claude Code version for bypass headers |
 | `DB_PATH` | `data/proxy.db` | SQLite database path |
 | `PRICING_CACHE_PATH` | `data/pricing-cache.json` | Runtime models.dev pricing cache |
+| `READY_PRICING_MAX_AGE_MS` | `86400000` | Maximum pricing cache age accepted by `/ready` |
 | `CLIENT_NAME_MAPPING` | | API key to name mapping (e.g. `key1=alice,key2=bob`) |
 | `PROVIDERS_CONFIG_PATH` | | Optional JSON file for custom providers |
 | `PROVIDERS_JSON` | | Inline custom provider JSON; takes precedence over `PROVIDERS_CONFIG_PATH` |
@@ -121,6 +122,13 @@ Multiple instances of the same tool are distinguished by `X-Agent-Name` header o
 | `POST` | `/v1/messages` | Anthropic Messages API (with Claude bypass) |
 | `POST` | `/v1/chat/completions` | OpenAI Chat Completions (pass-through) |
 | `GET` | `/health` | Health check |
+
+### Health and Readiness
+
+| Endpoint | Purpose |
+|----------|---------|
+| `GET /health` | Liveness probe (cheap, always 200 if process alive) |
+| `GET /ready` | Readiness probe (DB, pricing cache, upstream); 200 with details when dependencies healthy, 503 when failing |
 
 ### Admin API (localhost only)
 

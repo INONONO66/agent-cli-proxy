@@ -16,6 +16,7 @@ export interface ValidatedConfig {
   dbPath: string;
   pricingCacheTtlMs: number;
   pricingCachePath: string;
+  readyPricingMaxAgeMs: number;
   pricingRefreshIntervalMs: number;
   costBackfillIntervalMs: number;
   costBackfillLookbackMs: number;
@@ -73,6 +74,7 @@ export namespace Config {
       dbPath: readString(env, "DB_PATH", "data/proxy.db"),
       pricingCacheTtlMs: readPositiveNumber(env, "PRICING_CACHE_TTL_MS", 3600000, issues),
       pricingCachePath: readString(env, "PRICING_CACHE_PATH", "data/pricing-cache.json"),
+      readyPricingMaxAgeMs: readPositiveNumber(env, "READY_PRICING_MAX_AGE_MS", 86400000, issues),
       pricingRefreshIntervalMs: readPositiveNumber(env, "PRICING_REFRESH_INTERVAL_MS", 21600000, issues),
       costBackfillIntervalMs: readPositiveNumber(env, "COST_BACKFILL_INTERVAL_MS", 1800000, issues),
       costBackfillLookbackMs: readPositiveNumber(env, "COST_BACKFILL_LOOKBACK_MS", 604800000, issues),

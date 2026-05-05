@@ -100,6 +100,10 @@ export namespace Supervisor {
     await Promise.all(loops.map((loopState) => loopState.stop(timeoutMs)));
   }
 
+  export function list(): string[] {
+    return Array.from(registry, (loopState) => loopState.name).sort();
+  }
+
   export function __setLoggerForTests(testLogger: Logger.Logger | null): void {
     logger = testLogger ?? Logger.fromConfig().child({ component: "supervisor" });
   }
