@@ -1,0 +1,51 @@
+Task T10 subscription binding evidence
+Date: 2026-05-05
+
+Command flow:
+PROXY_LOCAL_OK=1 DB_PATH=.sisyphus/evidence/t10-plans.db bun run src/cli.ts plans list
+PROXY_LOCAL_OK=1 DB_PATH=.sisyphus/evidence/t10-plans.db bun run src/cli.ts plans bind acc1 claude_pro
+PROXY_LOCAL_OK=1 DB_PATH=.sisyphus/evidence/t10-plans.db bun run src/cli.ts plans list
+PROXY_LOCAL_OK=1 DB_PATH=.sisyphus/evidence/t10-plans.db bun run src/cli.ts plans bind acc1 nonexistent_code
+PROXY_LOCAL_OK=1 DB_PATH=.sisyphus/evidence/t10-plans.db bun run src/cli.ts plans unbind acc1
+PROXY_LOCAL_OK=1 DB_PATH=.sisyphus/evidence/t10-plans.db bun run src/cli.ts plans list
+
+Observed output:
+Plans:
+  claude_pro - Claude Pro
+  claude_max5 - Claude Max 5x
+  claude_max20 - Claude Max 20x
+  chatgpt_plus - ChatGPT Plus
+  chatgpt_pro - ChatGPT Pro
+  chatgpt_business - ChatGPT Business
+  kimi_pro - Kimi Pro
+Bindings:
+  (none)
+Bound acc1 → claude_pro
+Plans:
+  claude_pro - Claude Pro
+  claude_max5 - Claude Max 5x
+  claude_max20 - Claude Max 20x
+  chatgpt_plus - ChatGPT Plus
+  chatgpt_pro - ChatGPT Pro
+  chatgpt_business - ChatGPT Business
+  kimi_pro - Kimi Pro
+Bindings:
+  acc1 → claude_pro (2026-05-05 10:17:08)
+Unknown plan code: nonexistent_code
+Unbound acc1
+Plans:
+  claude_pro - Claude Pro
+  claude_max5 - Claude Max 5x
+  claude_max20 - Claude Max 20x
+  chatgpt_plus - ChatGPT Plus
+  chatgpt_pro - ChatGPT Pro
+  chatgpt_business - ChatGPT Business
+  kimi_pro - Kimi Pro
+Bindings:
+  (none)
+
+Verification summaries:
+- bun test tests/unit/account-subscriptions.test.ts: 6 pass, 0 fail, 14 expect() calls.
+- bun test: 65 pass, 17 skip, 0 fail, 195 expect() calls.
+- bun run build: exit 0.
+- lsp_diagnostics src/: 0 errors.

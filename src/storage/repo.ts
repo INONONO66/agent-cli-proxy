@@ -181,6 +181,15 @@ export namespace RequestRepo {
     );
   }
 
+  export function applySubscription(
+    db: Database,
+    id: number,
+    subscriptionCode: string,
+  ): void {
+    db.prepare("UPDATE request_logs SET subscription_code = ? WHERE id = ?")
+      .run(subscriptionCode, id);
+  }
+
   export function updateFinalize(
     db: Database,
     id: number,

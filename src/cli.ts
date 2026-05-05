@@ -5,6 +5,8 @@ import { dirname, join, resolve } from "node:path";
 import { homedir, platform } from "node:os";
 import { createInterface } from "node:readline/promises";
 import { stdin as input, stdout as output } from "node:process";
+import { Plans } from "./plans";
+import { AccountSubscriptionRepo } from "./storage/account-subscriptions";
 import { Storage } from "./storage/db";
 import { ConfigError } from "./config/validate";
 import { Logger } from "./util/logger";
@@ -53,6 +55,9 @@ async function main(): Promise<void> {
       return;
     case "backfill-costs":
       await backfillCostsCommand();
+      return;
+    case "plans":
+      await plansCommand(subcommand);
       return;
     case "paths":
       printPaths();
@@ -161,6 +166,60 @@ async function backfillCostsCommand(): Promise<void> {
   });
   writeOut(`[backfill-costs] scanned=${result.scanned} updated=${result.updated} ok=${result.ok} pending=${result.pending} unsupported=${result.unsupported}`);
   db.close();
+}
+
+async function plansCommand(subcommand: string): Promise<void> {
+  const [, , accountArg = "", codeArg = ""] = process.argv.slice(2);
+
+  switch (subcommand) {
+    case "bind": {
+      const { account, code } = Plans.validateBindingInput(accountArg, codeArg);
+      const db = await openConfiguredDb();
+      try {
+        AccountSubscriptionRepo.bind(db, account, code);
+      } finally {
+        db.close();
+      }
+      writeOut(`Bound ${account} → ${code}`);
+      return;
+    }
+    case "unbind": {
+      const account = accountArg.trim();
+      if (!account) throw new Error("Account must be a non-empty string");
+      const db = await openConfiguredDb();
+      try {
+        AccountSubscriptionRepo.unbind(db, account);
+      } finally {
+        db.close();
+      }
+      writeOut(`Unbound ${account}`);
+      return;
+    }
+    case "list": {
+      const db = await openConfiguredDb();
+      try {
+        writeOut("Plans:");
+        for (const plan of Plans.list()) {
+          writeOut(`  ${plan.code} - ${plan.display_name}`);
+        }
+        writeOut("Bindings:");
+        const bindings = AccountSubscriptionRepo.list(db);
+        if (bindings.length === 0) {
+          writeOut("  (none)");
+        } else {
+          for (const binding of bindings) {
+            writeOut(`  ${binding.cliproxy_account} → ${binding.subscription_code} (${binding.bound_at})`);
+          }
+        }
+      } finally {
+        db.close();
+      }
+      return;
+    }
+  }
+
+  writeErr("Usage: agent-cli-proxy plans <bind|unbind|list>");
+  process.exit(1);
 }
 
 async function serviceCommand(subcommand: string): Promise<void> {
@@ -290,6 +349,17 @@ async function initDbAt(dbPath: string): Promise<void> {
   db.close();
 }
 
+async function openConfiguredDb() {
+  const envPath = getArg("--env") ?? defaultEnvPath;
+  const env = parseEnvFile(envPath);
+  for (const [key, value] of Object.entries(env)) {
+    process.env[key] = value;
+  }
+  const { Config } = await import("./config/validate");
+  Config.validate(process.env);
+  return Storage.initDb(env.DB_PATH ?? process.env.DB_PATH ?? defaultDbPath);
+}
+
 async function writeEnv(path: string, env: EnvMap): Promise<void> {
   const lines = Object.entries(env).map(([key, value]) => `${key}=${quoteEnv(value)}`);
   const handle = await open(path, "w", 0o600);
@@ -415,6 +485,9 @@ Usage:
   agent-cli-proxy service install [--env PATH] [--runtime-dir PATH] [--service-path PATH]
   agent-cli-proxy service start|stop|restart|status
   agent-cli-proxy backfill-costs
+  agent-cli-proxy plans bind <account> <code> [--env PATH]
+  agent-cli-proxy plans unbind <account> [--env PATH]
+  agent-cli-proxy plans list [--env PATH]
   agent-cli-proxy paths
 `);
 }

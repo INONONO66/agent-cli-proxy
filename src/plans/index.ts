@@ -58,6 +58,17 @@ export namespace Plans {
     return readCache().byCode.get(code) ?? null;
   }
 
+  export function validateBindingInput(account: string, code: string): { account: string; code: string } {
+    const normalizedAccount = account.trim();
+    if (!normalizedAccount) throw new Error("Account must be a non-empty string");
+
+    const normalizedCode = code.trim();
+    if (!normalizedCode) throw new Error("Plan code must be a non-empty string");
+    if (!byCode(normalizedCode)) throw new Error(`Unknown plan code: ${normalizedCode}`);
+
+    return { account: normalizedAccount, code: normalizedCode };
+  }
+
   export function reload(): Plan[] {
     cache = null;
     return load();

@@ -233,6 +233,14 @@ try {
 - Fuzzy pricing lookup should never match by `known_key.includes(input_alias)`: short aliases such as `gpt-5` can incorrectly price future variants. Keeping only `input_alias.includes(known_key)` with a minimum key length avoids the dangerous direction.
 - To preserve the application invariant needed by cost-summary consumers, `cost_status='ok'` should mean `cost_usd > 0`; zero-token usage stays pending/guarded rather than creating ok zero-cost rows.
 - With the Supervisor module present, cost backfill should be registered as a supervised loop (`cost-backfill`) and share the shutdown `AbortSignal` instead of using a raw `setInterval`.
+
+# T10 Subscription Attribution Learnings (May 2026)
+
+- Keep plan metadata and enforcement separate: `account_subscriptions` only maps a CLIProxy account to a plan code, while request processing continues without quota/limit decisions.
+- Attribution is safest immediately after account correlation, because pass-through pre-logs intentionally do not know the CLIProxy account yet.
+- A dedicated `RequestRepo.applySubscription()` update avoids overloading lifecycle/finalize updates when only the monitoring metadata changes.
+- CLI plan-code validation should call the same `Plans` loader used elsewhere so custom `PLANS_JSON`/`PLANS_PATH` configurations and packaged defaults stay consistent.
+- Once-per-account/day warning dedup can remain in memory for this monitoring use case; keying by `${account}:${YYYY-MM-DD}` prevents noisy unmapped-account logs without database state.
 # Bun Package Distribution & Release Workflow Research
 
 **Date**: May 4, 2026  
