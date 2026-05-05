@@ -61,7 +61,14 @@ registerPlugin({
     const opencodeProject = headers.get("x-opencode-project");
     const initiator = headers.get("x-initiator");
 
-    if (opencodeSession || initiator || userAgent.includes("opencode/")) {
+    const isOpencode =
+      opencodeSession ||
+      initiator ||
+      userAgent.includes("opencode/") ||
+      userAgent.includes("opencode-") ||
+      userAgent.includes("openai-sdk-bun");
+
+    if (isOpencode) {
       return {
         tool: "opencode",
         version: extractVersion(userAgent, "opencode/"),
