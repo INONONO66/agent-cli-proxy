@@ -25,6 +25,11 @@ jobs:
           NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
 
       - name: Publish to npm
-        run: npm publish --access public
+        run: |
+          if npm view "$(node -p "require('./package.json').name")@$(node -p "require('./package.json').version")" 2>/dev/null; then
+            echo "Version already published, skipping"
+          else
+            npm publish --access public
+          fi
         env:
           NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
