@@ -121,33 +121,54 @@ export namespace UsageService {
       const maxRows = options.limit && options.limit > 0 ? Math.floor(options.limit) : null;
       const sinceClause = options.all ? "" : "AND started_at >= ?";
       const sinceIso = new Date(Date.now() - lookbackMs).toISOString();
+      const maxCandidateId = getCostBackfillMaxId(sinceClause, sinceIso);
 
       let scanned = 0;
       let updated = 0;
+      let lastSeenId = 0;
       const statusCounts = { ok: 0, pending: 0, unsupported: 0 };
 
-      while (maxRows === null || scanned < maxRows) {
+      while (maxCandidateId !== null && (maxRows === null || scanned < maxRows)) {
         const remaining = maxRows === null ? chunkSize : Math.min(chunkSize, maxRows - scanned);
-        const rows = selectCostBackfillRows(sinceClause, sinceIso, remaining);
+        const rows = selectCostBackfillRows(sinceClause, sinceIso, lastSeenId, maxCandidateId, remaining);
         if (rows.length === 0) break;
 
+        lastSeenId = rows[rows.length - 1].id;
         updated += updateCostBackfillChunk(rows, statusCounts);
         scanned += rows.length;
 
-        if (rows.length < remaining || (maxRows !== null && scanned >= maxRows)) break;
+        if (rows.length < remaining || lastSeenId >= maxCandidateId || (maxRows !== null && scanned >= maxRows)) break;
         await yieldBackfillChunk();
       }
 
       return { scanned, updated, ...statusCounts };
     }
 
-    function selectCostBackfillRows(sinceClause: string, sinceIso: string, limit: number): CostBackfillRow[] {
+    function getCostBackfillMaxId(sinceClause: string, sinceIso: string): number | null {
+      const params: string[] = [];
+      if (sinceClause) params.push(sinceIso);
+
+      const row = db.query(`
+        SELECT MAX(id) AS max_id
+        FROM request_logs
+        WHERE lifecycle_status IN ('completed', 'error')
+          AND cost_status IN ('pending', 'unresolved')
+          ${sinceClause}
+      `).get(...params) as { max_id?: number | null } | null;
+
+      return row?.max_id ?? null;
+    }
+
+    function selectCostBackfillRows(
+      sinceClause: string,
+      sinceIso: string,
+      lastSeenId: number,
+      maxCandidateId: number,
+      limit: number,
+    ): CostBackfillRow[] {
       const params: Array<string | number> = [];
-      if (!sinceClause) {
-        params.push(limit);
-      } else {
-        params.push(sinceIso, limit);
-      }
+      if (sinceClause) params.push(sinceIso);
+      params.push(lastSeenId, maxCandidateId, limit);
 
       return db.query(`
         SELECT id, provider, model, prompt_tokens, completion_tokens,
@@ -157,6 +178,8 @@ export namespace UsageService {
         WHERE lifecycle_status IN ('completed', 'error')
           AND cost_status IN ('pending', 'unresolved')
           ${sinceClause}
+          AND id > ?
+          AND id <= ?
         ORDER BY id ASC
         LIMIT ?
       `).all(...params) as CostBackfillRow[];
