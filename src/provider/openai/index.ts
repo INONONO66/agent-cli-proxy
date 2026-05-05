@@ -1,1 +1,2 @@
-export { parseOpenAISSELine, finalizeOpenAIUsage, OpenAI } from "./stream-usage";
+export { parseOpenAISSELine, finalizeOpenAIUsage } from "./stream-usage";
+export type { OpenAI } from "./stream-usage";

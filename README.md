@@ -61,6 +61,8 @@ Provider API keys are intentionally **not** stored by this proxy unless CLIProxy
 | `DB_PATH` | `data/proxy.db` | SQLite database path |
 | `PRICING_CACHE_PATH` | `data/pricing-cache.json` | Runtime models.dev pricing cache |
 | `CLIENT_NAME_MAPPING` | | API key to name mapping (e.g. `key1=alice,key2=bob`) |
+| `PROVIDERS_CONFIG_PATH` | | Optional JSON file for custom providers |
+| `PROVIDERS_JSON` | | Inline custom provider JSON; takes precedence over `PROVIDERS_CONFIG_PATH` |
 | `CLIPROXY_MGMT_KEY` | | Optional CLIProxyAPI management key for account correlation |
 | `CLIPROXY_AUTH_DIR` | | Optional CLIProxyAPI auth directory for subscription quota checks (`~/.cli-proxy-api`) |
 | `QUOTA_REFRESH_TIMEOUT_MS` | `15000` | Timeout for provider quota refresh calls |
@@ -135,6 +137,36 @@ Multiple instances of the same tool are distinguished by `X-Agent-Name` header o
 | `GET` | `/admin/quotas/refresh` | Force refresh subscription quota snapshots |
 
 Quota checks use local CLIProxyAPI OAuth auth files when `CLIPROXY_AUTH_DIR` is set. Claude reports 5-hour and weekly utilization from Anthropic OAuth usage, Codex reports primary/secondary windows from ChatGPT `wham/usage`, and Kimi reports coding weekly/5-hour quota when its usage endpoint accepts the stored token.
+
+### Custom Providers
+
+Add OpenAI-compatible local/custom providers with JSON config. Select them per request using `x-provider: <id>` or a request body `provider` field; the proxy strips the body `provider` field before forwarding by default.
+
+```json
+{
+  "providers": [
+    {
+      "id": "local",
+      "type": "openai-compatible",
+      "paths": ["/v1/chat/completions"],
+      "upstreamBaseUrl": "http://localhost:11434",
+      "upstreamPath": "/v1/chat/completions",
+      "models": ["llama", "qwen"],
+      "auth": "none"
+    },
+    {
+      "id": "glm",
+      "type": "openai-compatible",
+      "paths": ["/v1/chat/completions"],
+      "upstreamBaseUrl": "https://open.bigmodel.cn/api/paas/v4",
+      "models": ["glm"],
+      "auth": { "type": "bearer", "env": "GLM_API_KEY" }
+    }
+  ]
+}
+```
+
+Provider fields: `id`, `type` (`openai-compatible` or `anthropic`), `paths`, `upstreamBaseUrl`, optional `upstreamPath`, `models`, `headers`, `auth` (`none`, `preserve`, `bearer`, `x-api-key`, or object with `env`/`value`/`header`), and `stripProviderField`.
 
 ## Project Structure
 
