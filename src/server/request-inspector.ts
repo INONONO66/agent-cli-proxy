@@ -9,6 +9,7 @@ export interface RequestInfo {
   path: string;
   method: string;
   clientIp: string | null;
+  requestId?: string;
 }
 
 export namespace RequestInspector {

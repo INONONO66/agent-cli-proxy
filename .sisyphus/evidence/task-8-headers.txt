@@ -1,0 +1,9 @@
+bun test v1.3.11 (af24e281)
+{"ts":"2026-05-05T00:23:36.235Z","level":"info","msg":"request pre-logged","component":"pass-through","event":"lifecycle.pre_logged","request_id":"d08ce044-9ba0-4044-afc3-86e9c09d96ed","row_id":1,"provider":"anthropic","model":"claude-sonnet-4-20250514","path":"/v1/messages","tool":"opencode","client_id":"opencode"}
+{"ts":"2026-05-05T00:23:36.237Z","level":"info","msg":"request finalized","component":"pass-through","event":"lifecycle.finalized","request_id":"d08ce044-9ba0-4044-afc3-86e9c09d96ed","row_id":1,"updated":true,"lifecycle_status":"completed","status":200,"path":"/v1/messages"}
+
+ 1 pass
+ 6 filtered out
+ 0 fail
+ 4 expect() calls
+Ran 1 test across 1 file. [20.00ms]

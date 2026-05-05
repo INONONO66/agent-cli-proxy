@@ -1,0 +1,9 @@
+bun test v1.3.11 (af24e281)
+{"ts":"2026-05-05T00:23:36.227Z","level":"info","msg":"request pre-logged","component":"pass-through","event":"lifecycle.pre_logged","request_id":"e7a15c8f-eef2-4835-9516-8f813931234c","row_id":1,"provider":"openai","model":"gpt-4o","path":"/v1/chat/completions","tool":"opencode","client_id":"opencode"}
+{"ts":"2026-05-05T00:23:36.230Z","level":"info","msg":"request finalized","component":"pass-through","event":"lifecycle.aborted","request_id":"e7a15c8f-eef2-4835-9516-8f813931234c","row_id":1,"updated":true,"lifecycle_status":"aborted","status":499,"path":"/v1/chat/completions"}
+
+ 1 pass
+ 6 filtered out
+ 0 fail
+ 4 expect() calls
+Ran 1 test across 1 file. [23.00ms]

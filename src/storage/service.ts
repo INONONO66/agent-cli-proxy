@@ -9,7 +9,7 @@ const logger = Logger.fromConfig().child({ component: "usage-service" });
 
 export namespace UsageService {
   export function create(db: Database) {
-    async function recordUsage(log: Omit<Usage.RequestLog, "id">): Promise<number> {
+    async function priceUsage(log: Omit<Usage.RequestLog, "id">): Promise<number> {
       let costUsd = log.cost_usd;
       if (!costUsd && log.model) {
         let pricing = Pricing.getPricing(log.model, log.provider);
@@ -35,6 +35,67 @@ export namespace UsageService {
           );
         }
       }
+      return costUsd;
+    }
+
+    function preLog(log: Omit<Usage.RequestLog, "id">): number {
+      return RequestRepo.insert(db, log);
+    }
+
+    async function finalizeUsage(id: number, log: Omit<Usage.RequestLog, "id">): Promise<boolean> {
+      const costUsd = await priceUsage(log);
+      const costStatus: Usage.CostStatus = costUsd > 0 ? "ok" : "pending";
+      const logWithCost = { ...log, cost_usd: costUsd, cost_status: log.cost_status ?? costStatus };
+
+      const txn = db.transaction(() => {
+        const updated = RequestRepo.updateFinalize(db, id, {
+          provider: logWithCost.provider,
+          model: logWithCost.model,
+          actual_model: logWithCost.actual_model,
+          streamed: logWithCost.streamed,
+          status: logWithCost.status,
+          prompt_tokens: logWithCost.prompt_tokens,
+          completion_tokens: logWithCost.completion_tokens,
+          cache_creation_tokens: logWithCost.cache_creation_tokens,
+          cache_read_tokens: logWithCost.cache_read_tokens,
+          reasoning_tokens: logWithCost.reasoning_tokens ?? 0,
+          total_tokens: logWithCost.total_tokens,
+          cost_usd: costUsd,
+          incomplete: logWithCost.incomplete,
+          error_code: logWithCost.error_code,
+          latency_ms: logWithCost.latency_ms,
+          finished_at: logWithCost.finished_at,
+          lifecycle_status: logWithCost.lifecycle_status ?? "completed",
+          finalized_at: logWithCost.finalized_at ?? logWithCost.finished_at ?? new Date().toISOString(),
+          error_message: logWithCost.error_message,
+          cost_status: logWithCost.cost_status ?? costStatus,
+          subscription_code: logWithCost.subscription_code,
+        });
+
+        if (updated === 0) return false;
+
+        const day = logWithCost.started_at.slice(0, 10);
+        UsageRepo.upsertDaily(db, {
+          day,
+          provider: logWithCost.provider,
+          model: logWithCost.model,
+          request_count: 1,
+          prompt_tokens: logWithCost.prompt_tokens,
+          completion_tokens: logWithCost.completion_tokens,
+          cache_creation_tokens: logWithCost.cache_creation_tokens,
+          cache_read_tokens: logWithCost.cache_read_tokens,
+          total_tokens: logWithCost.total_tokens,
+          cost_usd: costUsd,
+        });
+
+        return true;
+      });
+
+      return txn();
+    }
+
+    async function recordUsage(log: Omit<Usage.RequestLog, "id">): Promise<number> {
+      const costUsd = await priceUsage(log);
 
       const logWithCost = { ...log, cost_usd: costUsd };
 
@@ -318,6 +379,8 @@ export namespace UsageService {
 
     return {
       db,
+      preLog,
+      finalizeUsage,
       recordUsage,
       getToday,
       getDateRange,

@@ -28,8 +28,9 @@ export namespace RequestRepo {
         cache_creation_tokens, cache_read_tokens, reasoning_tokens,
         total_tokens, cost_usd, incomplete, error_code, latency_ms,
         started_at, finished_at, meta_json, user_agent, source_ip,
-        lifecycle_status, cost_status, subscription_code, finalized_at, error_message
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        agent, source, msg_id, lifecycle_status, cost_status,
+        subscription_code, finalized_at, error_message
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `);
 
     const result = stmt.run(
@@ -57,6 +58,9 @@ export namespace RequestRepo {
       log.meta_json ?? null,
       log.user_agent ?? null,
       log.source_ip ?? null,
+      log.agent ?? null,
+      log.source ?? "proxy",
+      log.msg_id ?? null,
       lifecycleStatus,
       costStatus,
       log.subscription_code ?? null,
@@ -175,6 +179,85 @@ export namespace RequestRepo {
       fields.subscription_code ?? null,
       id,
     );
+  }
+
+  export function updateFinalize(
+    db: Database,
+    id: number,
+    fields: {
+      provider?: string;
+      model?: string;
+      actual_model?: string;
+      streamed?: number;
+      status?: number;
+      prompt_tokens?: number;
+      completion_tokens?: number;
+      cache_creation_tokens?: number;
+      cache_read_tokens?: number;
+      reasoning_tokens?: number;
+      total_tokens?: number;
+      cost_usd?: number;
+      incomplete?: number;
+      error_code?: string;
+      latency_ms?: number;
+      finished_at?: string;
+      lifecycle_status: Usage.LifecycleStatus;
+      finalized_at: string;
+      error_message?: string;
+      cost_status: Usage.CostStatus;
+      subscription_code?: string;
+    },
+  ): number {
+    const stmt = db.prepare(`
+      UPDATE request_logs
+      SET provider = COALESCE(?, provider),
+          model = COALESCE(?, model),
+          actual_model = COALESCE(?, actual_model),
+          streamed = COALESCE(?, streamed),
+          status = COALESCE(?, status),
+          prompt_tokens = COALESCE(?, prompt_tokens),
+          completion_tokens = COALESCE(?, completion_tokens),
+          cache_creation_tokens = COALESCE(?, cache_creation_tokens),
+          cache_read_tokens = COALESCE(?, cache_read_tokens),
+          reasoning_tokens = COALESCE(?, reasoning_tokens),
+          total_tokens = COALESCE(?, total_tokens),
+          cost_usd = COALESCE(?, cost_usd),
+          incomplete = COALESCE(?, incomplete),
+          error_code = COALESCE(?, error_code),
+          latency_ms = COALESCE(?, latency_ms),
+          finished_at = COALESCE(?, finished_at),
+          lifecycle_status = ?,
+          finalized_at = ?,
+          error_message = COALESCE(?, error_message),
+          cost_status = ?,
+          subscription_code = COALESCE(?, subscription_code)
+      WHERE id = ? AND lifecycle_status = 'pending'
+    `);
+    const result = stmt.run(
+      fields.provider ?? null,
+      fields.model ?? null,
+      fields.actual_model ?? null,
+      fields.streamed ?? null,
+      fields.status ?? null,
+      fields.prompt_tokens ?? null,
+      fields.completion_tokens ?? null,
+      fields.cache_creation_tokens ?? null,
+      fields.cache_read_tokens ?? null,
+      fields.reasoning_tokens ?? null,
+      fields.total_tokens ?? null,
+      fields.cost_usd ?? null,
+      fields.incomplete ?? null,
+      fields.error_code ?? null,
+      fields.latency_ms ?? null,
+      fields.finished_at ?? null,
+      fields.lifecycle_status,
+      fields.finalized_at,
+      fields.error_message ?? null,
+      fields.cost_status,
+      fields.subscription_code ?? null,
+      id,
+    );
+    return result.changes;
   }
 
   export function insertCostAudit(

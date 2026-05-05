@@ -15,6 +15,7 @@ async function main(): Promise<void> {
   });
 
   const db = Storage.initDb(Config.dbPath);
+  Storage.recoverStalePending(db);
   const usageService = UsageService.create(db);
   const handleRequest = Handler.create(usageService);
 

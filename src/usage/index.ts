@@ -49,6 +49,9 @@ export namespace Usage {
     correlated_at?: string;
     user_agent?: string;
     source_ip?: string;
+    agent?: string;
+    source?: string;
+    msg_id?: string;
   }
 
   export interface CostAudit {

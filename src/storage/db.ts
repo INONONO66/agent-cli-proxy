@@ -5,6 +5,8 @@ import { Logger } from "../util/logger";
 
 const logger = Logger.fromConfig().child({ component: "storage-db" });
 
+export const STALE_PENDING_MAX_AGE_MS = parseStalePendingMaxAgeMs(process.env.STALE_PENDING_MAX_AGE_MS);
+
 export namespace Storage {
   function splitStatements(sql: string): string[] {
     const stripped = sql.replace(/^\s*--.*$/gm, "");
@@ -210,4 +212,44 @@ export namespace Storage {
 
     return db;
   }
+
+  export function recoverStalePending(
+    db: Database,
+    maxAgeMs: number = STALE_PENDING_MAX_AGE_MS,
+  ): number {
+    const now = new Date().toISOString();
+    const threshold = new Date(Date.now() - maxAgeMs).toISOString();
+    const stmt = db.prepare(`
+      UPDATE request_logs
+      SET lifecycle_status = 'aborted',
+          error_message = 'boot-recovery',
+          finalized_at = ?,
+          finished_at = COALESCE(finished_at, ?),
+          incomplete = 1,
+          cost_status = CASE
+            WHEN cost_status = 'unresolved' THEN 'pending'
+            ELSE cost_status
+          END
+      WHERE lifecycle_status = 'pending'
+        AND started_at < ?
+    `);
+    const result = stmt.run(now, now, threshold);
+    const recovered = result.changes;
+    if (recovered > 0) {
+      logger.warn("recovered stale pending request logs", {
+        event: "lifecycle.boot_recovery",
+        recovered,
+        max_age_ms: maxAgeMs,
+        threshold,
+      });
+    }
+    return recovered;
+  }
+}
+
+function parseStalePendingMaxAgeMs(raw: string | undefined): number {
+  if (raw === undefined) return 600_000;
+  const parsed = Number(raw);
+  if (!Number.isFinite(parsed) || parsed <= 0) return 600_000;
+  return parsed;
 }

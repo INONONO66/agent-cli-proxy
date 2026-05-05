@@ -1,72 +1,212 @@
 import { Config } from "../config";
 import { RequestInspector, type RequestInfo } from "./request-inspector";
-import { ResponseParser } from "./response-parser";
+import { ResponseParser, type ParsedResponse } from "./response-parser";
 import { UsageService } from "../storage/service";
 import { Anthropic } from "../provider/anthropic";
 import { rewriteRequestBody, stripToolPrefix, stripToolPrefixFromLine } from "../provider/anthropic/transform";
 import { UpstreamClient } from "../upstream/client";
 import { Logger } from "../util/logger";
+import type { Usage } from "../usage";
 
 const logger = Logger.fromConfig().child({ component: "pass-through" });
 
-export namespace PassThroughProxy {
-  export function create(usageService: UsageService.UsageService) {
-    return async function handle(req: Request, info: RequestInfo): Promise<Response> {
-      const upstreamUrl = `${Config.cliProxyApiUrl}${info.path}`;
-      const startTime = Date.now();
-      const body = await buildBody(req, info);
+type ParsedUsage = ParsedResponse["usage"];
+type FetchUpstream = typeof UpstreamClient.fetch;
 
-      let upstreamResponse: Response;
+interface BodyBuildResult {
+  body: BodyInit | null;
+  rewritten: boolean;
+}
+
+interface LifecycleContext {
+  id: number;
+  requestId: string;
+  startTime: number;
+  startedAt: string;
+  provider: string;
+  model: string;
+  tool: string;
+  clientId: string;
+  path: string;
+  userAgent?: string;
+  sourceIp?: string;
+  agent?: string;
+  source: string;
+  msgId?: string;
+  finalized: boolean;
+  finalizing: Promise<void> | null;
+}
+
+export namespace PassThroughProxy {
+  export interface Dependencies {
+    fetch?: FetchUpstream;
+  }
+
+  export function create(usageService: UsageService.UsageService, dependencies: Dependencies = {}) {
+    const fetchUpstream = dependencies.fetch ?? UpstreamClient.fetch;
+
+    return async function handle(req: Request, info: RequestInfo): Promise<Response> {
+      const startTime = Date.now();
+      const lifecycle = preLog(req, info, usageService, startTime);
+      const requestInfo: RequestInfo = { ...info, requestId: lifecycle.requestId };
+      const upstreamUrl = `${Config.cliProxyApiUrl}${requestInfo.path}`;
+      let streamHandedOff = false;
+
       try {
-        upstreamResponse = await UpstreamClient.fetch({
+        const { body, rewritten } = await buildBody(req, requestInfo);
+        const upstreamResponse = await fetchUpstream({
           method: req.method,
           url: upstreamUrl,
-          headers: buildHeaders(req.headers, info),
+          headers: buildHeaders(req.headers, requestInfo, rewritten),
           body,
-          providerId: info.path.includes("messages") ? "anthropic" : "openai",
+          providerId: lifecycle.provider,
           idempotent: isIdempotentMethod(req.method),
+          signal: req.signal,
         });
+
+        const isStreaming = upstreamResponse.headers
+          .get("content-type")
+          ?.includes("text/event-stream") ?? false;
+
+        if (isStreaming) {
+          streamHandedOff = true;
+          return handleStreaming(upstreamResponse, requestInfo, usageService, lifecycle);
+        }
+
+        return await handleNonStreaming(upstreamResponse, requestInfo, usageService, lifecycle);
       } catch (err) {
-        logger.error("upstream fetch failed", { err, path: info.path });
+        const aborted = isAbortLike(err, req.signal);
+        const status = aborted ? 499 : 502;
+        const message = errorMessage(err, aborted ? "request aborted" : "upstream unavailable");
+        logger.error("upstream fetch failed", { event: "passthrough.upstream_error", err, path: requestInfo.path, request_id: lifecycle.requestId });
+        await finalizeOnce(usageService, lifecycle, {
+          parsed: { actualModel: null, usage: null },
+          status,
+          isStreaming: false,
+          lifecycleStatus: aborted ? "aborted" : "error",
+          errorMessage: message,
+          errorCode: aborted ? "aborted" : "bad_gateway",
+        });
         return new Response(
-          JSON.stringify({ error: "Upstream unavailable" }),
-          { status: 502, headers: { "content-type": "application/json" } },
+          JSON.stringify({ error: aborted ? "Request aborted" : "Upstream unavailable" }),
+          { status, headers: { "content-type": "application/json" } },
         );
+      } finally {
+        if (!streamHandedOff && !lifecycle.finalized && !lifecycle.finalizing) {
+          await finalizeOnce(usageService, lifecycle, {
+            parsed: { actualModel: null, usage: null },
+            status: 500,
+            isStreaming: false,
+            lifecycleStatus: "error",
+            errorMessage: "unhandled passthrough exit",
+            errorCode: "internal_error",
+          });
+        }
       }
-
-      const isStreaming = upstreamResponse.headers
-        .get("content-type")
-        ?.includes("text/event-stream") ?? false;
-
-      if (isStreaming) {
-        return handleStreaming(upstreamResponse, info, usageService, startTime);
-      }
-
-      return handleNonStreaming(upstreamResponse, info, usageService, startTime);
     };
   }
 
-  async function buildBody(req: Request, info: RequestInfo): Promise<BodyInit | null> {
-    if (!info.path.includes("messages")) return req.body;
+  function preLog(
+    req: Request,
+    info: RequestInfo,
+    usageService: UsageService.UsageService,
+    startTime: number,
+  ): LifecycleContext {
+    const requestId = crypto.randomUUID();
+    info.requestId = requestId;
+    const provider = providerForPath(info.path);
+    const tool = RequestInspector.detectTool(info);
+    const clientId = RequestInspector.generateClientId(tool, info);
+    const startedAt = new Date(startTime).toISOString();
+    const msgId = req.headers.get("x-msg-id")
+      ?? req.headers.get("x-message-id")
+      ?? req.headers.get("x-request-id")
+      ?? undefined;
+    const source = "proxy";
+
+    const id = usageService.preLog({
+      request_id: requestId,
+      provider,
+      model: info.model ?? "unknown",
+      tool,
+      client_id: clientId,
+      path: info.path,
+      streamed: info.isStreaming ? 1 : 0,
+      prompt_tokens: 0,
+      completion_tokens: 0,
+      cache_creation_tokens: 0,
+      cache_read_tokens: 0,
+      reasoning_tokens: 0,
+      total_tokens: 0,
+      cost_usd: 0,
+      incomplete: 0,
+      started_at: startedAt,
+      meta_json: JSON.stringify({ method: info.method, originator: info.originator, session_id: info.sessionId }),
+      user_agent: info.userAgent ?? undefined,
+      source_ip: info.clientIp ?? undefined,
+      lifecycle_status: "pending",
+      cost_status: "unresolved",
+      agent: info.agentName ?? undefined,
+      source,
+      msg_id: msgId,
+    });
+
+    logger.info("request pre-logged", {
+      event: "lifecycle.pre_logged",
+      request_id: requestId,
+      row_id: id,
+      provider,
+      model: info.model ?? "unknown",
+      path: info.path,
+      tool,
+      client_id: clientId,
+    });
+
+    return {
+      id,
+      requestId,
+      startTime,
+      startedAt,
+      provider,
+      model: info.model ?? "unknown",
+      tool,
+      clientId,
+      path: info.path,
+      userAgent: info.userAgent ?? undefined,
+      sourceIp: info.clientIp ?? undefined,
+      agent: info.agentName ?? undefined,
+      source,
+      msgId,
+      finalized: false,
+      finalizing: null,
+    };
+  }
+
+  async function buildBody(req: Request, info: RequestInfo): Promise<BodyBuildResult> {
+    if (!info.path.includes("messages")) return { body: req.body, rewritten: false };
     const text = await req.text();
     try {
       const rewritten = rewriteRequestBody(JSON.parse(text) as Anthropic.Request);
-      return JSON.stringify(rewritten);
+      return { body: JSON.stringify(rewritten), rewritten: true };
     } catch (err) {
-      logger.warn("anthropic rewrite failed, forwarding original body", { err, path: info.path });
-      return text;
+      logger.warn("anthropic rewrite failed, forwarding original body", { err, path: info.path, request_id: info.requestId });
+      return { body: text, rewritten: false };
     }
   }
 
-  function buildHeaders(headers: Headers, info: RequestInfo): Headers {
+  export function buildHeaders(headers: Headers, info: RequestInfo, bodyRewritten = false): Headers {
     const result = new Headers(headers);
     result.set("authorization", `Bearer ${Config.cliProxyApiKey}`);
+    result.delete("host");
+    result.delete("content-length");
+    result.delete("content-encoding");
+    result.delete("accept-encoding");
     if (info.path.includes("messages")) {
       for (const [key, value] of Object.entries(Anthropic.buildClaudeCodeHeaders())) {
         result.set(key, value);
       }
+      if (bodyRewritten) result.set("content-type", "application/json");
     }
-    result.delete("host");
     return result;
   }
 
@@ -78,24 +218,32 @@ export namespace PassThroughProxy {
     upstreamResponse: Response,
     info: RequestInfo,
     usageService: UsageService.UsageService,
-    startTime: number,
+    lifecycle: LifecycleContext,
   ): Promise<Response> {
     let responseText = await upstreamResponse.text();
-    if (info.path.includes("messages")) {
+    if (info.path.includes("messages") && upstreamResponse.status < 400) {
       try {
         responseText = JSON.stringify(stripToolPrefix(JSON.parse(responseText) as Anthropic.Response));
       } catch (err) {
-        logger.warn("anthropic response transform failed", { err, path: info.path, status: upstreamResponse.status });
+        logger.warn("anthropic response transform failed", { err, path: info.path, status: upstreamResponse.status, request_id: lifecycle.requestId });
       }
     }
 
     const parsed = ResponseParser.parseResponseBody(responseText);
-    await logUsage(usageService, info, parsed, upstreamResponse.status, false, startTime);
+    const lifecycleStatus: Usage.LifecycleStatus = upstreamResponse.status >= 400 ? "error" : "completed";
+    await finalizeOnce(usageService, lifecycle, {
+      parsed,
+      status: upstreamResponse.status,
+      isStreaming: false,
+      lifecycleStatus,
+      errorMessage: lifecycleStatus === "error" ? upstreamErrorMessage(upstreamResponse.status, responseText) : undefined,
+      errorCode: lifecycleStatus === "error" ? "upstream_error" : undefined,
+    });
 
     return new Response(responseText, {
       status: upstreamResponse.status,
       headers: {
-        "content-type": "application/json",
+        "content-type": upstreamResponse.headers.get("content-type") ?? "application/json",
       },
     });
   }
@@ -104,18 +252,37 @@ export namespace PassThroughProxy {
     upstreamResponse: Response,
     info: RequestInfo,
     usageService: UsageService.UsageService,
-    startTime: number,
+    lifecycle: LifecycleContext,
   ): Response {
     const upstreamBody = upstreamResponse.body;
     if (!upstreamBody) {
+      void finalizeOnce(usageService, lifecycle, {
+        parsed: { actualModel: null, usage: null },
+        status: upstreamResponse.status,
+        isStreaming: true,
+        lifecycleStatus: upstreamResponse.status >= 400 ? "error" : "completed",
+        errorMessage: upstreamResponse.status >= 400 ? `upstream HTTP ${upstreamResponse.status}` : undefined,
+        errorCode: upstreamResponse.status >= 400 ? "upstream_error" : undefined,
+      });
       return new Response(null, { status: upstreamResponse.status });
     }
 
     const decoder = new TextDecoder();
     const encoder = new TextEncoder();
     let partialLine = "";
-    let accumulated: ReturnType<typeof ResponseParser.parseSSELine>["usage"] = null;
+    let accumulated: ParsedUsage = null;
     let actualModel: string | null = null;
+    let streamDone = false;
+
+    function processLine(line: string): string {
+      if (line.startsWith("data: ")) {
+        const dataContent = line.slice(6);
+        const parsed = ResponseParser.parseSSELine(dataContent);
+        if (parsed.actualModel) actualModel = parsed.actualModel;
+        if (parsed.usage) accumulated = mergeUsage(accumulated, parsed.usage);
+      }
+      return info.path.includes("messages") ? stripToolPrefixFromLine(line) : line;
+    }
 
     const transform = new TransformStream<Uint8Array, Uint8Array>({
       transform(chunk, controller) {
@@ -126,41 +293,88 @@ export namespace PassThroughProxy {
 
         let output = "";
         for (const line of lines) {
-          output += `${info.path.includes("messages") ? stripToolPrefixFromLine(line) : line}\n`;
-          if (line.startsWith("data: ")) {
-            const dataContent = line.slice(6);
-            const parsed = ResponseParser.parseSSELine(dataContent);
-            if (parsed.actualModel) actualModel = parsed.actualModel;
-            if (parsed.usage) accumulated = mergeUsage(accumulated, parsed.usage);
-          }
+          output += `${processLine(line)}\n`;
         }
-        controller.enqueue(encoder.encode(output));
+        if (output) controller.enqueue(encoder.encode(output));
       },
-      flush(controller) {
-        if (partialLine) {
-          const line = partialLine;
-          if (line.startsWith("data: ")) {
-            const dataContent = line.slice(6);
-            const parsed = ResponseParser.parseSSELine(dataContent);
-            if (parsed.actualModel) actualModel = parsed.actualModel;
-            if (parsed.usage) accumulated = mergeUsage(accumulated, parsed.usage);
-          }
+      async flush(controller) {
+        try {
+          const tail = partialLine + decoder.decode();
+          partialLine = "";
+          if (tail) controller.enqueue(encoder.encode(processLine(tail)));
+          streamDone = true;
+          await finalizeOnce(usageService, lifecycle, {
+            parsed: { actualModel, usage: accumulated },
+            status: upstreamResponse.status,
+            isStreaming: true,
+            lifecycleStatus: upstreamResponse.status >= 400 ? "error" : "completed",
+            errorMessage: upstreamResponse.status >= 400 ? `upstream HTTP ${upstreamResponse.status}` : undefined,
+            errorCode: upstreamResponse.status >= 400 ? "upstream_error" : undefined,
+          });
+        } catch (err) {
+          logger.error("stream flush failed", { event: "passthrough.flush_error", err, request_id: lifecycle.requestId, path: info.path });
+          await finalizeOnce(usageService, lifecycle, {
+            parsed: { actualModel, usage: accumulated },
+            status: 499,
+            isStreaming: true,
+            lifecycleStatus: "aborted",
+            errorMessage: errorMessage(err, "stream flush failed"),
+            errorCode: "aborted",
+          });
+          throw err;
         }
-        logUsage(
-          usageService,
-          info,
-          { actualModel, usage: accumulated },
-          upstreamResponse.status,
-          true,
-          startTime,
-        );
-        controller.terminate();
       },
     });
 
     const transformedStream = upstreamBody.pipeThrough(transform);
+    let transformedReader: ReadableStreamDefaultReader<Uint8Array> | null = null;
+    const outputStream = new ReadableStream<Uint8Array>({
+      async start(controller) {
+        const reader = transformedStream.getReader();
+        transformedReader = reader;
+        try {
+          while (true) {
+            const { done, value } = await reader.read();
+            if (done) break;
+            controller.enqueue(value);
+          }
+          controller.close();
+        } catch (err) {
+          if (!streamDone) {
+            streamDone = true;
+            await finalizeOnce(usageService, lifecycle, {
+              parsed: { actualModel, usage: accumulated },
+              status: isAbortLike(err) ? 499 : upstreamResponse.status,
+              isStreaming: true,
+              lifecycleStatus: isAbortLike(err) ? "aborted" : "error",
+              errorMessage: errorMessage(err, "stream relay failed"),
+              errorCode: isAbortLike(err) ? "aborted" : "stream_error",
+            });
+          }
+          controller.error(err);
+        } finally {
+          transformedReader = null;
+        }
+      },
+      async cancel(reason) {
+        if (!streamDone) {
+          streamDone = true;
+          await finalizeOnce(usageService, lifecycle, {
+            parsed: { actualModel, usage: accumulated },
+            status: 499,
+            isStreaming: true,
+            lifecycleStatus: "aborted",
+            errorMessage: errorMessage(reason, "client aborted stream"),
+            errorCode: "aborted",
+          });
+        }
+        await transformedReader?.cancel(reason).catch((err) => {
+          logger.error("stream cancel failed", { event: "passthrough.flush_error", err, request_id: lifecycle.requestId, path: info.path });
+        });
+      },
+    });
 
-    return new Response(transformedStream, {
+    return new Response(outputStream, {
       status: upstreamResponse.status,
       headers: {
         "content-type": "text/event-stream",
@@ -171,9 +385,9 @@ export namespace PassThroughProxy {
   }
 
   function mergeUsage(
-    acc: ReturnType<typeof ResponseParser.parseSSELine>["usage"],
-    partial: NonNullable<ReturnType<typeof ResponseParser.parseSSELine>["usage"]>,
-  ): NonNullable<ReturnType<typeof ResponseParser.parseSSELine>["usage"]> {
+    acc: ParsedUsage,
+    partial: NonNullable<ParsedUsage>,
+  ): NonNullable<ParsedUsage> {
     if (!acc) return partial;
     return {
       prompt_tokens: acc.prompt_tokens + partial.prompt_tokens,
@@ -185,39 +399,104 @@ export namespace PassThroughProxy {
     };
   }
 
-  async function logUsage(
+  async function finalizeOnce(
     usageService: UsageService.UsageService,
-    info: RequestInfo,
-    parsed: { actualModel: string | null; usage: ReturnType<typeof ResponseParser.parseSSELine>["usage"] },
-    status: number,
-    isStreaming: boolean,
-    startTime: number,
+    lifecycle: LifecycleContext,
+    fields: {
+      parsed: ParsedResponse;
+      status: number;
+      isStreaming: boolean;
+      lifecycleStatus: Usage.LifecycleStatus;
+      errorMessage?: string;
+      errorCode?: string;
+    },
   ): Promise<void> {
-    const tool = RequestInspector.detectTool(info);
-    const clientId = RequestInspector.generateClientId(tool, info);
+    if (lifecycle.finalized) return;
+    if (lifecycle.finalizing) return lifecycle.finalizing;
 
-    await usageService.recordUsage({
-      provider: info.path.includes("messages") ? "anthropic" : "openai",
-      model: parsed.actualModel ?? info.model ?? "unknown",
-      actual_model: parsed.actualModel ?? undefined,
-      tool,
-      client_id: clientId,
-      path: info.path,
-      streamed: isStreaming ? 1 : 0,
-      status,
-      prompt_tokens: parsed.usage?.prompt_tokens ?? 0,
-      completion_tokens: parsed.usage?.completion_tokens ?? 0,
-      cache_creation_tokens: parsed.usage?.cache_creation_tokens ?? 0,
-      cache_read_tokens: parsed.usage?.cache_read_tokens ?? 0,
-      reasoning_tokens: parsed.usage?.reasoning_tokens ?? 0,
-      total_tokens: parsed.usage?.total_tokens ?? 0,
-      cost_usd: 0,
-      incomplete: 0,
-      latency_ms: Date.now() - startTime,
-      started_at: new Date(startTime).toISOString(),
-      finished_at: new Date().toISOString(),
-      source_ip: info.clientIp ?? undefined,
-      user_agent: info.userAgent ?? undefined,
-    });
+    lifecycle.finalizing = (async () => {
+      const finishedAt = new Date().toISOString();
+      try {
+        const usage = fields.parsed.usage;
+        const model = fields.parsed.actualModel ?? lifecycle.model;
+        const updated = await usageService.finalizeUsage(lifecycle.id, {
+          request_id: lifecycle.requestId,
+          provider: lifecycle.provider,
+          model,
+          actual_model: fields.parsed.actualModel ?? undefined,
+          tool: lifecycle.tool,
+          client_id: lifecycle.clientId,
+          path: lifecycle.path,
+          streamed: fields.isStreaming ? 1 : 0,
+          status: fields.status,
+          prompt_tokens: usage?.prompt_tokens ?? 0,
+          completion_tokens: usage?.completion_tokens ?? 0,
+          cache_creation_tokens: usage?.cache_creation_tokens ?? 0,
+          cache_read_tokens: usage?.cache_read_tokens ?? 0,
+          reasoning_tokens: usage?.reasoning_tokens ?? 0,
+          total_tokens: usage?.total_tokens ?? 0,
+          cost_usd: 0,
+          incomplete: fields.lifecycleStatus === "completed" ? 0 : 1,
+          error_code: fields.errorCode,
+          latency_ms: Date.now() - lifecycle.startTime,
+          started_at: lifecycle.startedAt,
+          finished_at: finishedAt,
+          user_agent: lifecycle.userAgent,
+          source_ip: lifecycle.sourceIp,
+          lifecycle_status: fields.lifecycleStatus,
+          finalized_at: finishedAt,
+          error_message: fields.errorMessage,
+          agent: lifecycle.agent,
+          source: lifecycle.source,
+          msg_id: lifecycle.msgId,
+        });
+        lifecycle.finalized = true;
+        logger.info("request finalized", {
+          event: fields.lifecycleStatus === "aborted" ? "lifecycle.aborted" : "lifecycle.finalized",
+          request_id: lifecycle.requestId,
+          row_id: lifecycle.id,
+          updated,
+          lifecycle_status: fields.lifecycleStatus,
+          status: fields.status,
+          path: lifecycle.path,
+        });
+      } catch (err) {
+        lifecycle.finalizing = null;
+        logger.error("failed to finalize request log", {
+          event: "lifecycle.finalize_error",
+          err,
+          request_id: lifecycle.requestId,
+          row_id: lifecycle.id,
+          lifecycle_status: fields.lifecycleStatus,
+          path: lifecycle.path,
+        });
+      }
+    })();
+
+    await lifecycle.finalizing;
+  }
+
+  function providerForPath(path: string): string {
+    return path.includes("messages") ? "anthropic" : "openai";
+  }
+
+  function upstreamErrorMessage(status: number, body: string): string {
+    const trimmed = body.trim().slice(0, 300);
+    return trimmed ? `upstream HTTP ${status}: ${trimmed}` : `upstream HTTP ${status}`;
+  }
+
+  function errorMessage(err: unknown, fallback: string): string {
+    if (err instanceof Error && err.message) return err.message;
+    if (typeof err === "string" && err) return err;
+    return fallback;
+  }
+
+  function isAbortLike(err: unknown, signal?: AbortSignal): boolean {
+    if (signal?.aborted) return true;
+    if (err instanceof DOMException && err.name === "AbortError") return true;
+    if (err instanceof Error) {
+      return err.name === "AbortError" || err.message.includes("ECONNRESET") || err.message.toLowerCase().includes("aborted");
+    }
+    return false;
   }
 }

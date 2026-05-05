@@ -71,6 +71,10 @@ export namespace Pricing {
     return findPricing(model, provider)?.pricing ?? null;
   }
 
+  export function __setPricingForTests(entries: Array<[string, ModelPricing]>): void {
+    cache = { data: new Map(entries), fetchedAt: Date.now() };
+  }
+
   export function findPricing(model: string, provider?: string): PricingMatch | null {
     if (!cache) return null;
     const normalizedModel = normalizeKey(model);
