@@ -1,6 +1,7 @@
 import type { Database } from "bun:sqlite";
 import { readdir } from "node:fs/promises";
 import { AccountSubscriptionRepo } from "./account-subscriptions";
+import { Storage } from "./db";
 import { QuotaRepo, RequestRepo, UsageRepo } from "./repo";
 import { Pricing } from "./pricing";
 import { Cost } from "./cost";
@@ -25,7 +26,7 @@ export namespace UsageService {
     const now = options.now ?? (() => new Date());
 
     function preLog(log: Omit<Usage.RequestLog, "id">): number {
-      return RequestRepo.insert(db, log);
+      return Storage.runWriteWithRetry(db, () => RequestRepo.insert(db, log));
     }
 
     async function finalizeUsage(id: number, log: Omit<Usage.RequestLog, "id">): Promise<boolean> {
@@ -78,7 +79,7 @@ export namespace UsageService {
         return true;
       });
 
-      return txn();
+      return Storage.runWriteWithRetry(db, txn);
     }
 
     async function recordUsage(log: Omit<Usage.RequestLog, "id">): Promise<number> {
@@ -106,7 +107,7 @@ export namespace UsageService {
         return id;
       });
 
-      return txn();
+      return Storage.runWriteWithRetry(db, txn);
     }
 
     async function backfillCosts(options: { all?: boolean; limit?: number; lookbackMs?: number } = {}): Promise<BackfillCostsResult> {
@@ -144,9 +145,9 @@ export namespace UsageService {
         cost_status: Usage.CostStatus;
       }>;
 
-      let updated = 0;
-      const statusCounts = { ok: 0, pending: 0, unsupported: 0 };
       const updateTxn = db.transaction(() => {
+        let updated = 0;
+        const statusCounts = { ok: 0, pending: 0, unsupported: 0 };
         const updateLog = db.prepare("UPDATE request_logs SET cost_usd = ?, cost_status = 'ok' WHERE id = ? AND cost_status IN ('pending', 'unresolved')");
         for (const row of rows) {
           const cost = computeCost(row);
@@ -172,10 +173,11 @@ export namespace UsageService {
           FROM request_logs
           GROUP BY substr(started_at, 1, 10), provider, model;
         `);
+        return { updated, ...statusCounts };
       });
 
-      updateTxn();
-      return { scanned: rows.length, updated, ...statusCounts };
+      const result = Storage.runWriteWithRetry(db, updateTxn);
+      return { scanned: rows.length, ...result };
     }
 
     function computeCost(log: {
@@ -341,7 +343,7 @@ export namespace UsageService {
           });
         }
       });
-      txn();
+      Storage.runWriteWithRetry(db, txn);
     }
 
     function applySubscriptionAttribution(
@@ -404,17 +406,18 @@ export namespace UsageService {
 
     async function refreshQuotas(): Promise<Usage.QuotaRefreshResult> {
       const result = await QuotaProbe.refresh();
-      let inserted = 0;
       const accounts = result.accounts.map(withLocalUsage);
       const txn = db.transaction(() => {
+        let inserted = 0;
         for (const account of accounts) {
           for (const snapshot of account.windows) {
             QuotaRepo.insertSnapshot(db, snapshot);
             inserted += 1;
           }
         }
+        return inserted;
       });
-      txn();
+      const inserted = Storage.runWriteWithRetry(db, txn);
       return { ...result, inserted, accounts };
     }
 
