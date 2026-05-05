@@ -201,7 +201,7 @@ export namespace RequestRepo {
       reasoning_tokens?: number;
       actual_model?: string;
     },
-  ): void {
+  ): number {
     const stmt = db.prepare(`
       UPDATE request_logs
       SET cliproxy_account = COALESCE(?, cliproxy_account),
@@ -210,9 +210,9 @@ export namespace RequestRepo {
           reasoning_tokens = COALESCE(?, reasoning_tokens),
           actual_model = COALESCE(?, actual_model),
           correlated_at = ?
-      WHERE id = ?
+      WHERE id = ? AND cliproxy_account IS NULL
     `);
-    stmt.run(
+    const result = stmt.run(
       fields.cliproxy_account ?? null,
       fields.cliproxy_auth_index ?? null,
       fields.cliproxy_source ?? null,
@@ -221,6 +221,7 @@ export namespace RequestRepo {
       new Date().toISOString(),
       id,
     );
+    return result.changes;
   }
 
   export function updateLifecycle(
