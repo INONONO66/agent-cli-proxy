@@ -1,4 +1,8 @@
 import { Config } from "../config";
+import { UpstreamClient } from "../upstream/client";
+import { Logger } from "../util/logger";
+
+const logger = Logger.fromConfig().child({ component: "cliproxy-client" });
 
 export namespace CLIProxyClient {
   export interface UsageDetail {
@@ -47,18 +51,20 @@ export namespace CLIProxyClient {
 
     const url = `${Config.cliProxyApiUrl}/v0/management/usage`;
     try {
-      const res = await fetch(url, {
+      const res = await UpstreamClient.fetch({
+        method: "GET",
+        url,
         headers: { Authorization: `Bearer ${key}` },
+        providerId: "cliproxy-management",
+        idempotent: true,
       });
       if (!res.ok) {
-        console.error(
-          `[cliproxy-client] usage fetch failed: ${res.status} ${res.statusText}`,
-        );
+        logger.error("usage fetch failed", { status: res.status, status_text: res.statusText });
         return null;
       }
       return (await res.json()) as UsageResponse;
     } catch (err) {
-      console.error("[cliproxy-client] usage fetch error:", err);
+      logger.error("usage fetch error", { err });
       return null;
     }
   }

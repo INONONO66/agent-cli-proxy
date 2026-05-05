@@ -4,6 +4,10 @@ import { ResponseParser } from "./response-parser";
 import { UsageService } from "../storage/service";
 import { Anthropic } from "../provider/anthropic";
 import { rewriteRequestBody, stripToolPrefix, stripToolPrefixFromLine } from "../provider/anthropic/transform";
+import { UpstreamClient } from "../upstream/client";
+import { Logger } from "../util/logger";
+
+const logger = Logger.fromConfig().child({ component: "pass-through" });
 
 export namespace PassThroughProxy {
   export function create(usageService: UsageService.UsageService) {
@@ -12,19 +16,18 @@ export namespace PassThroughProxy {
       const startTime = Date.now();
       const body = await buildBody(req, info);
 
-      const upstreamReq = new Request(upstreamUrl, {
-        method: req.method,
-        headers: buildHeaders(req.headers, info),
-        body,
-      });
-
       let upstreamResponse: Response;
       try {
-        upstreamResponse = await fetch(upstreamReq, {
-          signal: AbortSignal.timeout(300000),
+        upstreamResponse = await UpstreamClient.fetch({
+          method: req.method,
+          url: upstreamUrl,
+          headers: buildHeaders(req.headers, info),
+          body,
+          providerId: info.path.includes("messages") ? "anthropic" : "openai",
+          idempotent: isIdempotentMethod(req.method),
         });
       } catch (err) {
-        console.error("[pass-through] upstream fetch failed:", err);
+        logger.error("upstream fetch failed", { err, path: info.path });
         return new Response(
           JSON.stringify({ error: "Upstream unavailable" }),
           { status: 502, headers: { "content-type": "application/json" } },
@@ -50,7 +53,7 @@ export namespace PassThroughProxy {
       const rewritten = rewriteRequestBody(JSON.parse(text) as Anthropic.Request);
       return JSON.stringify(rewritten);
     } catch (err) {
-      console.warn("[pass-through] anthropic rewrite failed, forwarding original body:", err);
+      logger.warn("anthropic rewrite failed, forwarding original body", { err, path: info.path });
       return text;
     }
   }
@@ -67,6 +70,10 @@ export namespace PassThroughProxy {
     return result;
   }
 
+  function isIdempotentMethod(method: string): boolean {
+    return method === "GET" || method === "HEAD" || method === "OPTIONS" || method === "DELETE" || method === "PUT";
+  }
+
   async function handleNonStreaming(
     upstreamResponse: Response,
     info: RequestInfo,
@@ -78,7 +85,7 @@ export namespace PassThroughProxy {
       try {
         responseText = JSON.stringify(stripToolPrefix(JSON.parse(responseText) as Anthropic.Response));
       } catch (err) {
-        console.warn("[pass-through] anthropic response transform failed:", err);
+        logger.warn("anthropic response transform failed", { err, path: info.path, status: upstreamResponse.status });
       }
     }
 

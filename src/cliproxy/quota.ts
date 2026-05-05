@@ -1,7 +1,11 @@
 import { readdir, readFile } from "fs/promises";
 import { join } from "path";
 import { Config } from "../config";
+import { UpstreamClient } from "../upstream/client";
 import { Usage } from "../usage";
+import { Logger } from "../util/logger";
+
+const logger = Logger.fromConfig().child({ component: "quota" });
 
 type AuthFile = {
   type?: string;
@@ -62,7 +66,15 @@ async function fetchJson(
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), Config.quotaRefreshTimeoutMs);
   try {
-    const res = await fetch(url, { ...init, signal: controller.signal });
+    const res = await UpstreamClient.fetch({
+      method: init.method ?? "GET",
+      url,
+      headers: init.headers,
+      body: init.body ?? null,
+      providerId: `quota:${new URL(url).hostname}`,
+      idempotent: (init.method ?? "GET") === "GET" || (init.method ?? "GET") === "HEAD",
+      signal: controller.signal,
+    });
     const text = await res.text();
     let data: unknown = null;
     try {
@@ -397,7 +409,7 @@ async function readAuthFiles(): Promise<AuthFile[]> {
       const parsed = JSON.parse(raw) as AuthFile;
       out.push(parsed);
     } catch (err) {
-      console.warn(`[quota] failed to read auth file ${name}:`, err);
+      logger.warn("failed to read auth file", { err, name });
     }
   }
   return out;
