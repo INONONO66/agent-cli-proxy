@@ -51,7 +51,7 @@ export namespace PassThroughProxy {
     return async function handle(req: Request, info: RequestInfo): Promise<Response> {
       const startTime = Date.now();
       const lifecycle = preLog(req, info, usageService, startTime);
-      const requestInfo: RequestInfo = { ...info, requestId: lifecycle.requestId };
+      const requestInfo: RequestInfo = { ...info, requestId: lifecycle?.requestId ?? info.requestId };
       const upstreamUrl = `${Config.cliProxyApiUrl}${requestInfo.path}`;
       let streamHandedOff = false;
 
@@ -62,7 +62,7 @@ export namespace PassThroughProxy {
           url: upstreamUrl,
           headers: buildHeaders(req.headers, requestInfo, rewritten),
           body,
-          providerId: lifecycle.provider,
+          providerId: lifecycle?.provider ?? providerForPath(requestInfo.path),
           idempotent: isIdempotentMethod(req.method),
           signal: req.signal,
         });
@@ -90,7 +90,7 @@ export namespace PassThroughProxy {
           err,
           upstreamBodyTimeout ? "upstream timeout" : aborted ? "request aborted" : "upstream unavailable",
         );
-        logger.error("upstream fetch failed", { event: "passthrough.upstream_error", err, path: requestInfo.path, request_id: lifecycle.requestId });
+        logger.error("upstream fetch failed", { event: "passthrough.upstream_error", err, path: requestInfo.path, request_id: requestIdFor(lifecycle, requestInfo) });
         await finalizeOnce(usageService, lifecycle, {
           parsed: { actualModel: null, usage: null },
           status,
@@ -104,7 +104,7 @@ export namespace PassThroughProxy {
           { status, headers: { "content-type": "application/json" } },
         );
       } finally {
-        if (!streamHandedOff && !lifecycle.finalized && !lifecycle.finalizing) {
+        if (!streamHandedOff && lifecycle && !lifecycle.finalized && !lifecycle.finalizing) {
           await finalizeOnce(usageService, lifecycle, {
             parsed: { actualModel: null, usage: null },
             status: 500,
@@ -123,7 +123,7 @@ export namespace PassThroughProxy {
     info: RequestInfo,
     usageService: UsageService.UsageService,
     startTime: number,
-  ): LifecycleContext {
+  ): LifecycleContext | null {
     const requestId = crypto.randomUUID();
     info.requestId = requestId;
     const provider = providerForPath(info.path);
@@ -136,32 +136,43 @@ export namespace PassThroughProxy {
       ?? undefined;
     const source = "proxy";
 
-    const id = usageService.preLog({
-      request_id: requestId,
-      provider,
-      model: info.model ?? "unknown",
-      tool,
-      client_id: clientId,
-      path: info.path,
-      streamed: info.isStreaming ? 1 : 0,
-      prompt_tokens: 0,
-      completion_tokens: 0,
-      cache_creation_tokens: 0,
-      cache_read_tokens: 0,
-      reasoning_tokens: 0,
-      total_tokens: 0,
-      cost_usd: 0,
-      incomplete: 0,
-      started_at: startedAt,
-      meta_json: JSON.stringify({ method: info.method, originator: info.originator, session_id: info.sessionId }),
-      user_agent: info.userAgent ?? undefined,
-      source_ip: info.clientIp ?? undefined,
-      lifecycle_status: "pending",
-      cost_status: "unresolved",
-      agent: info.agentName ?? undefined,
-      source,
-      msg_id: msgId,
-    });
+    let id: number;
+    try {
+      id = usageService.preLog({
+        request_id: requestId,
+        provider,
+        model: info.model ?? "unknown",
+        tool,
+        client_id: clientId,
+        path: info.path,
+        streamed: info.isStreaming ? 1 : 0,
+        prompt_tokens: 0,
+        completion_tokens: 0,
+        cache_creation_tokens: 0,
+        cache_read_tokens: 0,
+        reasoning_tokens: 0,
+        total_tokens: 0,
+        cost_usd: 0,
+        incomplete: 0,
+        started_at: startedAt,
+        meta_json: JSON.stringify({ method: info.method, originator: info.originator, session_id: info.sessionId }),
+        user_agent: info.userAgent ?? undefined,
+        source_ip: info.clientIp ?? undefined,
+        lifecycle_status: "pending",
+        cost_status: "unresolved",
+        agent: info.agentName ?? undefined,
+        source,
+        msg_id: msgId,
+      });
+    } catch (err) {
+      logger.error("request pre-log failed", {
+        event: "lifecycle.prelog_failed",
+        err,
+        request_id: requestId,
+        path: info.path,
+      });
+      return null;
+    }
 
     logger.info("request pre-logged", {
       event: "lifecycle.pre_logged",
@@ -230,14 +241,14 @@ export namespace PassThroughProxy {
     upstreamResponse: Response,
     info: RequestInfo,
     usageService: UsageService.UsageService,
-    lifecycle: LifecycleContext,
+    lifecycle: LifecycleContext | null,
   ): Promise<Response> {
     let responseText = await upstreamResponse.text();
     if (info.path.includes("messages") && upstreamResponse.status < 400) {
       try {
         responseText = JSON.stringify(stripToolPrefix(JSON.parse(responseText) as Anthropic.Response));
       } catch (err) {
-        logger.warn("anthropic response transform failed", { err, path: info.path, status: upstreamResponse.status, request_id: lifecycle.requestId });
+        logger.warn("anthropic response transform failed", { err, path: info.path, status: upstreamResponse.status, request_id: requestIdFor(lifecycle, info) });
       }
     }
 
@@ -264,7 +275,7 @@ export namespace PassThroughProxy {
     upstreamResponse: Response,
     info: RequestInfo,
     usageService: UsageService.UsageService,
-    lifecycle: LifecycleContext,
+    lifecycle: LifecycleContext | null,
   ): Promise<Response> {
     const upstreamBody = upstreamResponse.body;
     if (!upstreamBody) {
@@ -336,7 +347,7 @@ export namespace PassThroughProxy {
         logger.debug("stream cancel after first read failure failed", {
           event: "passthrough.stream_cancel_failed",
           err: cancelErr,
-          request_id: lifecycle.requestId,
+          request_id: requestIdFor(lifecycle, info),
           path: info.path,
         });
       });
@@ -430,7 +441,7 @@ export namespace PassThroughProxy {
           });
         }
         await upstreamReader.cancel(reason).catch((err) => {
-          logger.error("stream cancel failed", { event: "passthrough.flush_error", err, request_id: lifecycle.requestId, path: info.path });
+          logger.error("stream cancel failed", { event: "passthrough.flush_error", err, request_id: requestIdFor(lifecycle, info), path: info.path });
         });
       },
     }, { highWaterMark: 0 });
@@ -462,7 +473,7 @@ export namespace PassThroughProxy {
 
   async function finalizeOnce(
     usageService: UsageService.UsageService,
-    lifecycle: LifecycleContext,
+    lifecycle: LifecycleContext | null,
     fields: {
       parsed: ParsedResponse;
       status: number;
@@ -472,6 +483,7 @@ export namespace PassThroughProxy {
       errorCode?: string;
     },
   ): Promise<void> {
+    if (!lifecycle) return;
     if (lifecycle.finalized) return;
     if (lifecycle.finalizing) return lifecycle.finalizing;
 
@@ -585,6 +597,10 @@ export namespace PassThroughProxy {
 
   async function sleep(ms: number): Promise<void> {
     await new Promise<void>((resolve) => setTimeout(resolve, ms));
+  }
+
+  function requestIdFor(lifecycle: LifecycleContext | null, info: RequestInfo): string | undefined {
+    return lifecycle?.requestId ?? info.requestId;
   }
 
   function providerForPath(path: string): string {
