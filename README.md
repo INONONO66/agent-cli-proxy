@@ -333,7 +333,7 @@ On Linux this proxies to `journalctl --user -u agent-cli-proxy.service -f`; on m
 
 ## Releasing
 
-For maintainers: run `bun run release-check` to verify the build and package contents before tagging. Push a `v*` tag and GitHub Actions handles the npm publish. (Automated release workflow is planned for T19.)
+For maintainers: run `bun run release-check` to verify the build and package contents before tagging. Push a `v*` tag and the `.github/workflows/release.yml` GitHub Actions workflow runs `bun publish --access public --tolerate-republish` against the npm registry using the `NPM_TOKEN` repository secret.
 
 ## Contributing
 

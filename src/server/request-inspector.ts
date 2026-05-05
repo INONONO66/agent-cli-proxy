@@ -46,6 +46,8 @@ export namespace RequestInspector {
           isStreaming = true;
         }
       } catch {
+        // Body is not JSON or already consumed; treat as opaque pass-through.
+        // model/streaming detection is best-effort here.
       }
     }
 
