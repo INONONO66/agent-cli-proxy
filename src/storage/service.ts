@@ -34,6 +34,7 @@ export namespace UsageService {
       const logWithCost = { ...log, cost_usd: cost.cost_usd, cost_status: cost.cost_status };
 
       const txn = db.transaction(() => {
+        const previous = RequestRepo.getById(db, id);
         const updated = RequestRepo.updateFinalize(db, id, {
           provider: logWithCost.provider,
           model: logWithCost.model,
@@ -60,7 +61,7 @@ export namespace UsageService {
 
         if (updated === 0) return false;
 
-        insertCostAudit(id, logWithCost, cost);
+        insertCostAudit(id, logWithCost, previous, cost);
 
         const day = logWithCost.started_at.slice(0, 10);
         UsageRepo.upsertDaily(db, {
@@ -104,7 +105,7 @@ export namespace UsageService {
 
       const txn = db.transaction(() => {
         const id = RequestRepo.insert(db, logWithCost);
-        insertCostAudit(id, logWithCost, cost);
+        insertCostAudit(id, logWithCost, null, cost);
 
         const day = log.started_at.slice(0, 10);
         UsageRepo.upsertDaily(db, {
@@ -164,13 +165,20 @@ export namespace UsageService {
       const updateTxn = db.transaction(() => {
         let updated = 0;
         const statusCounts = { ok: 0, pending: 0, unsupported: 0 };
-        const updateLog = db.prepare("UPDATE request_logs SET cost_usd = ?, cost_status = 'ok' WHERE id = ? AND cost_status IN ('pending', 'unresolved')");
+        const updateLog = db.prepare(`
+          UPDATE request_logs
+          SET cost_usd = ?, cost_status = ?
+          WHERE id = ?
+            AND cost_status IN ('pending', 'unresolved')
+            AND (cost_status <> ? OR cost_usd <> ?)
+        `);
         for (const row of rows) {
           const cost = computeCost(row);
           statusCounts[cost.cost_status] += 1;
-          insertCostAudit(row.id, row, cost);
-          if ((row.cost_status === "pending" || row.cost_status === "unresolved") && cost.cost_status === "ok") {
-            const result = updateLog.run(cost.cost_usd, row.id);
+          insertCostAudit(row.id, row, row, cost);
+          if (row.cost_status === "pending" || row.cost_status === "unresolved") {
+            const result = updateLog.run(cost.cost_usd, cost.cost_status, row.id, cost.cost_status, cost.cost_usd);
+            if (cost.cost_status !== "ok") continue;
             updated += result.changes;
           }
         }
@@ -211,8 +219,14 @@ export namespace UsageService {
     function insertCostAudit(
       requestLogId: number,
       log: Pick<Usage.RequestLog, "provider" | "model">,
+      previous: Pick<Usage.RequestLog, "cost_status" | "cost_usd"> | null,
       cost: Cost.CostResult,
     ): void {
+      const latest = RequestRepo.getLatestCostAudit(db, requestLogId);
+      const hasStatusTransition = previous?.cost_status !== undefined && previous.cost_status !== cost.cost_status;
+      const hasCostChange = !latest || latest.base_cost_usd !== cost.cost_usd;
+      if (!hasStatusTransition && !hasCostChange) return;
+
       RequestRepo.insertCostAudit(db, {
         request_log_id: requestLogId,
         model: log.model,

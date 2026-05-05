@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, expect, test } from "bun:test";
+import type { Database } from "bun:sqlite";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { rmSync } from "node:fs";
@@ -15,6 +16,39 @@ const { Logger } = await import("../../src/util/logger");
 
 const originalFetch = globalThis.fetch;
 const unitPrice = { input: 1, output: 2, cache_read: 0.5, cache_write: 3, reasoning: 4 };
+
+function insertBackfillCandidate(db: Database, requestId: string, model: string): number {
+  return RequestRepo.insert(db, {
+    request_id: requestId,
+    provider: "openai",
+    model,
+    tool: "opencode",
+    client_id: "local",
+    path: "/v1/chat/completions",
+    streamed: 0,
+    status: 200,
+    lifecycle_status: "completed",
+    cost_status: "pending",
+    prompt_tokens: 1_000_000,
+    completion_tokens: 0,
+    cache_creation_tokens: 0,
+    cache_read_tokens: 0,
+    reasoning_tokens: 0,
+    total_tokens: 1_000_000,
+    cost_usd: 0,
+    incomplete: 0,
+    started_at: new Date().toISOString(),
+    finished_at: new Date().toISOString(),
+  });
+}
+
+function costAuditCount(db: Database, requestLogId?: number): number {
+  const sql = requestLogId === undefined
+    ? "SELECT COUNT(*) AS count FROM cost_audit"
+    : "SELECT COUNT(*) AS count FROM cost_audit WHERE request_log_id = ?";
+  const row = db.query(sql).get(...(requestLogId === undefined ? [] : [requestLogId])) as { count: number };
+  return row.count;
+}
 
 beforeEach(() => {
   Pricing.__setPricingForTests([
@@ -163,5 +197,48 @@ test("backfill transitions pending priced rows to ok and writes audit", async ()
   expect(row?.cost_status).toBe("ok");
   expect(row?.cost_usd).toBeGreaterThan(0);
   expect(audits).toHaveLength(1);
+  db.close();
+});
+
+test("backfill skips duplicate audits for unchanged pending rows across ticks", async () => {
+  globalThis.fetch = (() => Promise.reject(new Error("use in-memory pricing"))) as unknown as typeof fetch;
+  Pricing.__setPricingForTests([]);
+  const db = Storage.initDb(":memory:");
+  const service = UsageService.create(db);
+  const pendingId = insertBackfillCandidate(db, "pending-audit", "gpt-5-unpriced");
+  const unsupportedId = insertBackfillCandidate(db, "unsupported-audit", "unknown");
+
+  await service.backfillCosts({ all: true });
+  await service.backfillCosts({ all: true });
+  await service.backfillCosts({ all: true });
+
+  expect(costAuditCount(db, pendingId)).toBe(1);
+  expect(costAuditCount(db, unsupportedId)).toBe(1);
+  expect(costAuditCount(db)).toBe(2);
+  expect(RequestRepo.getById(db, pendingId)?.cost_status).toBe("pending");
+  expect(RequestRepo.getById(db, unsupportedId)?.cost_status).toBe("unsupported");
+  db.close();
+});
+
+test("backfill writes transition audit when pricing becomes available", async () => {
+  globalThis.fetch = (() => Promise.reject(new Error("use in-memory pricing"))) as unknown as typeof fetch;
+  Pricing.__setPricingForTests([]);
+  const db = Storage.initDb(":memory:");
+  const service = UsageService.create(db);
+  const id = insertBackfillCandidate(db, "delayed-pricing", "delayed-model");
+
+  const pending = await service.backfillCosts({ all: true });
+  Pricing.__setPricingForTests([["openai/delayed-model", unitPrice]]);
+  const priced = await service.backfillCosts({ all: true });
+  await service.backfillCosts({ all: true });
+
+  const audits = db
+    .query("SELECT base_cost_usd FROM cost_audit WHERE request_log_id = ? ORDER BY id")
+    .all(id) as Array<{ base_cost_usd: number }>;
+
+  expect(pending).toEqual({ scanned: 1, updated: 0, ok: 0, pending: 1, unsupported: 0 });
+  expect(priced).toEqual({ scanned: 1, updated: 1, ok: 1, pending: 0, unsupported: 0 });
+  expect(RequestRepo.getById(db, id)).toMatchObject({ cost_status: "ok", cost_usd: 1 });
+  expect(audits).toEqual([{ base_cost_usd: 0 }, { base_cost_usd: 1 }]);
   db.close();
 });
