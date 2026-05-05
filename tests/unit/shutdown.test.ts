@@ -216,3 +216,81 @@ test("repeated register calls do not double-register handlers", () => {
   firstDb.close();
   secondDb.close();
 });
+
+test("uncaught exception handler logs crash and exits with code 1 after shutdown", async () => {
+  const capture = captureLogger();
+  const server = new FakeServer();
+  const supervisor = createSupervisor();
+  const exitCodes: number[] = [];
+  const crashPromise = Shutdown.registerCrashHandlers({
+    server,
+    db: Storage.initDb(":memory:"),
+    supervisor: supervisor.supervisor,
+    drainMs: 1,
+    hardKillMs: 20,
+    logger: capture.logger,
+    exit: (code) => {
+      exitCodes.push(code);
+    },
+  });
+  const handlers = process.listeners("uncaughtException") as Array<(err: Error, origin: string) => void>;
+
+  handlers[handlers.length - 1](new Error("boom"), "uncaughtException");
+  await crashPromise;
+
+  expect(exitCodes).toEqual([1]);
+  expect(server.stopCalls).toEqual([false]);
+  expect(supervisor.calls).toHaveLength(1);
+  expect(parseLogs(capture.stderr)).toContainEqual(
+    expect.objectContaining({ event: "process.uncaught", err: expect.objectContaining({ message: "boom" }) }),
+  );
+  expect(parseLogs(capture.stdout)).toContainEqual(expect.objectContaining({ event: "shutdown.complete", exit_code: 1 }));
+});
+
+test("unhandled rejection handler logs crash and exits with code 1 after shutdown", async () => {
+  const capture = captureLogger();
+  const server = new FakeServer();
+  const supervisor = createSupervisor();
+  const exitCodes: number[] = [];
+  const crashPromise = Shutdown.registerCrashHandlers({
+    server,
+    db: Storage.initDb(":memory:"),
+    supervisor: supervisor.supervisor,
+    drainMs: 1,
+    hardKillMs: 20,
+    logger: capture.logger,
+    exit: (code) => {
+      exitCodes.push(code);
+    },
+  });
+  const handlers = process.listeners("unhandledRejection") as Array<(reason: unknown, promise: Promise<unknown>) => void>;
+
+  handlers[handlers.length - 1](new Error("reject"), Promise.resolve());
+  await crashPromise;
+
+  expect(exitCodes).toEqual([1]);
+  expect(server.stopCalls).toEqual([false]);
+  expect(supervisor.calls).toHaveLength(1);
+  expect(parseLogs(capture.stderr)).toContainEqual(
+    expect.objectContaining({ event: "process.unhandled_rejection", err: expect.objectContaining({ message: "reject" }) }),
+  );
+  expect(parseLogs(capture.stdout)).toContainEqual(expect.objectContaining({ event: "shutdown.complete", exit_code: 1 }));
+});
+
+test("repeated crash handler registration does not accumulate listeners", () => {
+  const firstDb = Storage.initDb(":memory:");
+  const secondDb = Storage.initDb(":memory:");
+  const before = {
+    uncaughtException: process.listenerCount("uncaughtException"),
+    unhandledRejection: process.listenerCount("unhandledRejection"),
+  };
+
+  const first = Shutdown.registerCrashHandlers({ server: new FakeServer(), db: firstDb, supervisor: createSupervisor().supervisor });
+  const second = Shutdown.registerCrashHandlers({ server: new FakeServer(), db: secondDb, supervisor: createSupervisor().supervisor });
+
+  expect(first).toBe(second);
+  expect(process.listenerCount("uncaughtException")).toBe(before.uncaughtException + 1);
+  expect(process.listenerCount("unhandledRejection")).toBe(before.unhandledRejection + 1);
+  firstDb.close();
+  secondDb.close();
+});
