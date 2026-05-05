@@ -1,0 +1,20 @@
+tmpdir=/var/folders/70/44j59lmn1x95z003s9fg4qlm0000gn/T/tmp.Mch2MeeHRe
+Created plans config: /var/folders/70/44j59lmn1x95z003s9fg4qlm0000gn/T/tmp.Mch2MeeHRe/config/agent-cli-proxy/plans.json
+plans_init_exit=0
+/var/folders/70/44j59lmn1x95z003s9fg4qlm0000gn/T/tmp.Mch2MeeHRe/config/agent-cli-proxy/plans.json
+plans_path_exit=0
+code	provider	price	display_name
+claude_pro	anthropic	20 USD/30d	Anthropic Claude Pro
+claude_max5	anthropic	100 USD/30d	Anthropic Claude Max 5x
+claude_max20	anthropic	200 USD/30d	Anthropic Claude Max 20x
+chatgpt_plus	openai	20 USD/30d	OpenAI ChatGPT Plus
+chatgpt_pro	openai	200 USD/30d	OpenAI ChatGPT Pro
+chatgpt_business	openai	25 USD/30d	OpenAI ChatGPT Business
+kimi_pro	moonshot	15 USD/30d	Moonshot Kimi
+glm_pro	bigmodel	10 USD/30d	BigModel GLM
+local_byok	local	0 USD/30d	Bring Your Own Key (BYOK / Self-hosted)
+plans_show_exit=0
+Bound acc1 → claude_pro
+plans_bind_exit=0
+Unbound acc1
+plans_unbind_exit=0

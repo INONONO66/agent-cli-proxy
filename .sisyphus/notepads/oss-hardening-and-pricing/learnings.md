@@ -898,3 +898,11 @@ Added `src/util/logger.ts` with dependency-free structured logging and migrated 
 - `local_byok` must omit `vendor_url` entirely (not set to `""`) because the schema validator's `readOptionalHttpUrl` rejects empty strings. Optional fields should be absent, not empty.
 - All `notes` fields must include "verify with vendor" to satisfy the new test assertion and to communicate pricing staleness to users. The format `"Conservative estimate — verify with vendor — last updated YYYY-MM"` is the canonical pattern.
 - 9 plans total: claude_pro, claude_max5, claude_max20, chatgpt_plus, chatgpt_pro, chatgpt_business, kimi_pro, glm_pro, local_byok. Existing tests that assert specific `display_name` values must be updated when names change (e.g., "Claude Pro" → "Anthropic Claude Pro").
+
+## 2026-05-05 T14 CLI hardening
+
+- Keep CLI imports validation-light: `src/cli.ts` should import `Config.validate` from `config/validate` directly and dynamically import config-singleton consumers only after env files have been applied.
+- `init --non-interactive` must never require a prompt; secrets belong in env-backed flags (`--admin-token-env`, `--cliproxy-mgmt-key-env`) or existing environment variables, not echoed stdin prompts.
+- `.env` writes should be same-directory temp-file + rename with mode `0600`. Refusing overwrite by default is safer than silently replacing admin/upstream secrets; `--merge` preserves already-written values.
+- Doctor checks are most useful as a full structured report even when config fails. Downstream checks that depend on validated config should report an explicit skipped/fail reason instead of aborting the process.
+- Spawning the CLI from tests while hosting a local Bun server must use asynchronous `Bun.spawn`; `spawnSync` blocks the test process event loop and makes the child doctor probe time out.

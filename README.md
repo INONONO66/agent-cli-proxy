@@ -39,7 +39,7 @@ The installer creates OS-appropriate local paths by default:
 | Linux daemon | `~/.config/systemd/user/agent-cli-proxy.service` |
 | macOS daemon | `~/Library/LaunchAgents/ai.agent-cli-proxy.plist` |
 
-`agent-cli-proxy init` asks which optional features to enable and writes only the needed settings:
+`agent-cli-proxy init` asks which optional features to enable and writes only the needed settings. Existing `.env` files are not overwritten unless you pass `--force`; use `--merge` to keep existing values while adding missing defaults.
 
 - dashboard login (`DASHBOARD_PASSWORD_HASH`)
 - admin API token (`ADMIN_API_KEY`) when exposing beyond loopback
@@ -72,15 +72,32 @@ Provider API keys are intentionally **not** stored by this proxy unless CLIProxy
 
 ```bash
 agent-cli-proxy init                         # interactive config + DB setup
+agent-cli-proxy init --non-interactive \
+  --env ~/.config/agent-cli-proxy/.env \
+  --data-dir ~/.local/share/agent-cli-proxy \
+  --runtime-dir ~/.local/share/agent-cli-proxy/runtime \
+  --admin-token-env ADMIN_TOKEN \
+  --cliproxy-mgmt-key-env CLIPROXY_MGMT_KEY \
+  --force
+agent-cli-proxy doctor --env ~/.config/agent-cli-proxy/.env
+agent-cli-proxy doctor --json
 agent-cli-proxy db init --env ~/.config/agent-cli-proxy/.env
 agent-cli-proxy service install              # install user daemon
 agent-cli-proxy service start|stop|restart|status
+agent-cli-proxy service logs --follow
 agent-cli-proxy backfill-costs               # recompute zero-cost request logs
 agent-cli-proxy backfill-costs --all         # recompute all request logs
+agent-cli-proxy plans show|path|init|edit
+agent-cli-proxy plans bind <account> <code>
+agent-cli-proxy plans unbind <account>
+agent-cli-proxy plans list
+agent-cli-proxy providers show|path|init|reload
 agent-cli-proxy paths                        # print default install paths
 ```
 
 The CLI avoids shell installer files for normal use. It generates systemd user services on Linux and launchd agents on macOS.
+
+`providers show --json` and `doctor --json` redact inline provider auth values. Prefer `--admin-token-env` and `--cliproxy-mgmt-key-env` for non-interactive installs so secrets do not appear in shell history or process arguments.
 
 ## Production install from source
 
@@ -175,6 +192,18 @@ Add OpenAI-compatible local/custom providers with JSON config. Select them per r
 ```
 
 Provider fields: `id`, `type` (`openai-compatible` or `anthropic`), `paths`, `upstreamBaseUrl`, optional `upstreamPath`, `models`, `headers`, `auth` (`none`, `preserve`, `bearer`, `x-api-key`, or object with `env`/`value`/`header`), and `stripProviderField`.
+
+## Troubleshooting
+
+Run `agent-cli-proxy doctor --env ~/.config/agent-cli-proxy/.env` first. It validates configuration, opens the SQLite database, reports applied migrations, checks plans/providers configuration, inspects the pricing cache, probes `CLI_PROXY_API_URL/health`, and lists supervised loops. Use `--json` when attaching output to issues.
+
+For daemon logs:
+
+```bash
+agent-cli-proxy service logs --follow
+```
+
+On Linux this proxies to `journalctl --user -u agent-cli-proxy.service -f`; on macOS it proxies to `log stream` for the `agent-cli-proxy` process.
 
 ## Project Structure
 
