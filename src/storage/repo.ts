@@ -3,14 +3,33 @@ import { Usage } from "../usage";
 
 export namespace RequestRepo {
   export function insert(db: Database, log: Omit<Usage.RequestLog, "id">): number {
+    const lifecycleStatus =
+      log.lifecycle_status ??
+      (log.incomplete === 1 || log.error_code || (log.status ?? 0) >= 400
+        ? "error"
+        : "completed");
+    const costStatus =
+      log.cost_status ??
+      (log.cost_usd > 0
+        ? "ok"
+        : lifecycleStatus === "pending"
+          ? "unresolved"
+          : "pending");
+    const finalizedAt =
+      log.finalized_at ??
+      (lifecycleStatus === "pending"
+        ? null
+        : (log.finished_at ?? log.started_at));
+
     const stmt = db.prepare(`
       INSERT INTO request_logs (
         request_id, provider, model, actual_model, tool, client_id, path,
         streamed, status, prompt_tokens, completion_tokens,
         cache_creation_tokens, cache_read_tokens, reasoning_tokens,
         total_tokens, cost_usd, incomplete, error_code, latency_ms,
-        started_at, finished_at, meta_json, user_agent, source_ip
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        started_at, finished_at, meta_json, user_agent, source_ip,
+        lifecycle_status, cost_status, subscription_code, finalized_at, error_message
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `);
 
     const result = stmt.run(
@@ -38,6 +57,11 @@ export namespace RequestRepo {
       log.meta_json ?? null,
       log.user_agent ?? null,
       log.source_ip ?? null,
+      lifecycleStatus,
+      costStatus,
+      log.subscription_code ?? null,
+      finalizedAt,
+      log.error_message ?? null,
     );
 
     return result.lastInsertRowid as number;
@@ -121,6 +145,56 @@ export namespace RequestRepo {
       new Date().toISOString(),
       id,
     );
+  }
+
+  export function updateLifecycle(
+    db: Database,
+    id: number,
+    fields: {
+      lifecycle_status?: Usage.LifecycleStatus;
+      finalized_at?: string;
+      error_message?: string;
+      cost_status?: Usage.CostStatus;
+      subscription_code?: string;
+    },
+  ): void {
+    const stmt = db.prepare(`
+      UPDATE request_logs
+      SET lifecycle_status = COALESCE(?, lifecycle_status),
+          finalized_at = COALESCE(?, finalized_at),
+          error_message = COALESCE(?, error_message),
+          cost_status = COALESCE(?, cost_status),
+          subscription_code = COALESCE(?, subscription_code)
+      WHERE id = ?
+    `);
+    stmt.run(
+      fields.lifecycle_status ?? null,
+      fields.finalized_at ?? null,
+      fields.error_message ?? null,
+      fields.cost_status ?? null,
+      fields.subscription_code ?? null,
+      id,
+    );
+  }
+
+  export function insertCostAudit(
+    db: Database,
+    audit: Omit<Usage.CostAudit, "id">,
+  ): number {
+    const stmt = db.prepare(`
+      INSERT INTO cost_audit (
+        request_log_id, model, provider, source, base_cost_usd, calc_at
+      ) VALUES (?, ?, ?, ?, ?, COALESCE(?, CURRENT_TIMESTAMP))
+    `);
+    const result = stmt.run(
+      audit.request_log_id ?? null,
+      audit.model ?? null,
+      audit.provider ?? null,
+      audit.source ?? null,
+      audit.base_cost_usd ?? null,
+      audit.calc_at ?? null,
+    );
+    return result.lastInsertRowid as number;
   }
 }
 

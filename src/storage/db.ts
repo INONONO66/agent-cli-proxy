@@ -1,6 +1,9 @@
 import { Database } from "bun:sqlite";
 import { readFileSync, readdirSync } from "fs";
 import { join } from "path";
+import { Logger } from "../util/logger";
+
+const logger = Logger.fromConfig().child({ component: "storage-db" });
 
 export namespace Storage {
   function splitStatements(sql: string): string[] {
@@ -73,7 +76,7 @@ export namespace Storage {
       try {
         txn();
       } catch (err) {
-        console.error(`[migration] ${file} failed:`, err);
+        logger.error("migration failed", { err, file });
         throw err;
       }
     }
@@ -90,6 +93,39 @@ export namespace Storage {
     ensureColumn(db, "request_logs", "agent", "TEXT");
     ensureColumn(db, "request_logs", "source", "TEXT DEFAULT 'proxy'");
     ensureColumn(db, "request_logs", "msg_id", "TEXT");
+    ensureColumn(
+      db,
+      "request_logs",
+      "lifecycle_status",
+      "TEXT NOT NULL DEFAULT 'pending' CHECK(lifecycle_status IN ('pending', 'completed', 'error', 'aborted'))",
+    );
+    ensureColumn(
+      db,
+      "request_logs",
+      "cost_status",
+      "TEXT NOT NULL DEFAULT 'unresolved' CHECK(cost_status IN ('unresolved', 'ok', 'pending', 'unsupported'))",
+    );
+    ensureColumn(db, "request_logs", "subscription_code", "TEXT");
+    ensureColumn(db, "request_logs", "finalized_at", "TEXT");
+    ensureColumn(db, "request_logs", "error_message", "TEXT");
+
+    db.exec(`
+      UPDATE request_logs
+      SET lifecycle_status = CASE
+          WHEN incomplete = 1
+            OR error_code IS NOT NULL
+            OR status >= 400 THEN 'error'
+          ELSE 'completed'
+        END,
+        finalized_at = COALESCE(finalized_at, finished_at, started_at),
+        cost_status = CASE
+          WHEN cost_usd > 0 THEN 'ok'
+          ELSE 'pending'
+        END
+      WHERE lifecycle_status = 'pending'
+        AND (finalized_at IS NULL OR cost_status = 'unresolved')
+        AND (finished_at IS NOT NULL OR incomplete = 1 OR error_code IS NOT NULL OR status IS NOT NULL)
+    `);
 
     db.exec(
       "CREATE INDEX IF NOT EXISTS idx_request_logs_cliproxy_account ON request_logs(cliproxy_account)",
@@ -102,6 +138,31 @@ export namespace Storage {
     );
     db.exec(
       "CREATE UNIQUE INDEX IF NOT EXISTS idx_request_logs_msg_id ON request_logs(msg_id) WHERE msg_id IS NOT NULL",
+    );
+    db.exec(
+      "CREATE INDEX IF NOT EXISTS idx_request_logs_lifecycle_status ON request_logs(lifecycle_status)",
+    );
+    db.exec(
+      "CREATE INDEX IF NOT EXISTS idx_request_logs_cost_status ON request_logs(cost_status)",
+    );
+    db.exec(
+      "CREATE INDEX IF NOT EXISTS idx_request_logs_subscription_code ON request_logs(subscription_code) WHERE subscription_code IS NOT NULL",
+    );
+
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS cost_audit (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        request_log_id INTEGER,
+        model TEXT,
+        provider TEXT,
+        source TEXT,
+        base_cost_usd REAL,
+        calc_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY (request_log_id) REFERENCES request_logs(id)
+      )
+    `);
+    db.exec(
+      "CREATE INDEX IF NOT EXISTS idx_cost_audit_request_log_id ON cost_audit(request_log_id)",
     );
 
     db.exec(`

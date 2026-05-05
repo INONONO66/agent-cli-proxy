@@ -1,6 +1,9 @@
 export type TokenUsage = Usage.TokenUsage;
 
 export namespace Usage {
+  export type LifecycleStatus = "pending" | "completed" | "error" | "aborted";
+  export type CostStatus = "unresolved" | "ok" | "pending" | "unsupported";
+
   export interface TokenUsage {
     prompt_tokens: number;
     completion_tokens: number;
@@ -22,6 +25,11 @@ export namespace Usage {
     path: string;
     streamed: number;
     status?: number;
+    lifecycle_status?: LifecycleStatus;
+    cost_status?: CostStatus;
+    subscription_code?: string;
+    finalized_at?: string;
+    error_message?: string;
     prompt_tokens: number;
     completion_tokens: number;
     cache_creation_tokens: number;
@@ -41,6 +49,16 @@ export namespace Usage {
     correlated_at?: string;
     user_agent?: string;
     source_ip?: string;
+  }
+
+  export interface CostAudit {
+    id?: number;
+    request_log_id?: number | null;
+    model?: string | null;
+    provider?: string | null;
+    source?: string | null;
+    base_cost_usd?: number | null;
+    calc_at?: string;
   }
 
   export interface DailyUsage {
