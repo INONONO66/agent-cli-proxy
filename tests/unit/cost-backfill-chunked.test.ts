@@ -9,7 +9,7 @@ process.env.PRICING_CACHE_PATH = join(tmpdir(), `agent-cli-proxy-cost-backfill-$
 const { Config, ConfigError } = await import("../../src/config/validate");
 const { Storage } = await import("../../src/storage/db");
 const { Pricing } = await import("../../src/storage/pricing");
-const { UsageRepo } = await import("../../src/storage/repo");
+const { RequestRepo, UsageRepo } = await import("../../src/storage/repo");
 const { UsageService } = await import("../../src/storage/service");
 
 const originalFetch = globalThis.fetch;
@@ -128,6 +128,34 @@ test("chunked backfill keeps daily_usage aligned with completed and error logs",
   db.close();
 });
 
+test("backfill scans unresolved candidates once when pricing cannot resolve them", async () => {
+  Pricing.__setPricingForTests([]);
+  const db = Storage.initDb(":memory:");
+  const service = UsageService.create(db);
+
+  for (let index = 0; index < 3; index += 1) {
+    insertBackfillCandidate(db, {
+      requestId: `pending-${index}`,
+      model: `gpt-5-unpriced-${index}`,
+      startedAt: `2026-05-02T00:00:0${index}.000Z`,
+    });
+  }
+  for (let index = 0; index < 3; index += 1) {
+    insertBackfillCandidate(db, {
+      requestId: `unsupported-${index}`,
+      model: "unknown",
+      startedAt: `2026-05-02T00:00:1${index}.000Z`,
+    });
+  }
+
+  const result = await service.backfillCosts({ all: true, chunkSize: 2 });
+  const auditRows = db.query("SELECT request_log_id FROM cost_audit ORDER BY request_log_id").all();
+
+  expect(result).toEqual({ scanned: 6, updated: 0, ok: 0, pending: 3, unsupported: 3 });
+  expect(auditRows).toHaveLength(6);
+  db.close();
+});
+
 async function recordCompletedUsage(
   service: ReturnType<typeof UsageService.create>,
   options: { requestId: string; model: string; promptTokens: number; startedAt: string },
@@ -147,6 +175,34 @@ async function recordCompletedUsage(
     cache_read_tokens: 0,
     reasoning_tokens: 0,
     total_tokens: options.promptTokens,
+    cost_usd: 0,
+    incomplete: 0,
+    started_at: options.startedAt,
+    finished_at: options.startedAt,
+  });
+}
+
+function insertBackfillCandidate(
+  db: ReturnType<typeof Storage.initDb>,
+  options: { requestId: string; model: string; startedAt: string },
+): number {
+  return RequestRepo.insert(db, {
+    request_id: options.requestId,
+    provider: "openai",
+    model: options.model,
+    tool: "opencode",
+    client_id: "local",
+    path: "/v1/chat/completions",
+    streamed: 0,
+    status: 200,
+    lifecycle_status: "completed",
+    cost_status: "pending",
+    prompt_tokens: 1_000_000,
+    completion_tokens: 0,
+    cache_creation_tokens: 0,
+    cache_read_tokens: 0,
+    reasoning_tokens: 0,
+    total_tokens: 1_000_000,
     cost_usd: 0,
     incomplete: 0,
     started_at: options.startedAt,
