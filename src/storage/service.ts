@@ -13,6 +13,7 @@ import { Supervisor } from "../runtime/supervisor";
 const logger = Logger.fromConfig().child({ component: "usage-service" });
 const costBackfillLogger = Logger.fromConfig().child({ component: "cost" });
 const unmappedSubscriptionWarnings = new Map<string, true>();
+let backfillRunning = false;
 
 export namespace UsageService {
   export interface CreateOptions {
@@ -110,6 +111,17 @@ export namespace UsageService {
     }
 
     async function backfillCosts(options: BackfillCostsOptions = {}): Promise<BackfillCostsResult> {
+      if (backfillRunning) return emptyBackfillResult();
+
+      backfillRunning = true;
+      try {
+        return await runBackfillCosts(options);
+      } finally {
+        backfillRunning = false;
+      }
+    }
+
+    async function runBackfillCosts(options: BackfillCostsOptions): Promise<BackfillCostsResult> {
       try {
         await Pricing.fetchPricing({ force: true });
       } catch (err) {
@@ -136,6 +148,7 @@ export namespace UsageService {
         lastSeenId = rows[rows.length - 1].id;
         updated += updateCostBackfillChunk(rows, statusCounts);
         scanned += rows.length;
+        await options.afterChunk?.({ scanned, updated, ...statusCounts });
 
         if (rows.length < remaining || lastSeenId >= maxCandidateId || (maxRows !== null && scanned >= maxRows)) break;
         await yieldBackfillChunk();
@@ -569,6 +582,11 @@ export namespace UsageService {
     limit?: number;
     lookbackMs?: number;
     chunkSize?: number;
+    afterChunk?: (progress: BackfillCostsResult) => void | Promise<void>;
+  }
+
+  function emptyBackfillResult(): BackfillCostsResult {
+    return { scanned: 0, updated: 0, ok: 0, pending: 0, unsupported: 0 };
   }
 
   interface CostBackfillRow {
