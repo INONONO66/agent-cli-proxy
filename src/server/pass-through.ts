@@ -284,61 +284,58 @@ export namespace PassThroughProxy {
       return info.path.includes("messages") ? stripToolPrefixFromLine(line) : line;
     }
 
-    const transform = new TransformStream<Uint8Array, Uint8Array>({
-      transform(chunk, controller) {
-        const text = decoder.decode(chunk, { stream: true });
-        const combined = partialLine + text;
-        const lines = combined.split("\n");
-        partialLine = lines.pop() ?? "";
+    function transformChunk(chunk: Uint8Array): Uint8Array | null {
+      const text = decoder.decode(chunk, { stream: true });
+      const combined = partialLine + text;
+      const lines = combined.split("\n");
+      partialLine = lines.pop() ?? "";
 
-        let output = "";
-        for (const line of lines) {
-          output += `${processLine(line)}\n`;
-        }
-        if (output) controller.enqueue(encoder.encode(output));
-      },
-      async flush(controller) {
-        try {
-          const tail = partialLine + decoder.decode();
-          partialLine = "";
-          if (tail) controller.enqueue(encoder.encode(processLine(tail)));
-          streamDone = true;
-          await finalizeOnce(usageService, lifecycle, {
-            parsed: { actualModel, usage: accumulated },
-            status: upstreamResponse.status,
-            isStreaming: true,
-            lifecycleStatus: upstreamResponse.status >= 400 ? "error" : "completed",
-            errorMessage: upstreamResponse.status >= 400 ? `upstream HTTP ${upstreamResponse.status}` : undefined,
-            errorCode: upstreamResponse.status >= 400 ? "upstream_error" : undefined,
-          });
-        } catch (err) {
-          logger.error("stream flush failed", { event: "passthrough.flush_error", err, request_id: lifecycle.requestId, path: info.path });
-          await finalizeOnce(usageService, lifecycle, {
-            parsed: { actualModel, usage: accumulated },
-            status: 499,
-            isStreaming: true,
-            lifecycleStatus: "aborted",
-            errorMessage: errorMessage(err, "stream flush failed"),
-            errorCode: "aborted",
-          });
-          throw err;
-        }
-      },
-    });
+      let output = "";
+      for (const line of lines) {
+        output += `${processLine(line)}\n`;
+      }
+      return output ? encoder.encode(output) : null;
+    }
 
-    const transformedStream = upstreamBody.pipeThrough(transform);
-    let transformedReader: ReadableStreamDefaultReader<Uint8Array> | null = null;
+    function flushPartialLine(): Uint8Array | null {
+      const tail = partialLine + decoder.decode();
+      partialLine = "";
+      return tail ? encoder.encode(processLine(tail)) : null;
+    }
+
+    let upstreamReader: ReadableStreamDefaultReader<Uint8Array> | null = null;
     const outputStream = new ReadableStream<Uint8Array>({
-      async start(controller) {
-        const reader = transformedStream.getReader();
-        transformedReader = reader;
+      start() {
+        upstreamReader = upstreamBody.getReader();
+      },
+      async pull(controller) {
+        const reader = upstreamReader;
+        if (!reader) return;
         try {
           while (true) {
             const { done, value } = await reader.read();
-            if (done) break;
-            controller.enqueue(value);
+            if (done) {
+              const tail = flushPartialLine();
+              if (tail) controller.enqueue(tail);
+              streamDone = true;
+              await finalizeOnce(usageService, lifecycle, {
+                parsed: { actualModel, usage: accumulated },
+                status: upstreamResponse.status,
+                isStreaming: true,
+                lifecycleStatus: upstreamResponse.status >= 400 ? "error" : "completed",
+                errorMessage: upstreamResponse.status >= 400 ? `upstream HTTP ${upstreamResponse.status}` : undefined,
+                errorCode: upstreamResponse.status >= 400 ? "upstream_error" : undefined,
+              });
+              controller.close();
+              return;
+            }
+
+            const output = transformChunk(value);
+            if (output) {
+              controller.enqueue(output);
+              return;
+            }
           }
-          controller.close();
         } catch (err) {
           if (!streamDone) {
             streamDone = true;
@@ -352,11 +349,11 @@ export namespace PassThroughProxy {
             });
           }
           controller.error(err);
-        } finally {
-          transformedReader = null;
         }
       },
       async cancel(reason) {
+        const reader = upstreamReader;
+        upstreamReader = null;
         if (!streamDone) {
           streamDone = true;
           await finalizeOnce(usageService, lifecycle, {
@@ -368,11 +365,11 @@ export namespace PassThroughProxy {
             errorCode: "aborted",
           });
         }
-        await transformedReader?.cancel(reason).catch((err) => {
+        await reader?.cancel(reason).catch((err) => {
           logger.error("stream cancel failed", { event: "passthrough.flush_error", err, request_id: lifecycle.requestId, path: info.path });
         });
       },
-    });
+    }, { highWaterMark: 0 });
 
     return new Response(outputStream, {
       status: upstreamResponse.status,
