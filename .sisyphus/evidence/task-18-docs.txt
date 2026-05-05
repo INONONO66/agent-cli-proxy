@@ -1,0 +1,77 @@
+T18 Documentation Evidence
+==========================
+Date: 2026-05-06
+
+## grep -ic docker verification (all must be 0)
+
+README.md:0
+CONTRIBUTING.md:0
+SECURITY.md:0
+
+## wc -l verification (all must be >5)
+
+     348 README.md
+     121 CONTRIBUTING.md
+      99 SECURITY.md
+      21 LICENSE
+     589 total
+
+## Env var verification (cross-checked against src/config/validate.ts)
+
+Vars in README config table:
+- PROXY_PORT ✓ (readPort)
+- PROXY_HOST ✓ (readString "PROXY_HOST")
+- ADMIN_API_KEY ✓ (readString "ADMIN_API_KEY")
+- CLI_PROXY_API_URL ✓ (readRequiredUrl)
+- CLI_PROXY_API_KEY ✓ (readString "CLI_PROXY_API_KEY")
+- CLAUDE_CODE_VERSION ✓ (readString "CLAUDE_CODE_VERSION")
+- DB_PATH ✓ (readString "DB_PATH")
+- PRICING_CACHE_PATH ✓ (readString "PRICING_CACHE_PATH")
+- READY_PRICING_MAX_AGE_MS ✓ (readPositiveNumber, default 86400000)
+- PRICING_REFRESH_INTERVAL_MS ✓ (readPositiveNumber, default 21600000)
+- COST_BACKFILL_INTERVAL_MS ✓ (readPositiveNumber, default 1800000)
+- COST_BACKFILL_LOOKBACK_MS ✓ (readPositiveNumber, default 604800000)
+- UPSTREAM_TIMEOUT_MS ✓ (readPositiveNumber, default 300000)
+- UPSTREAM_CONNECT_TIMEOUT_MS ✓ (readPositiveNumber, default 10000)
+- STALE_PENDING_MAX_AGE_MS ✓ (src/storage/db.ts parseStalePendingMaxAgeMs)
+- QUOTA_REFRESH_INTERVAL_MS ✓ (readPositiveNumber, default 300000)
+- QUOTA_REFRESH_TIMEOUT_MS ✓ (readPositiveNumber, default 15000)
+- CLIENT_NAME_MAPPING ✓ (readClientNameMapping)
+- PROVIDERS_CONFIG_PATH ✓ (validateProviderConfig)
+- PROVIDERS_JSON ✓ (validateProviderConfig)
+- PLANS_JSON ✓ (src/plans/index.ts)
+- PLANS_PATH ✓ (src/plans/index.ts)
+- CLIPROXY_MGMT_KEY ✓ (readString "CLIPROXY_MGMT_KEY")
+- CLIPROXY_AUTH_DIR ✓ (readString "CLIPROXY_AUTH_DIR")
+
+## CLI commands verification (cross-checked against src/cli.ts)
+
+- init ✓
+- db init ✓
+- paths ✓
+- doctor ✓
+- service install/start/stop/restart/status/logs ✓
+- plans show/list/init/path/bind/unbind ✓
+- providers show/path/init/reload ✓
+- backfill-costs ✓
+
+## Admin endpoints verification (cross-checked against src/admin/index.ts, src/server/handler.ts)
+
+- /health ✓ (handler.ts line 70)
+- /ready ✓ (handler.ts line 77)
+- /metrics ✓ (handler.ts line 82)
+- /admin/usage/today ✓ (admin/index.ts line 18)
+- /admin/usage/range ✓ (admin/index.ts line 22)
+- /admin/usage/models ✓ (admin/index.ts line 30)
+- /admin/usage/providers ✓ (admin/index.ts line 36)
+- /admin/usage/accounts ✓ (admin/index.ts line 42)
+- /admin/usage/accounts/range ✓ (admin/index.ts line 48)
+- /admin/usage/accounts/summary ✓ (admin/index.ts line 56)
+- /admin/quotas ✓ (admin/index.ts line 65)
+- /admin/quotas/refresh ✓ (admin/index.ts line 65)
+- /admin/plans ✓ (admin/index.ts line 71)
+- /admin/plans/cost-summary ✓ (admin/index.ts line 80)
+- /admin/plans/account/:account ✓ (admin/index.ts line 101)
+- /admin/stats ✓ (admin/index.ts line 113)
+- /admin/logs ✓ (admin/index.ts line 117)
+- /admin/logs/:id ✓ (admin/index.ts line 137)

@@ -899,6 +899,16 @@ Added `src/util/logger.ts` with dependency-free structured logging and migrated 
 - All `notes` fields must include "verify with vendor" to satisfy the new test assertion and to communicate pricing staleness to users. The format `"Conservative estimate — verify with vendor — last updated YYYY-MM"` is the canonical pattern.
 - 9 plans total: claude_pro, claude_max5, claude_max20, chatgpt_plus, chatgpt_pro, chatgpt_business, kimi_pro, glm_pro, local_byok. Existing tests that assert specific `display_name` values must be updated when names change (e.g., "Claude Pro" → "Anthropic Claude Pro").
 
+## 2026-05-06 T18 OSS documentation polish
+
+- README rewrites should verify every env var, CLI command, and endpoint against source before writing. The config table in validate.ts is the authoritative list; admin routes in admin/index.ts and handler.ts are the authoritative endpoint list.
+- "No Docker required" phrasing triggers grep -ic docker checks. Rephrase as "no containers needed" or "native Bun process" to satisfy the zero-docker-mentions requirement while preserving the value prop.
+- STALE_PENDING_MAX_AGE_MS lives in src/storage/db.ts (not validate.ts) because it is consumed at module load time before Config.validate() runs. Document it in the config table anyway since operators need to know it exists.
+- PLANS_JSON and PLANS_PATH are loaded in src/plans/index.ts, not validate.ts. They are not part of ValidatedConfig but are real env vars that affect runtime behavior.
+- The /ready endpoint caches results for 3 seconds (READY_CACHE_TTL_MS = 3000 in handler.ts). Document this in the Health and Readiness section so operators know aggressive polling is safe.
+- CONTRIBUTING.md should reference the actual test directory structure (tests/unit/, tests/e2e/) rather than generic patterns.
+- SECURITY.md placeholder email must be explicitly marked as TODO so it is not mistaken for a real contact before first release.
+
 ## 2026-05-05 T14 CLI hardening
 
 - Keep CLI imports validation-light: `src/cli.ts` should import `Config.validate` from `config/validate` directly and dynamically import config-singleton consumers only after env files have been applied.
