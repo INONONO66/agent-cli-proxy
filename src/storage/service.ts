@@ -127,7 +127,7 @@ export namespace UsageService {
       return Storage.runWriteWithRetry(db, txn);
     }
 
-    async function backfillCosts(options: { all?: boolean; limit?: number; lookbackMs?: number } = {}): Promise<BackfillCostsResult> {
+    async function backfillCosts(options: BackfillCostsOptions = {}): Promise<BackfillCostsResult> {
       try {
         await Pricing.fetchPricing({ force: true });
       } catch (err) {
@@ -135,36 +135,58 @@ export namespace UsageService {
       }
 
       const lookbackMs = options.lookbackMs ?? Config.costBackfillLookbackMs;
-      const limitClause = options.limit && options.limit > 0 ? " LIMIT ?" : "";
+      const chunkSize = normalizeBackfillChunkSize(options.chunkSize ?? Config.costBackfillChunkSize);
+      const maxRows = options.limit && options.limit > 0 ? Math.floor(options.limit) : null;
       const sinceClause = options.all ? "" : "AND started_at >= ?";
       const sinceIso = new Date(Date.now() - lookbackMs).toISOString();
+
+      let scanned = 0;
+      let updated = 0;
+      const statusCounts = { ok: 0, pending: 0, unsupported: 0 };
+
+      while (maxRows === null || scanned < maxRows) {
+        const remaining = maxRows === null ? chunkSize : Math.min(chunkSize, maxRows - scanned);
+        const rows = selectCostBackfillRows(sinceClause, sinceIso, remaining);
+        if (rows.length === 0) break;
+
+        updated += updateCostBackfillChunk(rows, statusCounts);
+        scanned += rows.length;
+
+        if (rows.length < remaining || (maxRows !== null && scanned >= maxRows)) break;
+        await yieldBackfillChunk();
+      }
+
+      return { scanned, updated, ...statusCounts };
+    }
+
+    function selectCostBackfillRows(sinceClause: string, sinceIso: string, limit: number): CostBackfillRow[] {
       const params: Array<string | number> = [];
-      if (!options.all) params.push(sinceIso);
-      if (options.limit && options.limit > 0) params.push(options.limit);
-      const rows = db.query(`
+      if (!sinceClause) {
+        params.push(limit);
+      } else {
+        params.push(sinceIso, limit);
+      }
+
+      return db.query(`
         SELECT id, provider, model, prompt_tokens, completion_tokens,
-               cache_creation_tokens, cache_read_tokens, reasoning_tokens, cost_usd, cost_status
+               cache_creation_tokens, cache_read_tokens, reasoning_tokens,
+               total_tokens, cost_usd, cost_status, started_at
         FROM request_logs
         WHERE lifecycle_status IN ('completed', 'error')
           AND cost_status IN ('pending', 'unresolved')
           ${sinceClause}
-        ORDER BY id ASC${limitClause}
-      `).all(...params) as Array<{
-        id: number;
-        provider: string;
-        model: string;
-        prompt_tokens: number;
-        completion_tokens: number;
-        cache_creation_tokens: number;
-        cache_read_tokens: number;
-        reasoning_tokens?: number | null;
-        cost_usd: number;
-        cost_status: Usage.CostStatus;
-      }>;
+        ORDER BY id ASC
+        LIMIT ?
+      `).all(...params) as CostBackfillRow[];
+    }
 
+    function updateCostBackfillChunk(
+      rows: CostBackfillRow[],
+      statusCounts: Record<Cost.CostResult["cost_status"], number>,
+    ): number {
       const updateTxn = db.transaction(() => {
-        let updated = 0;
-        const statusCounts = { ok: 0, pending: 0, unsupported: 0 };
+        let chunkUpdated = 0;
+        const affectedBuckets = new Map<string, UsageRepo.DailyBucket>();
         const updateLog = db.prepare(`
           UPDATE request_logs
           SET cost_usd = ?, cost_status = ?
@@ -172,36 +194,43 @@ export namespace UsageService {
             AND cost_status IN ('pending', 'unresolved')
             AND (cost_status <> ? OR cost_usd <> ?)
         `);
+
         for (const row of rows) {
           const cost = computeCost(row);
           statusCounts[cost.cost_status] += 1;
           insertCostAudit(row.id, row, row, cost);
+
           if (row.cost_status === "pending" || row.cost_status === "unresolved") {
             const result = updateLog.run(cost.cost_usd, cost.cost_status, row.id, cost.cost_status, cost.cost_usd);
             if (cost.cost_status !== "ok") continue;
-            updated += result.changes;
+            chunkUpdated += result.changes;
+            if (result.changes > 0) {
+              const bucket = {
+                day: row.started_at.slice(0, 10),
+                provider: row.provider,
+                model: row.model,
+              };
+              affectedBuckets.set(`${bucket.day}\u0000${bucket.provider}\u0000${bucket.model}`, bucket);
+            }
           }
         }
 
-        db.exec(`
-          DELETE FROM daily_usage;
-          INSERT INTO daily_usage (
-            day, provider, model, request_count, prompt_tokens,
-            completion_tokens, cache_creation_tokens, cache_read_tokens,
-            total_tokens, cost_usd
-          )
-          SELECT
-            substr(started_at, 1, 10), provider, model, COUNT(*),
-            SUM(prompt_tokens), SUM(completion_tokens), SUM(cache_creation_tokens),
-            SUM(cache_read_tokens), SUM(total_tokens), SUM(cost_usd)
-          FROM request_logs
-          GROUP BY substr(started_at, 1, 10), provider, model;
-        `);
-        return { updated, ...statusCounts };
+        for (const bucket of affectedBuckets.values()) {
+          UsageRepo.refreshDailyBucket(db, bucket);
+        }
+
+        return chunkUpdated;
       });
 
-      const result = Storage.runWriteWithRetry(db, updateTxn);
-      return { scanned: rows.length, ...result };
+      return Storage.runWriteWithRetry(db, updateTxn);
+    }
+
+    function normalizeBackfillChunkSize(value: number): number {
+      return Number.isInteger(value) && value > 0 ? value : Config.costBackfillChunkSize;
+    }
+
+    async function yieldBackfillChunk(): Promise<void> {
+      await new Promise<void>((resolve) => setTimeout(resolve, 0));
     }
 
     function computeCost(log: {
@@ -544,6 +573,28 @@ export namespace UsageService {
     ok: number;
     pending: number;
     unsupported: number;
+  }
+
+  export interface BackfillCostsOptions {
+    all?: boolean;
+    limit?: number;
+    lookbackMs?: number;
+    chunkSize?: number;
+  }
+
+  interface CostBackfillRow {
+    id: number;
+    provider: string;
+    model: string;
+    prompt_tokens: number;
+    completion_tokens: number;
+    cache_creation_tokens: number;
+    cache_read_tokens: number;
+    reasoning_tokens?: number | null;
+    total_tokens: number;
+    cost_usd: number;
+    cost_status: Usage.CostStatus;
+    started_at: string;
   }
 
   export function startCostBackfillLoop(
