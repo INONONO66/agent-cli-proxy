@@ -241,6 +241,22 @@ try {
 - A dedicated `RequestRepo.applySubscription()` update avoids overloading lifecycle/finalize updates when only the monitoring metadata changes.
 - CLI plan-code validation should call the same `Plans` loader used elsewhere so custom `PLANS_JSON`/`PLANS_PATH` configurations and packaged defaults stay consistent.
 - Once-per-account/day warning dedup can remain in memory for this monitoring use case; keying by `${account}:${YYYY-MM-DD}` prevents noisy unmapped-account logs without database state.
+
+# T12 Readiness Endpoint Learnings (May 2026)
+
+- Keep `/health` as a dependency-free liveness probe; dependency failures belong in `/ready` so orchestrators drain traffic without restarting a healthy process.
+- Use a unique upstream provider id (`ready-probe`) and no retries for readiness probes so monitoring cannot trip the main CLIProxyAPI circuit breaker or extend beyond the 1.5s budget.
+- Pricing readiness needs both disk presence and in-memory freshness: the file proves persisted cache exists, while `Pricing.getPricingFreshness()` proves the runtime loaded a non-stale cache.
+- A short global memoization window (3s) protects SQLite and upstream dependencies from aggressive polling while `Cache-Control: no-store` prevents external monitors from caching stale readiness.
+- Supervisor readiness is best exposed as a cheap registry snapshot (`Supervisor.list()`), avoiding lifecycle mutations or stop/start behavior inside health-check paths.
+
+# T13 Admin Plans Monitoring Learnings (May 2026)
+
+- Keep plan monitoring read-only: route handlers can join `request_logs`, `account_subscriptions`, and `Plans.byCode()` data without feeding any enforcement path.
+- Monthly summaries should filter `lifecycle_status='completed'` and use half-open UTC ranges (`start <= started_at < next_month`) to avoid double-counting boundary rows.
+- Including unbound accounts in cost summaries makes attribution gaps visible; represent them explicitly with `subscription_code: null`, zero monthly price, and overage equal to observed cost.
+- Account detail views should treat bindings and usage independently: return 404 only when both are absent, otherwise show nullable binding fields plus recent usage for troubleshooting.
+- Admin auth is owned by `Handler.create`; endpoint tests can exercise non-loopback API-key gating in an isolated Bun process so global Config module caching from other tests cannot mask the behavior.
 # Bun Package Distribution & Release Workflow Research
 
 **Date**: May 4, 2026  
@@ -867,6 +883,13 @@ Added `src/util/logger.ts` with dependency-free structured logging and migrated 
 - Shutdown composition is registry-first: individual handles abort their loop and `Supervisor.stopAll()` drains registered loops in parallel with bounded timeout logging for abandoned loops.
 - Tests are easiest with a supervisor test logger sink and real small millisecond intervals; jitter disabled (`jitterRatio: 0`) makes backoff assertions deterministic without new dependencies.
 - The existing cost backfill TODO in `UsageService` was also moved under Supervisor so the scoped `setInterval` audit stays clean and T15 can drain it through the same registry.
+
+## 2026-05-05 T15 graceful shutdown
+- Keep Bun signal handlers memoized at module scope. Repeated `Shutdown.register()` calls must return the same pending shutdown promise and avoid remove/re-add cycles in normal runtime because Bun can reset kernel signal state when listeners are removed.
+- Test process safety is best handled by injecting an `exit` callback and exposing a test-only reset; startup wiring still avoids handler registration when `NODE_ENV=test` or `DISABLE_SHUTDOWN_HANDLERS=1`.
+- Shutdown finalization should select pending request log ids and route each through `RequestRepo.updateLifecycle()` so lifecycle state, `error_message='shutdown'`, and `finalized_at` use the existing repo update path.
+- `Storage.recoverStalePending()` was already wired before `Bun.serve()` and already uses `error_message='boot-recovery'` with `STALE_PENDING_MAX_AGE_MS`, so T15 only needed verification rather than a storage migration.
+- Unit tests should prefer a fake Bun server exposing `pendingRequests`, `pendingWebSockets`, and `stop(closeActiveConnections)` over process-level integration; this makes drain and hard-kill timing deterministic.
 
 ## 2026-05-05 T16 default plans.json packaging
 - `data/plans.default.json` is statically imported by `src/plans/index.ts` via `import defaultPlansDocument from "../../data/plans.default.json"`. Bun bundles this JSON at build time, so the dist bundle already embeds the data — no runtime path resolution is needed for the default case.

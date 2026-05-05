@@ -2,6 +2,21 @@ import { Database } from "bun:sqlite";
 import { Usage } from "../usage";
 
 export namespace RequestRepo {
+  export interface MonthlyAccountCost {
+    cliproxy_account: string;
+    subscription_code: string | null;
+    total_requests: number;
+    total_cost_usd: number;
+  }
+
+  export interface AccountRecentUsage {
+    started_at: string;
+    model: string;
+    total_tokens: number;
+    cost_usd: number;
+    lifecycle_status: Usage.LifecycleStatus;
+  }
+
   export function insert(db: Database, log: Omit<Usage.RequestLog, "id">): number {
     const lifecycleStatus =
       log.lifecycle_status ??
@@ -100,6 +115,63 @@ export namespace RequestRepo {
   export function getById(db: Database, id: number): Usage.RequestLog | null {
     const stmt = db.prepare("SELECT * FROM request_logs WHERE id = ?");
     return (stmt.get(id) as Usage.RequestLog) || null;
+  }
+
+  export function aggregateByAccountForMonth(
+    db: Database,
+    monthStart: string,
+    monthEnd: string,
+  ): MonthlyAccountCost[] {
+    const stmt = db.prepare(`
+      SELECT
+        rl.cliproxy_account AS cliproxy_account,
+        sub.subscription_code AS subscription_code,
+        COUNT(*) AS total_requests,
+        COALESCE(SUM(rl.cost_usd), 0) AS total_cost_usd
+      FROM request_logs rl
+      LEFT JOIN account_subscriptions sub
+        ON sub.cliproxy_account = rl.cliproxy_account
+      WHERE rl.lifecycle_status = 'completed'
+        AND rl.started_at >= ?
+        AND rl.started_at < ?
+        AND rl.cliproxy_account IS NOT NULL
+        AND rl.cliproxy_account <> ''
+      GROUP BY rl.cliproxy_account, sub.subscription_code
+      ORDER BY total_cost_usd DESC, rl.cliproxy_account ASC
+    `);
+    return stmt.all(monthStart, monthEnd).map((row) => {
+      const record = row as Record<string, unknown>;
+      return {
+        cliproxy_account: String(record.cliproxy_account),
+        subscription_code: typeof record.subscription_code === "string" ? record.subscription_code : null,
+        total_requests: Number(record.total_requests ?? 0),
+        total_cost_usd: Number(record.total_cost_usd ?? 0),
+      };
+    });
+  }
+
+  export function getRecentByAccount(
+    db: Database,
+    cliproxyAccount: string,
+    limit: number,
+  ): AccountRecentUsage[] {
+    const stmt = db.prepare(`
+      SELECT started_at, model, total_tokens, cost_usd, lifecycle_status
+      FROM request_logs
+      WHERE cliproxy_account = ?
+      ORDER BY started_at DESC
+      LIMIT ?
+    `);
+    return stmt.all(cliproxyAccount, limit).map((row) => {
+      const record = row as Record<string, unknown>;
+      return {
+        started_at: String(record.started_at),
+        model: String(record.model),
+        total_tokens: Number(record.total_tokens ?? 0),
+        cost_usd: Number(record.cost_usd ?? 0),
+        lifecycle_status: parseLifecycleStatus(record.lifecycle_status),
+      };
+    });
   }
 
   export function getUncorrelated(
@@ -288,6 +360,11 @@ export namespace RequestRepo {
     );
     return result.lastInsertRowid as number;
   }
+}
+
+function parseLifecycleStatus(value: unknown): Usage.LifecycleStatus {
+  if (value === "completed" || value === "error" || value === "aborted") return value;
+  return "pending";
 }
 
 export namespace UsageRepo {
