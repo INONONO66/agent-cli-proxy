@@ -361,6 +361,16 @@ export namespace RequestRepo {
     );
     return result.lastInsertRowid as number;
   }
+
+  export function getLatestCostAudit(db: Database, requestLogId: number): Usage.CostAudit | null {
+    const stmt = db.prepare(`
+      SELECT * FROM cost_audit
+      WHERE request_log_id = ?
+      ORDER BY id DESC
+      LIMIT 1
+    `);
+    return (stmt.get(requestLogId) as Usage.CostAudit) || null;
+  }
 }
 
 function parseLifecycleStatus(value: unknown): Usage.LifecycleStatus {
