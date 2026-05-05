@@ -317,6 +317,7 @@ export namespace UsageService {
     }
 
     return {
+      db,
       recordUsage,
       getToday,
       getDateRange,

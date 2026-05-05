@@ -1,5 +1,6 @@
 import { RequestInspector } from "./request-inspector";
 import { PassThroughProxy } from "./pass-through";
+import { Metrics } from "./metrics";
 import { Admin } from "../admin";
 import { UsageService } from "../storage/service";
 import { Config } from "../config";
@@ -21,6 +22,13 @@ export namespace Handler {
         return new Response(JSON.stringify({ status: "ok" }), {
           status: 200,
           headers: { "content-type": "application/json" },
+        });
+      }
+
+      if (path === "/metrics" && method === "GET") {
+        return new Response(Metrics.render(usageService.db), {
+          status: 200,
+          headers: { "content-type": "text/plain; version=0.0.4; charset=utf-8" },
         });
       }
 
