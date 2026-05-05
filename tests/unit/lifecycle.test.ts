@@ -18,6 +18,7 @@ const { Pricing } = await import("../../src/storage/pricing");
 
 const encoder = new TextEncoder();
 const price = { input: 1, output: 1, cache_read: 1, cache_write: 1, reasoning: 1 };
+type TestUsageService = ReturnType<typeof UsageService.create>;
 
 beforeEach(() => {
   Pricing.__setPricingForTests([
@@ -44,6 +45,11 @@ function createHarness(fetch: FetchUpstream) {
   const usageService = UsageService.create(db);
   const handle = PassThroughProxy.create(usageService, { fetch });
   return { db, usageService, handle };
+}
+
+function createHarnessWithService(fetch: FetchUpstream, usageService: TestUsageService) {
+  const handle = PassThroughProxy.create(usageService, { fetch });
+  return { handle };
 }
 
 function request(path: string, body: Record<string, unknown>, headers: HeadersInit = {}): Request {
@@ -158,6 +164,69 @@ test("upstream 502 finalizes the pre-log row as error", async () => {
     incomplete: 1,
   });
   expect(latest(db).error_message).toContain("upstream HTTP 502");
+});
+
+test("transient finalize failures are retried before completing the row", async () => {
+  const db = Storage.initDb(":memory:");
+  const usageService = UsageService.create(db);
+  let attempts = 0;
+  const retryingService: TestUsageService = {
+    ...usageService,
+    async finalizeUsage(id, log) {
+      attempts += 1;
+      if (attempts < 3) throw new Error("temporary finalize write failure");
+      return usageService.finalizeUsage(id, log);
+    },
+  };
+  const { handle } = createHarnessWithService(async () => new Response(JSON.stringify({
+    model: "gpt-5.4-mini",
+    usage: { prompt_tokens: 10, completion_tokens: 5, total_tokens: 15 },
+  }), { status: 200, headers: { "content-type": "application/json" } }), retryingService);
+
+  const req = request("/v1/chat/completions", { model: "gpt-5.4-mini", messages: [{ role: "user", content: "hi" }] });
+  const res = await handle(req, await inspect(req));
+  await res.text();
+
+  expect(attempts).toBe(3);
+  expect(allLogs(db)).toHaveLength(1);
+  expect(latest(db)).toMatchObject({
+    lifecycle_status: "completed",
+    status: 200,
+    total_tokens: 15,
+    incomplete: 0,
+  });
+});
+
+test("exhausted finalize retries mark the pending row as error", async () => {
+  const db = Storage.initDb(":memory:");
+  const usageService = UsageService.create(db);
+  let attempts = 0;
+  const failingService: TestUsageService = {
+    ...usageService,
+    async finalizeUsage() {
+      attempts += 1;
+      throw new Error("database locked");
+    },
+  };
+  const { handle } = createHarnessWithService(async () => new Response(JSON.stringify({
+    model: "gpt-5.4-mini",
+    usage: { prompt_tokens: 10, completion_tokens: 5, total_tokens: 15 },
+  }), { status: 200, headers: { "content-type": "application/json" } }), failingService);
+
+  const req = request("/v1/chat/completions", { model: "gpt-5.4-mini", messages: [{ role: "user", content: "hi" }] });
+  const res = await handle(req, await inspect(req));
+  await res.text();
+
+  expect(attempts).toBe(3);
+  expect(allLogs(db)).toHaveLength(1);
+  expect(latest(db)).toMatchObject({
+    lifecycle_status: "error",
+    cost_status: "pending",
+    error_code: "finalize_failed",
+    incomplete: 1,
+  });
+  expect(latest(db).error_message).toContain("finalize_failed");
+  expect(latest(db).finalized_at).toBeString();
 });
 
 test("client abort during streaming finalizes one row as aborted", async () => {
