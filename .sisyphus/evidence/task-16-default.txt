@@ -1,0 +1,40 @@
+T16 Evidence: ship default plans.json with build
+=================================================
+
+Build output:
+$ bun run build
+Bundled 30 modules in 4ms
+  index.js  172.24 KB  (entry point)
+  cli.js    130.33 KB  (entry point)
+
+dist/data/ contents:
+plans.default.json
+
+Plans loader verification:
+$ bun -e "import('./src/plans/index.ts').then(m=>console.log('plans count:', m.Plans.list().length))"
+plans count: 9
+
+Test results:
+$ bun test tests/unit/plans.test.ts
+12 pass, 0 fail
+
+Full test suite:
+$ bun test
+67 pass, 17 skip, 0 fail
+
+Plans in data/plans.default.json:
+- claude_pro (Anthropic Claude Pro, $20/mo)
+- claude_max5 (Anthropic Claude Max 5x, $100/mo)
+- claude_max20 (Anthropic Claude Max 20x, $200/mo)
+- chatgpt_plus (OpenAI ChatGPT Plus, $20/mo)
+- chatgpt_pro (OpenAI ChatGPT Pro, $200/mo)
+- chatgpt_business (OpenAI ChatGPT Business, $25/mo)
+- kimi_pro (Moonshot Kimi, $15/mo)
+- glm_pro (BigModel GLM, $10/mo)
+- local_byok (Bring Your Own Key / Self-hosted, $0/mo)
+
+package.json changes:
+- files: added "data" entry
+- build: appended "mkdir -p dist/data && cp data/plans.default.json dist/data/plans.default.json"
+
+Date: 2026-05-05

@@ -64,7 +64,7 @@ test("default load returns packaged plans", () => {
   const plans = Plans.list();
 
   expect(plans.length).toBeGreaterThan(0);
-  expect(Plans.byCode("claude_pro")?.display_name).toBe("Claude Pro");
+  expect(Plans.byCode("claude_pro")?.display_name).toBe("Anthropic Claude Pro");
 });
 
 test("PLANS_JSON inline env beats PLANS_PATH", async () => {
@@ -156,4 +156,46 @@ test("duplicate codes fall back to packaged defaults", () => {
 
   expect(plans.length).toBeGreaterThan(0);
   expect(Plans.byCode("dup")).toBeNull();
+});
+
+test("default plans.default.json has at least 7 entries with all required fields", () => {
+  const plans = Plans.list();
+
+  expect(plans.length).toBeGreaterThanOrEqual(7);
+
+  const requiredCodes = [
+    "claude_pro",
+    "claude_max5",
+    "claude_max20",
+    "chatgpt_plus",
+    "chatgpt_pro",
+    "chatgpt_business",
+    "kimi_pro",
+    "glm_pro",
+    "local_byok",
+  ];
+  for (const code of requiredCodes) {
+    const entry = Plans.byCode(code);
+    expect(entry).not.toBeNull();
+    if (!entry) continue;
+    expect(typeof entry.code).toBe("string");
+    expect(entry.code.length).toBeGreaterThan(0);
+    expect(typeof entry.provider).toBe("string");
+    expect(entry.provider.length).toBeGreaterThan(0);
+    expect(typeof entry.display_name).toBe("string");
+    expect(entry.display_name.length).toBeGreaterThan(0);
+    expect(typeof entry.monthly_price_usd).toBe("number");
+    expect(entry.monthly_price_usd).toBeGreaterThanOrEqual(0);
+    expect(entry.currency).toBe("USD");
+    expect(entry.billing_period_days).toBe(30);
+    expect(typeof entry.notes).toBe("string");
+    expect(entry.notes).toMatch(/verify with vendor/i);
+  }
+});
+
+test("default plans.default.json codes are unique", () => {
+  const plans = Plans.list();
+  const codes = plans.map((p) => p.code);
+  const uniqueCodes = new Set(codes);
+  expect(uniqueCodes.size).toBe(codes.length);
 });

@@ -9,13 +9,14 @@
   },
   "files": [
     "dist",
+    "data",
     "README.md",
     "LICENSE",
     "package.json"
   ],
   "scripts": {
     "dev": "bun run --watch src/index.ts",
-    "build": "bun build src/index.ts src/cli.ts --target=bun --outdir=./dist && rm -rf dist/migrations && cp -R src/storage/migrations dist/migrations",
+    "build": "bun build src/index.ts src/cli.ts --target=bun --outdir=./dist && rm -rf dist/migrations && cp -R src/storage/migrations dist/migrations && mkdir -p dist/data && cp data/plans.default.json dist/data/plans.default.json",
     "test": "bun test",
     "test:e2e": "bun test tests/e2e/",
     "test:e2e:mock": "MOCK_CLI_PROXY=1 CLI_PROXY_API_URL=http://localhost:18317 bun test tests/e2e/",

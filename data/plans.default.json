@@ -3,72 +3,91 @@
     {
       "code": "claude_pro",
       "provider": "anthropic",
-      "display_name": "Claude Pro",
+      "display_name": "Anthropic Claude Pro",
       "monthly_price_usd": 20,
       "currency": "USD",
       "billing_period_days": 30,
       "vendor_url": "https://www.anthropic.com/claude/pricing",
-      "notes": "Illustrative monthly subscription metadata only; verify current vendor pricing before use."
+      "notes": "Conservative estimate — verify with vendor — last updated 2026-05"
     },
     {
       "code": "claude_max5",
       "provider": "anthropic",
-      "display_name": "Claude Max 5x",
+      "display_name": "Anthropic Claude Max 5x",
       "monthly_price_usd": 100,
       "currency": "USD",
       "billing_period_days": 30,
       "vendor_url": "https://www.anthropic.com/claude/pricing",
-      "notes": "Illustrative monthly subscription metadata only; verify current vendor pricing before use."
+      "notes": "Conservative estimate — verify with vendor — last updated 2026-05"
     },
     {
       "code": "claude_max20",
       "provider": "anthropic",
-      "display_name": "Claude Max 20x",
+      "display_name": "Anthropic Claude Max 20x",
       "monthly_price_usd": 200,
       "currency": "USD",
       "billing_period_days": 30,
       "vendor_url": "https://www.anthropic.com/claude/pricing",
-      "notes": "Illustrative monthly subscription metadata only; verify current vendor pricing before use."
+      "notes": "Conservative estimate — verify with vendor — last updated 2026-05"
     },
     {
       "code": "chatgpt_plus",
       "provider": "openai",
-      "display_name": "ChatGPT Plus",
+      "display_name": "OpenAI ChatGPT Plus",
       "monthly_price_usd": 20,
       "currency": "USD",
       "billing_period_days": 30,
       "vendor_url": "https://openai.com/chatgpt/pricing/",
-      "notes": "Illustrative monthly subscription metadata only; verify current vendor pricing before use."
+      "notes": "Conservative estimate — verify with vendor — last updated 2026-05"
     },
     {
       "code": "chatgpt_pro",
       "provider": "openai",
-      "display_name": "ChatGPT Pro",
+      "display_name": "OpenAI ChatGPT Pro",
       "monthly_price_usd": 200,
       "currency": "USD",
       "billing_period_days": 30,
       "vendor_url": "https://openai.com/chatgpt/pricing/",
-      "notes": "Illustrative monthly subscription metadata only; verify current vendor pricing before use."
+      "notes": "Conservative estimate — verify with vendor — last updated 2026-05"
     },
     {
       "code": "chatgpt_business",
       "provider": "openai",
-      "display_name": "ChatGPT Business",
+      "display_name": "OpenAI ChatGPT Business",
       "monthly_price_usd": 25,
       "currency": "USD",
       "billing_period_days": 30,
       "vendor_url": "https://openai.com/chatgpt/pricing/",
-      "notes": "Illustrative monthly subscription metadata only; verify current vendor pricing before use."
+      "notes": "Conservative estimate (per-seat); verify with vendor — last updated 2026-05"
     },
     {
       "code": "kimi_pro",
-      "provider": "kimi",
-      "display_name": "Kimi Pro",
-      "monthly_price_usd": 20,
+      "provider": "moonshot",
+      "display_name": "Moonshot Kimi",
+      "monthly_price_usd": 15,
       "currency": "USD",
       "billing_period_days": 30,
-      "vendor_url": "https://www.kimi.com/",
-      "notes": "Illustrative monthly subscription metadata only; verify current vendor pricing before use."
+      "vendor_url": "https://www.moonshot.cn/",
+      "notes": "Conservative estimate — verify with vendor — last updated 2026-05"
+    },
+    {
+      "code": "glm_pro",
+      "provider": "bigmodel",
+      "display_name": "BigModel GLM",
+      "monthly_price_usd": 10,
+      "currency": "USD",
+      "billing_period_days": 30,
+      "vendor_url": "https://open.bigmodel.cn/",
+      "notes": "Conservative estimate — verify with vendor — last updated 2026-05"
+    },
+    {
+      "code": "local_byok",
+      "provider": "local",
+      "display_name": "Bring Your Own Key (BYOK / Self-hosted)",
+      "monthly_price_usd": 0,
+      "currency": "USD",
+      "billing_period_days": 30,
+      "notes": "Self-hosted or BYOK provider. No vendor billing. verify with vendor — last updated 2026-05"
     }
   ]
 }

@@ -867,3 +867,11 @@ Added `src/util/logger.ts` with dependency-free structured logging and migrated 
 - Shutdown composition is registry-first: individual handles abort their loop and `Supervisor.stopAll()` drains registered loops in parallel with bounded timeout logging for abandoned loops.
 - Tests are easiest with a supervisor test logger sink and real small millisecond intervals; jitter disabled (`jitterRatio: 0`) makes backoff assertions deterministic without new dependencies.
 - The existing cost backfill TODO in `UsageService` was also moved under Supervisor so the scoped `setInterval` audit stays clean and T15 can drain it through the same registry.
+
+## 2026-05-05 T16 default plans.json packaging
+- `data/plans.default.json` is statically imported by `src/plans/index.ts` via `import defaultPlansDocument from "../../data/plans.default.json"`. Bun bundles this JSON at build time, so the dist bundle already embeds the data — no runtime path resolution is needed for the default case.
+- The `dist/data/plans.default.json` copy (added to build script) is a convenience artifact: it lets users inspect/override the file after install and serves as a reference for `PLANS_PATH` env var usage.
+- Adding `"data"` to `package.json` `files` ensures the source JSON ships with the npm package alongside `dist/`, giving users access to the raw file without needing to unpack the bundle.
+- `local_byok` must omit `vendor_url` entirely (not set to `""`) because the schema validator's `readOptionalHttpUrl` rejects empty strings. Optional fields should be absent, not empty.
+- All `notes` fields must include "verify with vendor" to satisfy the new test assertion and to communicate pricing staleness to users. The format `"Conservative estimate — verify with vendor — last updated YYYY-MM"` is the canonical pattern.
+- 9 plans total: claude_pro, claude_max5, claude_max20, chatgpt_plus, chatgpt_pro, chatgpt_business, kimi_pro, glm_pro, local_byok. Existing tests that assert specific `display_name` values must be updated when names change (e.g., "Claude Pro" → "Anthropic Claude Pro").
