@@ -1,4 +1,4 @@
-import { RequestInspector } from "./request-inspector";
+import { RequestBodyTooLargeError, RequestInspector, isRequestBodyTooLargeError } from "./request-inspector";
 import { PassThroughProxy } from "./pass-through";
 import { Metrics } from "./metrics";
 import { Admin } from "../admin";
@@ -53,14 +53,19 @@ let readyCache: { expiresAt: number; result: ReadyResult } | null = null;
 let readyInFlight: Promise<ReadyResult> | null = null;
 
 export namespace Handler {
+  export interface Options {
+    maxRequestBodyBytes?: number;
+  }
+
   export function __clearReadyCacheForTests(): void {
     readyCache = null;
     readyInFlight = null;
   }
 
-  export function create(usageService: UsageService.UsageService) {
+  export function create(usageService: UsageService.UsageService, options: Options = {}) {
     const passThrough = PassThroughProxy.create(usageService);
     const adminRouter = Admin.createRouter(usageService);
+    const maxRequestBodyBytes = options.maxRequestBodyBytes ?? Config.maxRequestBodyBytes;
 
     return async function handleRequest(req: Request): Promise<Response> {
       const url = new URL(req.url);
@@ -100,12 +105,17 @@ export namespace Handler {
         }
 
         if ((path === "/v1/messages" || path === "/v1/chat/completions") && method === "POST") {
-          const info = await RequestInspector.inspect(req);
-          return passThrough(req, info);
+          const bounded = enforceRequestBodyLimit(req, maxRequestBodyBytes);
+          if (bounded instanceof Response) return bounded;
+          const info = await RequestInspector.inspect(bounded);
+          return passThrough(bounded, info);
         }
 
         return new Response("Not Found", { status: 404 });
       } catch (err) {
+        if (isRequestBodyTooLargeError(err)) {
+          return payloadTooLargeResponse(maxRequestBodyBytes);
+        }
         logger.error("request handler failed", { err, path, method });
         return new Response(JSON.stringify({ error: "Internal server error" }), {
           status: 500,
@@ -123,6 +133,43 @@ export namespace Handler {
     const bearer = req.headers.get("authorization")?.replace(/^Bearer\s+/i, "").trim();
     const token = req.headers.get("x-admin-token")?.trim() || bearer;
     return token === Config.adminApiKey;
+  }
+
+  function enforceRequestBodyLimit(req: Request, limit: number): Request | Response {
+    const contentLength = parseContentLength(req.headers.get("content-length"));
+    if (contentLength !== null && contentLength > limit) return payloadTooLargeResponse(limit);
+    if (!req.body) return req;
+
+    return new Request(req, {
+      body: req.body.pipeThrough(countBytes(limit)),
+    });
+  }
+
+  function parseContentLength(raw: string | null): number | null {
+    if (raw === null) return null;
+    const parsed = Number(raw.trim());
+    return Number.isInteger(parsed) && parsed >= 0 ? parsed : null;
+  }
+
+  function countBytes(limit: number): TransformStream<Uint8Array, Uint8Array> {
+    let bytes = 0;
+    return new TransformStream<Uint8Array, Uint8Array>({
+      transform(chunk, controller) {
+        bytes += chunk.byteLength;
+        if (bytes > limit) {
+          controller.error(new RequestBodyTooLargeError(limit));
+          return;
+        }
+        controller.enqueue(chunk);
+      },
+    });
+  }
+
+  function payloadTooLargeResponse(limit: number): Response {
+    return new Response(JSON.stringify({ error: `request body exceeds ${limit} bytes`, limit }), {
+      status: 413,
+      headers: { "content-type": "application/json" },
+    });
   }
 
   function readyResponse(result: ReadyResult): Response {

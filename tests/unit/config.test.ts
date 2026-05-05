@@ -73,9 +73,16 @@ test("valid config is frozen and keeps typed values", () => {
 
   expect(Object.isFrozen(config)).toBe(true);
   expect(config.port).toBe(4310);
+  expect(config.maxRequestBodyBytes).toBe(25_000_000);
   expect(config.cchPositions).toEqual([1, 2, 3]);
   expect(config.clientNameMapping).toBeInstanceOf(Map);
   expect(config.clientNameMapping.get("key1")).toBe("alice");
+});
+
+test("request body limit accepts positive integers up to one billion bytes", () => {
+  const config = Config.validate(baseEnv({ MAX_REQUEST_BODY_BYTES: "1000000000" }));
+
+  expect(config.maxRequestBodyBytes).toBe(1_000_000_000);
 });
 
 test("invalid port and timeout values fail fast", () => {
@@ -90,6 +97,7 @@ test("invalid port and timeout values fail fast", () => {
     QUOTA_REFRESH_INTERVAL_MS: "0",
     QUOTA_REFRESH_TIMEOUT_MS: "Infinity",
     READY_PRICING_MAX_AGE_MS: "0",
+    MAX_REQUEST_BODY_BYTES: "1000000001",
   })));
 
   expect(err.issues.map((issue) => issue.path)).toEqual(expect.arrayContaining([
@@ -103,6 +111,7 @@ test("invalid port and timeout values fail fast", () => {
     "QUOTA_REFRESH_INTERVAL_MS",
     "QUOTA_REFRESH_TIMEOUT_MS",
     "READY_PRICING_MAX_AGE_MS",
+    "MAX_REQUEST_BODY_BYTES",
   ]));
 });
 

@@ -103,6 +103,7 @@ Provider API keys are intentionally **not** stored by this proxy. The proxy rout
 | `COST_BACKFILL_LOOKBACK_MS` | `604800000` | How far back cost backfill looks (7d) |
 | `UPSTREAM_TIMEOUT_MS` | `300000` | Total upstream request timeout (5m) |
 | `UPSTREAM_CONNECT_TIMEOUT_MS` | `10000` | Upstream connection timeout (10s) |
+| `MAX_REQUEST_BODY_BYTES` | `25000000` | Maximum request body size accepted for proxied POST requests (25MB) |
 | `STALE_PENDING_MAX_AGE_MS` | `300000` | Age at which pending request rows are recovered on boot (5m) |
 | `QUOTA_REFRESH_INTERVAL_MS` | `300000` | How often to refresh CLIProxyAPI quota snapshots (5m) |
 | `QUOTA_REFRESH_TIMEOUT_MS` | `15000` | Timeout for provider quota refresh calls (15s) |

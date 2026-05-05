@@ -30,6 +30,7 @@ export interface ValidatedConfig {
   quotaRefreshTimeoutMs: number;
   upstreamTimeoutMs: number;
   upstreamConnectTimeoutMs: number;
+  maxRequestBodyBytes: number;
 }
 
 export interface ConfigIssue {
@@ -88,6 +89,7 @@ export namespace Config {
       quotaRefreshTimeoutMs: readPositiveNumber(env, "QUOTA_REFRESH_TIMEOUT_MS", 15000, issues),
       upstreamTimeoutMs: readPositiveNumber(env, "UPSTREAM_TIMEOUT_MS", 300000, issues),
       upstreamConnectTimeoutMs: readPositiveNumber(env, "UPSTREAM_CONNECT_TIMEOUT_MS", 10000, issues),
+      maxRequestBodyBytes: readPositiveInteger(env, "MAX_REQUEST_BODY_BYTES", 25_000_000, 1_000_000_000, issues),
     };
 
     if (!isLoopbackHost(config.host) && !config.adminApiKey) {
@@ -129,6 +131,23 @@ function readPositiveNumber(env: EnvLike, key: string, fallback: number, issues:
   const parsed = Number(raw);
   if (!Number.isFinite(parsed) || parsed <= 0) {
     issues.push({ path: key, message: "must be a positive finite number" });
+    return fallback;
+  }
+  return parsed;
+}
+
+function readPositiveInteger(
+  env: EnvLike,
+  key: string,
+  fallback: number,
+  maximum: number,
+  issues: ConfigIssue[],
+): number {
+  const raw = env[key];
+  if (raw === undefined) return fallback;
+  const parsed = Number(raw);
+  if (!Number.isInteger(parsed) || parsed < 1 || parsed > maximum) {
+    issues.push({ path: key, message: `must be an integer from 1 to ${maximum}` });
     return fallback;
   }
   return parsed;

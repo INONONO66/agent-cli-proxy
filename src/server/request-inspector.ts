@@ -12,6 +12,22 @@ export interface RequestInfo {
   requestId?: string;
 }
 
+export class RequestBodyTooLargeError extends Error {
+  readonly name = "RequestBodyTooLargeError";
+  readonly code = "REQUEST_BODY_TOO_LARGE";
+
+  constructor(readonly limit: number) {
+    super(`request body exceeds ${limit} bytes`);
+  }
+}
+
+export function isRequestBodyTooLargeError(err: unknown): err is RequestBodyTooLargeError {
+  if (!(err instanceof Error)) return false;
+  if (err instanceof RequestBodyTooLargeError) return true;
+  if (err.name === "RequestBodyTooLargeError") return true;
+  return err.message.startsWith("request body exceeds ") && err.message.endsWith(" bytes");
+}
+
 export namespace RequestInspector {
   export async function inspect(req: Request): Promise<RequestInfo> {
     const url = new URL(req.url);
@@ -45,7 +61,8 @@ export namespace RequestInspector {
         if (body.stream === true || body.stream === "true") {
           isStreaming = true;
         }
-      } catch {
+      } catch (err) {
+        if (isRequestBodyTooLargeError(err)) throw err;
         // Body is not JSON or already consumed; treat as opaque pass-through.
         // model/streaming detection is best-effort here.
       }
