@@ -906,3 +906,9 @@ Added `src/util/logger.ts` with dependency-free structured logging and migrated 
 - `.env` writes should be same-directory temp-file + rename with mode `0600`. Refusing overwrite by default is safer than silently replacing admin/upstream secrets; `--merge` preserves already-written values.
 - Doctor checks are most useful as a full structured report even when config fails. Downstream checks that depend on validated config should report an explicit skipped/fail reason instead of aborting the process.
 - Spawning the CLI from tests while hosting a local Bun server must use asynchronous `Bun.spawn`; `spawnSync` blocks the test process event loop and makes the child doctor probe time out.
+
+## T19 CI and Release Workflows (May 2026)
+
+Two GitHub Actions workflows were added with no source code changes. The CI workflow (`.github/workflows/ci.yml`) triggers on pushes to `main` and all pull requests, running `bun install` then `bun run release-check` (typecheck + test + build + publint fallback) on `ubuntu-latest`. The release workflow (`.github/workflows/release.yml`) triggers only on tag pushes matching `v*`, runs the same `release-check` gate, then publishes to npm via `bun publish --access public --tolerate-republish` using `NPM_CONFIG_TOKEN` from `secrets.NPM_TOKEN`.
+
+Key decisions: `oven-sh/setup-bun@v2` is used in both workflows (v2 auto-caches, reads `engines.bun` from `package.json`); no Node.js setup step is needed since Bun handles everything; `--provenance` was intentionally omitted to avoid OIDC permission complexity; `--tolerate-republish` makes the release job idempotent on CI re-runs. YAML was validated with `bunx js-yaml` (4.1.1) which parsed both files cleanly. The tag guard (`tags: ['v*']`) is the sole mechanism preventing non-tag pushes from triggering npm publish.
