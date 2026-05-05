@@ -49,8 +49,8 @@ export namespace Logger {
 
   export function create(options: Options = {}): Logger {
     return new StructuredLogger({
-      level: normalizeLevel(options.level ?? process.env.LOG_LEVEL),
-      format: normalizeFormat(options.format ?? process.env.LOG_FORMAT),
+      level: normalizeLevel(options.level),
+      format: normalizeFormat(options.format),
       base: redact(options.base ?? {}) as Fields,
       sink: options.sink ?? defaultSink,
     });
