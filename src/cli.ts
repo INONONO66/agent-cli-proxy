@@ -6,7 +6,8 @@ import { homedir, platform } from "node:os";
 import { createInterface } from "node:readline/promises";
 import { stdin as input, stdout as output } from "node:process";
 import { Storage } from "./storage/db";
-import { UsageService } from "./storage/service";
+import { ConfigError } from "./config/validate";
+import { Logger } from "./util/logger";
 
 type EnvMap = Record<string, string>;
 
@@ -24,6 +25,15 @@ const defaultPricingCachePath = join(defaultDataDir, "pricing-cache.json");
 
 const packageRoot = resolve(dirname(Bun.fileURLToPath(import.meta.url)), "..");
 const packagedDistDir = dirname(Bun.fileURLToPath(import.meta.url));
+const logger = Logger.fromConfig().child({ component: "cli" });
+
+function writeOut(message = ""): void {
+  process.stdout.write(`${message}\n`);
+}
+
+function writeErr(message = ""): void {
+  process.stderr.write(`${message}\n`);
+}
 
 async function main(): Promise<void> {
   const [command = "help", subcommand = ""] = process.argv.slice(2);
@@ -54,7 +64,7 @@ async function main(): Promise<void> {
       return;
   }
 
-  console.error(`Unknown command: ${command}${subcommand ? ` ${subcommand}` : ""}`);
+  writeErr(`Unknown command: ${command}${subcommand ? ` ${subcommand}` : ""}`);
   printHelp();
   process.exit(1);
 }
@@ -62,7 +72,7 @@ async function main(): Promise<void> {
 async function initCommand(): Promise<void> {
   const rl = createInterface({ input, output });
   try {
-    console.log("agent-cli-proxy installer\n");
+    writeOut("agent-cli-proxy installer\n");
 
     const envPath = await ask(rl, "Config .env path", defaultEnvPath);
     const dataDir = await ask(rl, "Data directory", defaultDataDir);
@@ -111,11 +121,11 @@ async function initCommand(): Promise<void> {
     await chmod(envPath, 0o600);
     await initDbAt(env.DB_PATH);
 
-    console.log("\nCreated:");
-    console.log(`  env: ${envPath}`);
-    console.log(`  db:  ${env.DB_PATH}`);
-    console.log(`  data: ${dataDir}`);
-    console.log(`  runtime: ${runtimeDir}`);
+    writeOut("\nCreated:");
+    writeOut(`  env: ${envPath}`);
+    writeOut(`  db:  ${env.DB_PATH}`);
+    writeOut(`  data: ${dataDir}`);
+    writeOut(`  runtime: ${runtimeDir}`);
 
     if (await confirm(rl, "Install user daemon now?", platform() === "linux" || platform() === "darwin")) {
       await installRuntime(runtimeDir, envPath);
@@ -130,7 +140,7 @@ async function initDbCommand(): Promise<void> {
   const envPath = getArg("--env") ?? defaultEnvPath;
   const env = parseEnvFile(envPath);
   await initDbAt(env.DB_PATH ?? defaultDbPath);
-  console.log(`Initialized DB at ${env.DB_PATH ?? defaultDbPath}`);
+  writeOut(`Initialized DB at ${env.DB_PATH ?? defaultDbPath}`);
 }
 
 async function backfillCostsCommand(): Promise<void> {
@@ -139,6 +149,9 @@ async function backfillCostsCommand(): Promise<void> {
   for (const [key, value] of Object.entries(env)) {
     process.env[key] = value;
   }
+  const { Config } = await import("./config/validate");
+  Config.validate(process.env);
+  const { UsageService } = await import("./storage/service");
   const dbPath = env.DB_PATH ?? defaultDbPath;
   const db = Storage.initDb(dbPath);
   const usageService = UsageService.create(db);
@@ -146,7 +159,7 @@ async function backfillCostsCommand(): Promise<void> {
     onlyZeroCost: !process.argv.includes("--all"),
     limit: parsePositiveLimit(),
   });
-  console.log(`[backfill-costs] scanned=${result.scanned} updated=${result.updated}`);
+  writeOut(`[backfill-costs] scanned=${result.scanned} updated=${result.updated}`);
   db.close();
 }
 
@@ -167,7 +180,7 @@ async function serviceCommand(subcommand: string): Promise<void> {
       return;
   }
 
-  console.error("Usage: agent-cli-proxy service <install|start|stop|restart|status>");
+  writeErr("Usage: agent-cli-proxy service <install|start|stop|restart|status>");
   process.exit(1);
 }
 
@@ -198,8 +211,8 @@ async function installService(runtimeDir: string, envPath: string): Promise<void
     const unitPath = getArg("--service-path") ?? join(unitDir, `${APP_NAME}.service`);
     await mkdir(dirname(unitPath), { recursive: true });
     await writeFile(unitPath, renderSystemdUserService(runtimeDir, envPath));
-    console.log(`Installed systemd user service: ${unitPath}`);
-    console.log(`Run: systemctl --user daemon-reload && systemctl --user enable --now ${APP_NAME}`);
+    writeOut(`Installed systemd user service: ${unitPath}`);
+    writeOut(`Run: systemctl --user daemon-reload && systemctl --user enable --now ${APP_NAME}`);
     return;
   }
 
@@ -208,8 +221,8 @@ async function installService(runtimeDir: string, envPath: string): Promise<void
     const plistPath = getArg("--service-path") ?? join(launchDir, `ai.agent-cli-proxy.plist`);
     await mkdir(dirname(plistPath), { recursive: true });
     await writeFile(plistPath, renderLaunchAgent(runtimeDir, envPath));
-    console.log(`Installed launchd agent: ${plistPath}`);
-    console.log(`Run: launchctl load ${plistPath}`);
+    writeOut(`Installed launchd agent: ${plistPath}`);
+    writeOut(`Run: launchctl load ${plistPath}`);
     return;
   }
 
@@ -218,7 +231,7 @@ async function installService(runtimeDir: string, envPath: string): Promise<void
 
 async function controlService(action: string): Promise<void> {
   if (platform() !== "linux") {
-    console.log("Service control is only automated for systemd user services. Use launchctl on macOS.");
+    writeOut("Service control is only automated for systemd user services. Use launchctl on macOS.");
     return;
   }
   const args = action === "status"
@@ -383,7 +396,7 @@ function getArg(name: string): string | undefined {
 }
 
 function printPaths(): void {
-  console.log(JSON.stringify({
+  writeOut(JSON.stringify({
     configDir: defaultConfigDir,
     dataDir: defaultDataDir,
     runtimeDir: defaultRuntimeDir,
@@ -394,7 +407,7 @@ function printPaths(): void {
 }
 
 function printHelp(): void {
-  console.log(`agent-cli-proxy
+  writeOut(`agent-cli-proxy
 
 Usage:
   agent-cli-proxy init
@@ -407,6 +420,10 @@ Usage:
 }
 
 main().catch((err) => {
-  console.error(err instanceof Error ? err.message : err);
+  if (err instanceof ConfigError || (err instanceof Error && (err as { code?: string }).code === "CONFIG_INVALID")) {
+    logger.error("configuration validation failed", { event: "config.error", err, issues: (err as { issues?: unknown }).issues });
+    process.exit(1);
+  }
+  writeErr(err instanceof Error ? err.message : String(err));
   process.exit(1);
 });

@@ -1,29 +1,44 @@
-import { Storage } from "./storage/db";
-import { UsageService } from "./storage/service";
-import { Pricing } from "./storage/pricing";
-import { Handler } from "./server/handler";
-import { Correlator } from "./cliproxy/correlator";
-import { Config } from "./config";
+import { Logger } from "./util/logger";
 
-Pricing.fetchPricing().catch((err) => {
-  console.warn("[startup] pricing fetch failed:", err);
+const logger = Logger.fromConfig().child({ component: "startup" });
+
+async function main(): Promise<void> {
+  const { Config } = await import("./config");
+  const { Storage } = await import("./storage/db");
+  const { UsageService } = await import("./storage/service");
+  const { Pricing } = await import("./storage/pricing");
+  const { Handler } = await import("./server/handler");
+  const { Correlator } = await import("./cliproxy/correlator");
+
+  Pricing.fetchPricing().catch((err) => {
+    logger.warn("pricing fetch failed", { err });
+  });
+
+  const db = Storage.initDb(Config.dbPath);
+  const usageService = UsageService.create(db);
+  const handleRequest = Handler.create(usageService);
+
+  Correlator.start(usageService);
+
+  Bun.serve({
+    port: Config.port,
+    hostname: Config.host,
+    idleTimeout: 0,
+    fetch: handleRequest,
+    development:
+      process.env.NODE_ENV !== "production"
+        ? { hmr: true, console: true }
+        : undefined,
+  });
+
+  logger.info("server running", { host: Config.host, port: Config.port, url: `http://${Config.host}:${Config.port}` });
+}
+
+main().catch((err) => {
+  if (err instanceof Error && (err as { code?: string }).code === "CONFIG_INVALID") {
+    logger.error("configuration validation failed", { event: "config.error", err, issues: (err as { issues?: unknown }).issues });
+  } else {
+    logger.error("startup failed", { event: "startup.error", err });
+  }
+  process.exit(1);
 });
-
-const db = Storage.initDb(Config.dbPath);
-const usageService = UsageService.create(db);
-const handleRequest = Handler.create(usageService);
-
-Correlator.start(usageService);
-
-Bun.serve({
-  port: Config.port,
-  hostname: Config.host,
-  idleTimeout: 0,
-  fetch: handleRequest,
-  development:
-    process.env.NODE_ENV !== "production"
-      ? { hmr: true, console: true }
-      : undefined,
-});
-
-console.log(`Server running at http://${Config.host}:${Config.port}`);
