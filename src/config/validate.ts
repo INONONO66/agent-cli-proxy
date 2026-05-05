@@ -20,6 +20,7 @@ export interface ValidatedConfig {
   pricingRefreshIntervalMs: number;
   costBackfillIntervalMs: number;
   costBackfillLookbackMs: number;
+  costBackfillChunkSize: number;
   logLevel: string;
   clientNameMapping: Map<string, string>;
   cliproxyMgmtKey: string;
@@ -79,6 +80,7 @@ export namespace Config {
       pricingRefreshIntervalMs: readPositiveNumber(env, "PRICING_REFRESH_INTERVAL_MS", 21600000, issues),
       costBackfillIntervalMs: readPositiveNumber(env, "COST_BACKFILL_INTERVAL_MS", 1800000, issues),
       costBackfillLookbackMs: readPositiveNumber(env, "COST_BACKFILL_LOOKBACK_MS", 604800000, issues),
+      costBackfillChunkSize: readPositiveInteger(env, "COST_BACKFILL_CHUNK_SIZE", 500, 100_000, issues),
       logLevel: readString(env, "LOG_LEVEL", "info"),
       clientNameMapping: readClientNameMapping(env, issues),
       cliproxyMgmtKey: readString(env, "CLIPROXY_MGMT_KEY", ""),
