@@ -81,6 +81,22 @@ export namespace UsageService {
       return txn();
     }
 
+    async function markFinalizeFailed(id: number, fields: { finalizedAt: string; errorMessage: string }): Promise<boolean> {
+      const stmt = db.prepare(`
+        UPDATE request_logs
+        SET lifecycle_status = 'error',
+            incomplete = 1,
+            error_code = COALESCE(error_code, 'finalize_failed'),
+            error_message = ?,
+            finalized_at = ?,
+            finished_at = COALESCE(finished_at, ?),
+            cost_status = CASE WHEN cost_status = 'ok' THEN cost_status ELSE 'pending' END
+        WHERE id = ? AND lifecycle_status = 'pending'
+      `);
+      const result = stmt.run(fields.errorMessage, fields.finalizedAt, fields.finalizedAt, id);
+      return result.changes > 0;
+    }
+
     async function recordUsage(log: Omit<Usage.RequestLog, "id">): Promise<number> {
       const cost = computeCost(log);
       const logWithCost = { ...log, cost_usd: cost.cost_usd, cost_status: cost.cost_status };
@@ -465,6 +481,7 @@ export namespace UsageService {
       db,
       preLog,
       finalizeUsage,
+      markFinalizeFailed,
       recordUsage,
       getToday,
       getDateRange,

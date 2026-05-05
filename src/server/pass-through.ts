@@ -9,6 +9,8 @@ import { Logger } from "../util/logger";
 import type { Usage } from "../usage";
 
 const logger = Logger.fromConfig().child({ component: "pass-through" });
+const FINALIZE_ATTEMPTS = 3;
+const FINALIZE_RETRY_BACKOFF_MS = 50;
 
 type ParsedUsage = ParsedResponse["usage"];
 type FetchUpstream = typeof UpstreamClient.fetch;
@@ -416,40 +418,41 @@ export namespace PassThroughProxy {
 
     lifecycle.finalizing = (async () => {
       const finishedAt = new Date().toISOString();
+      const usage = fields.parsed.usage;
+      const model = fields.parsed.actualModel ?? lifecycle.model;
+      const log: Omit<Usage.RequestLog, "id"> = {
+        request_id: lifecycle.requestId,
+        provider: lifecycle.provider,
+        model,
+        actual_model: fields.parsed.actualModel ?? undefined,
+        tool: lifecycle.tool,
+        client_id: lifecycle.clientId,
+        path: lifecycle.path,
+        streamed: fields.isStreaming ? 1 : 0,
+        status: fields.status,
+        prompt_tokens: usage?.prompt_tokens ?? 0,
+        completion_tokens: usage?.completion_tokens ?? 0,
+        cache_creation_tokens: usage?.cache_creation_tokens ?? 0,
+        cache_read_tokens: usage?.cache_read_tokens ?? 0,
+        reasoning_tokens: usage?.reasoning_tokens ?? 0,
+        total_tokens: usage?.total_tokens ?? 0,
+        cost_usd: 0,
+        incomplete: fields.lifecycleStatus === "completed" ? 0 : 1,
+        error_code: fields.errorCode,
+        latency_ms: Date.now() - lifecycle.startTime,
+        started_at: lifecycle.startedAt,
+        finished_at: finishedAt,
+        user_agent: lifecycle.userAgent,
+        source_ip: lifecycle.sourceIp,
+        lifecycle_status: fields.lifecycleStatus,
+        finalized_at: finishedAt,
+        error_message: fields.errorMessage,
+        agent: lifecycle.agent,
+        source: lifecycle.source,
+        msg_id: lifecycle.msgId,
+      };
       try {
-        const usage = fields.parsed.usage;
-        const model = fields.parsed.actualModel ?? lifecycle.model;
-        const updated = await usageService.finalizeUsage(lifecycle.id, {
-          request_id: lifecycle.requestId,
-          provider: lifecycle.provider,
-          model,
-          actual_model: fields.parsed.actualModel ?? undefined,
-          tool: lifecycle.tool,
-          client_id: lifecycle.clientId,
-          path: lifecycle.path,
-          streamed: fields.isStreaming ? 1 : 0,
-          status: fields.status,
-          prompt_tokens: usage?.prompt_tokens ?? 0,
-          completion_tokens: usage?.completion_tokens ?? 0,
-          cache_creation_tokens: usage?.cache_creation_tokens ?? 0,
-          cache_read_tokens: usage?.cache_read_tokens ?? 0,
-          reasoning_tokens: usage?.reasoning_tokens ?? 0,
-          total_tokens: usage?.total_tokens ?? 0,
-          cost_usd: 0,
-          incomplete: fields.lifecycleStatus === "completed" ? 0 : 1,
-          error_code: fields.errorCode,
-          latency_ms: Date.now() - lifecycle.startTime,
-          started_at: lifecycle.startedAt,
-          finished_at: finishedAt,
-          user_agent: lifecycle.userAgent,
-          source_ip: lifecycle.sourceIp,
-          lifecycle_status: fields.lifecycleStatus,
-          finalized_at: finishedAt,
-          error_message: fields.errorMessage,
-          agent: lifecycle.agent,
-          source: lifecycle.source,
-          msg_id: lifecycle.msgId,
-        });
+        const updated = await retryFinalize(() => usageService.finalizeUsage(lifecycle.id, log));
         lifecycle.finalized = true;
         logger.info("request finalized", {
           event: fields.lifecycleStatus === "aborted" ? "lifecycle.aborted" : "lifecycle.finalized",
@@ -461,19 +464,68 @@ export namespace PassThroughProxy {
           path: lifecycle.path,
         });
       } catch (err) {
-        lifecycle.finalizing = null;
-        logger.error("failed to finalize request log", {
-          event: "lifecycle.finalize_error",
+        logger.error("failed to finalize request log after retries", {
+          event: "lifecycle.finalize_failed",
           err,
           request_id: lifecycle.requestId,
           row_id: lifecycle.id,
           lifecycle_status: fields.lifecycleStatus,
           path: lifecycle.path,
         });
+        await markFinalizeFailure(usageService, lifecycle, finishedAt, err);
       }
     })();
 
     await lifecycle.finalizing;
+  }
+
+  async function retryFinalize(finalize: () => Promise<boolean>): Promise<boolean> {
+    let lastError: unknown;
+    for (let attempt = 1; attempt <= FINALIZE_ATTEMPTS; attempt += 1) {
+      try {
+        return await finalize();
+      } catch (err) {
+        lastError = err;
+        if (attempt < FINALIZE_ATTEMPTS) await sleep(FINALIZE_RETRY_BACKOFF_MS);
+      }
+    }
+    throw lastError;
+  }
+
+  async function markFinalizeFailure(
+    usageService: UsageService.UsageService,
+    lifecycle: LifecycleContext,
+    finalizedAt: string,
+    err: unknown,
+  ): Promise<void> {
+    try {
+      const updated = await usageService.markFinalizeFailed(lifecycle.id, {
+        finalizedAt,
+        errorMessage: `finalize_failed: ${errorMessage(err, "request finalize failed")}`,
+      });
+      lifecycle.finalized = true;
+      logger.error("marked failed finalize request log", {
+        event: "lifecycle.finalize_failed",
+        request_id: lifecycle.requestId,
+        row_id: lifecycle.id,
+        updated,
+        path: lifecycle.path,
+      });
+    } catch (fallbackErr) {
+      lifecycle.finalized = true;
+      logger.error("lost request finalize after fallback failed", {
+        event: "lifecycle.finalize_lost",
+        err: fallbackErr,
+        original_err: err,
+        request_id: lifecycle.requestId,
+        row_id: lifecycle.id,
+        path: lifecycle.path,
+      });
+    }
+  }
+
+  async function sleep(ms: number): Promise<void> {
+    await new Promise<void>((resolve) => setTimeout(resolve, ms));
   }
 
   function providerForPath(path: string): string {
