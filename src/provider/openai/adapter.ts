@@ -1,7 +1,9 @@
 import { Config } from "../../config";
 import { RelayStream } from "../../server/relay-stream";
-import { finalizeOpenAIUsage } from "./stream-usage";
 import type { Usage } from "../../usage";
+import { Logger } from "../../util/logger";
+
+const logger = Logger.fromConfig().child({ component: "openai-adapter" });
 
 export async function handleOpenAIRequest(
   req: Request,
@@ -62,7 +64,7 @@ export async function handleOpenAIRequest(
         });
       }
     } catch (err) {
-      console.warn("[openai-adapter] usage parse failed:", err);
+      logger.warn("usage parse failed", { err, provider: ctx.provider, path: ctx.path });
     }
   }
 

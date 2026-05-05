@@ -1,6 +1,9 @@
 import { Config } from "../config";
 import { CLIProxyClient } from "./client";
 import { UsageService } from "../storage/service";
+import { Logger } from "../util/logger";
+
+const logger = Logger.fromConfig().child({ component: "correlator" });
 
 export namespace Correlator {
   type Detail = CLIProxyClient.UsageDetail & { model: string };
@@ -47,7 +50,7 @@ export namespace Correlator {
 
   export function start(usageService: UsageService.UsageService) {
     if (!Config.cliproxyMgmtKey) {
-      console.warn("[correlator] CLIPROXY_MGMT_KEY not set, skipping correlator");
+      logger.warn("CLIPROXY_MGMT_KEY not set, skipping correlator");
       return;
     }
 
@@ -95,20 +98,16 @@ export namespace Correlator {
         }
 
         if (matched > 0) {
-          console.log(
-            `[correlator] correlated ${matched}/${uncorrelated.length} logs`,
-          );
+          logger.info("correlated logs", { matched, total: uncorrelated.length });
         }
       } catch (err) {
-        console.error("[correlator] tick error:", err);
+        logger.error("tick error", { err });
       }
     }
 
     setInterval(tick, intervalMs);
     setTimeout(tick, 5_000);
 
-    console.log(
-      `[correlator] started (interval=${intervalMs}ms, lookback=${lookbackMs}ms)`,
-    );
+    logger.info("started", { interval_ms: intervalMs, lookback_ms: lookbackMs });
   }
 }

@@ -3,6 +3,9 @@ import { QuotaRepo, RequestRepo, UsageRepo } from "./repo";
 import { Pricing } from "./pricing";
 import { Usage } from "../usage";
 import { QuotaProbe } from "../cliproxy/quota";
+import { Logger } from "../util/logger";
+
+const logger = Logger.fromConfig().child({ component: "usage-service" });
 
 export namespace UsageService {
   export function create(db: Database) {
@@ -14,7 +17,7 @@ export namespace UsageService {
           try {
             await Pricing.fetchPricing();
           } catch (err) {
-            console.warn("[usage] pricing refresh failed:", err);
+            logger.warn("pricing refresh failed", { err, provider: log.provider, model: log.model });
           }
           pricing = Pricing.getPricing(log.model, log.provider);
         }

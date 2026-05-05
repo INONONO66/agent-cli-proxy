@@ -1,6 +1,9 @@
 import { dirname } from "node:path";
 import { mkdir } from "node:fs/promises";
 import { Config } from "../config";
+import { Logger } from "../util/logger";
+
+const logger = Logger.fromConfig().child({ component: "pricing" });
 
 export namespace Pricing {
   export interface ModelPricing {
@@ -150,10 +153,10 @@ export namespace Pricing {
       addLocalOverrides(map);
       cache = { data: map, fetchedAt: now };
       await writeDiskCache(cache);
-      console.info(`[pricing] loaded ${map.size} pricing aliases from models.dev`);
+      logger.info("loaded pricing aliases", { aliases: map.size, source: "models.dev" });
       return map;
     } catch (err) {
-      console.warn("[pricing] fetch failed, using cached data:", err);
+      logger.warn("pricing fetch failed, using cached data", { err, source: "models.dev" });
       if (cache) return cache.data;
       const diskCache = await readDiskCache();
       if (diskCache) {
@@ -276,7 +279,7 @@ export namespace Pricing {
       if (typeof parsed.fetchedAt !== "number" || !Array.isArray(parsed.data)) return null;
       return { fetchedAt: parsed.fetchedAt, data: new Map(parsed.data) };
     } catch (err) {
-      console.warn("[pricing] disk cache read failed:", err);
+      logger.warn("disk cache read failed", { err, path: Config.pricingCachePath });
       return null;
     }
   }
@@ -289,7 +292,7 @@ export namespace Pricing {
         JSON.stringify({ fetchedAt: entry.fetchedAt, data: Array.from(entry.data.entries()) }),
       );
     } catch (err) {
-      console.warn("[pricing] disk cache write failed:", err);
+      logger.warn("disk cache write failed", { err, path: Config.pricingCachePath });
     }
   }
 }

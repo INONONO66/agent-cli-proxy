@@ -3,6 +3,9 @@ import { PassThroughProxy } from "./pass-through";
 import { Admin } from "../admin";
 import { UsageService } from "../storage/service";
 import { Config } from "../config";
+import { Logger } from "../util/logger";
+
+const logger = Logger.fromConfig().child({ component: "handler" });
 
 export namespace Handler {
   export function create(usageService: UsageService.UsageService) {
@@ -41,7 +44,7 @@ export namespace Handler {
 
         return new Response("Not Found", { status: 404 });
       } catch (err) {
-        console.error("[handleRequest] error:", err);
+        logger.error("request handler failed", { err, path, method });
         return new Response(JSON.stringify({ error: "Internal server error" }), {
           status: 500,
           headers: { "content-type": "application/json" },

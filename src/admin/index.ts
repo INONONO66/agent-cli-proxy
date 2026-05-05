@@ -1,4 +1,7 @@
 import { UsageService } from "../storage/service";
+import { Logger } from "../util/logger";
+
+const logger = Logger.fromConfig().child({ component: "admin" });
 
 export namespace Admin {
   export function createRouter(usageService: UsageService.UsageService) {
@@ -96,7 +99,7 @@ export namespace Admin {
 
         return null;
       } catch (err) {
-        console.error("[admin] error:", err);
+        logger.error("admin request failed", { err, path, method: req.method });
         return json({ error: "Internal server error" }, 500);
       }
     };

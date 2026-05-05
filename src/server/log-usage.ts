@@ -1,5 +1,8 @@
 import type { TokenUsage } from "../usage";
 import type { RequestContext } from "./request-context";
+import { Logger } from "../util/logger";
+
+const logger = Logger.fromConfig().child({ component: "log-usage" });
 
 type RequestHandler = (
   req: Request,
@@ -9,16 +12,16 @@ type RequestHandler = (
 
 export namespace LogUsage {
   export function withLogging(handler: RequestHandler): RequestHandler {
-    return async (req, ctx, onUsageCallback) => {
+    return async (req, ctx, _onUsageCallback) => {
       let model = "unknown";
       let rawBody: Record<string, unknown> | undefined;
       try {
         rawBody = (await req.clone().json()) as Record<string, unknown>;
         if (typeof rawBody.model === "string") model = rawBody.model;
-        console.log("[REQUEST] tool=" + ctx.tool + " client=" + ctx.clientId + " model=" + model + " path=" + ctx.path);
-        console.log("[REQUEST BODY]", JSON.stringify(rawBody, null, 2).substring(0, 500));
+        logger.info("request received", { request_id: ctx.id, tool: ctx.tool, client_id: ctx.clientId, model, path: ctx.path });
+        logger.debug("request body parsed", { request_id: ctx.id, body: rawBody });
       } catch (err) {
-        console.log("[REQUEST] tool=" + ctx.tool + " client=" + ctx.clientId + " path=" + ctx.path + " (failed to parse body)");
+        logger.info("request received", { request_id: ctx.id, tool: ctx.tool, client_id: ctx.clientId, path: ctx.path, body_parse_failed: true, err });
       }
 
       const userAgent = req.headers.get("user-agent") ?? undefined;
@@ -56,7 +59,7 @@ export namespace LogUsage {
             source_ip: sourceIp,
           });
         } catch (err) {
-          console.error("[logUsage] failed to record usage:", err);
+          logger.error("failed to record usage", { err, request_id: ctx.id, path: ctx.path });
         }
       };
 
@@ -93,7 +96,7 @@ export namespace LogUsage {
             source_ip: sourceIp,
           });
         } catch (logErr) {
-          console.error("[logUsage] failed to record error usage:", logErr);
+          logger.error("failed to record error usage", { err: logErr, request_id: ctx.id, path: ctx.path });
         }
         throw err;
       }
