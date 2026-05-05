@@ -82,16 +82,24 @@ test("invalid port and timeout values fail fast", () => {
   const err = expectConfigError(() => Config.validate(baseEnv({
     PROXY_PORT: "65536",
     PRICING_CACHE_TTL_MS: "0",
+    PRICING_REFRESH_INTERVAL_MS: "-5",
+    COST_BACKFILL_INTERVAL_MS: "0",
+    COST_BACKFILL_LOOKBACK_MS: "NaN",
     CLIPROXY_CORRELATION_INTERVAL_MS: "-1",
     CLIPROXY_CORRELATION_LOOKBACK_MS: "NaN",
+    QUOTA_REFRESH_INTERVAL_MS: "0",
     QUOTA_REFRESH_TIMEOUT_MS: "Infinity",
   })));
 
   expect(err.issues.map((issue) => issue.path)).toEqual(expect.arrayContaining([
     "PROXY_PORT",
     "PRICING_CACHE_TTL_MS",
+    "PRICING_REFRESH_INTERVAL_MS",
+    "COST_BACKFILL_INTERVAL_MS",
+    "COST_BACKFILL_LOOKBACK_MS",
     "CLIPROXY_CORRELATION_INTERVAL_MS",
     "CLIPROXY_CORRELATION_LOOKBACK_MS",
+    "QUOTA_REFRESH_INTERVAL_MS",
     "QUOTA_REFRESH_TIMEOUT_MS",
   ]));
 });

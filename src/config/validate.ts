@@ -16,12 +16,16 @@ export interface ValidatedConfig {
   dbPath: string;
   pricingCacheTtlMs: number;
   pricingCachePath: string;
+  pricingRefreshIntervalMs: number;
+  costBackfillIntervalMs: number;
+  costBackfillLookbackMs: number;
   logLevel: string;
   clientNameMapping: Map<string, string>;
   cliproxyMgmtKey: string;
   cliproxyCorrelationIntervalMs: number;
   cliproxyCorrelationLookbackMs: number;
   cliproxyAuthDir: string;
+  quotaRefreshIntervalMs: number;
   quotaRefreshTimeoutMs: number;
   upstreamTimeoutMs: number;
   upstreamConnectTimeoutMs: number;
@@ -69,12 +73,16 @@ export namespace Config {
       dbPath: readString(env, "DB_PATH", "data/proxy.db"),
       pricingCacheTtlMs: readPositiveNumber(env, "PRICING_CACHE_TTL_MS", 3600000, issues),
       pricingCachePath: readString(env, "PRICING_CACHE_PATH", "data/pricing-cache.json"),
+      pricingRefreshIntervalMs: readPositiveNumber(env, "PRICING_REFRESH_INTERVAL_MS", 21600000, issues),
+      costBackfillIntervalMs: readPositiveNumber(env, "COST_BACKFILL_INTERVAL_MS", 1800000, issues),
+      costBackfillLookbackMs: readPositiveNumber(env, "COST_BACKFILL_LOOKBACK_MS", 604800000, issues),
       logLevel: readString(env, "LOG_LEVEL", "info"),
       clientNameMapping: readClientNameMapping(env, issues),
       cliproxyMgmtKey: readString(env, "CLIPROXY_MGMT_KEY", ""),
       cliproxyCorrelationIntervalMs: readPositiveNumber(env, "CLIPROXY_CORRELATION_INTERVAL_MS", 15000, issues),
       cliproxyCorrelationLookbackMs: readPositiveNumber(env, "CLIPROXY_CORRELATION_LOOKBACK_MS", 300000, issues),
       cliproxyAuthDir: readString(env, "CLIPROXY_AUTH_DIR", ""),
+      quotaRefreshIntervalMs: readPositiveNumber(env, "QUOTA_REFRESH_INTERVAL_MS", 300000, issues),
       quotaRefreshTimeoutMs: readPositiveNumber(env, "QUOTA_REFRESH_TIMEOUT_MS", 15000, issues),
       upstreamTimeoutMs: readPositiveNumber(env, "UPSTREAM_TIMEOUT_MS", 300000, issues),
       upstreamConnectTimeoutMs: readPositiveNumber(env, "UPSTREAM_CONNECT_TIMEOUT_MS", 10000, issues),

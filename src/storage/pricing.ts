@@ -2,6 +2,7 @@ import { dirname } from "node:path";
 import { mkdir } from "node:fs/promises";
 import { Config } from "../config";
 import { Logger } from "../util/logger";
+import { Supervisor } from "../runtime/supervisor";
 
 const logger = Logger.fromConfig().child({ component: "pricing" });
 
@@ -69,6 +70,17 @@ export namespace Pricing {
 
   export function getPricing(model: string, provider?: string): ModelPricing | null {
     return findPricing(model, provider)?.pricing ?? null;
+  }
+
+  export function startBackgroundRefresh(options: { intervalMs?: number; signal?: AbortSignal } = {}): Supervisor.Handle {
+    const intervalMs = options.intervalMs ?? Config.pricingRefreshIntervalMs;
+    return Supervisor.run("pricing-refresh", async () => {
+      await fetchPricing();
+    }, {
+      intervalMs,
+      runOnStart: false,
+      signal: options.signal,
+    });
   }
 
   export function __setPricingForTests(entries: Array<[string, ModelPricing]>): void {

@@ -858,3 +858,4 @@ Added `src/util/logger.ts` with dependency-free structured logging and migrated 
 - Quota refresh should not tick forever when local auth is not configured. `UsageService.startQuotaRefresh()` checks `CLIPROXY_AUTH_DIR` and JSON auth files once, logs a single skip event, and only registers a supervised loop when there is something to probe.
 - Shutdown composition is registry-first: individual handles abort their loop and `Supervisor.stopAll()` drains registered loops in parallel with bounded timeout logging for abandoned loops.
 - Tests are easiest with a supervisor test logger sink and real small millisecond intervals; jitter disabled (`jitterRatio: 0`) makes backoff assertions deterministic without new dependencies.
+- The existing cost backfill TODO in `UsageService` was also moved under Supervisor so the scoped `setInterval` audit stays clean and T15 can drain it through the same registry.

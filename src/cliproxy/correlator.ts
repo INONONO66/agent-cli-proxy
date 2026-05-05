@@ -2,6 +2,7 @@ import { Config } from "../config";
 import { CLIProxyClient } from "./client";
 import { UsageService } from "../storage/service";
 import { Logger } from "../util/logger";
+import { Supervisor } from "../runtime/supervisor";
 
 const logger = Logger.fromConfig().child({ component: "correlator" });
 
@@ -48,7 +49,7 @@ export namespace Correlator {
     return { detail: pool[bestIdx], index: bestIdx };
   }
 
-  export function start(usageService: UsageService.UsageService) {
+  export function start(usageService: UsageService.UsageService, options: { signal?: AbortSignal } = {}) {
     if (!Config.cliproxyMgmtKey) {
       logger.warn("CLIPROXY_MGMT_KEY not set, skipping correlator");
       return;
@@ -58,55 +59,55 @@ export namespace Correlator {
     const lookbackMs = Config.cliproxyCorrelationLookbackMs;
 
     async function tick() {
-      try {
-        const response = await CLIProxyClient.fetchUsage();
-        if (!response) return;
+      const response = await CLIProxyClient.fetchUsage();
+      if (!response) return;
 
-        const details = CLIProxyClient.flattenDetails(response);
-        if (details.length === 0) return;
+      const details = CLIProxyClient.flattenDetails(response);
+      if (details.length === 0) return;
 
-        const uncorrelated = usageService.getUncorrelatedLogs(lookbackMs, 200);
-        if (uncorrelated.length === 0) return;
+      const uncorrelated = usageService.getUncorrelatedLogs(lookbackMs, 200);
+      if (uncorrelated.length === 0) return;
 
-        const pool = [...details];
-        let matched = 0;
+      const pool = [...details];
+      let matched = 0;
 
-        for (const log of uncorrelated) {
-          if (log.id == null) continue;
-          const match = bestMatch(
-            {
-              started_at: log.started_at,
-              model: log.model,
-              total_tokens: log.total_tokens,
-              latency_ms: log.latency_ms,
-            },
-            pool,
-          );
-          if (!match) continue;
+      for (const log of uncorrelated) {
+        if (log.id == null) continue;
+        const match = bestMatch(
+          {
+            started_at: log.started_at,
+            model: log.model,
+            total_tokens: log.total_tokens,
+            latency_ms: log.latency_ms,
+          },
+          pool,
+        );
+        if (!match) continue;
 
-          const { detail } = match;
-          usageService.applyCorrelation(log.id, log, {
-            cliproxy_account: detail.source,
-            cliproxy_auth_index: detail.auth_index,
-            cliproxy_source: detail.source,
-            reasoning_tokens: detail.tokens.reasoning_tokens,
-            actual_model: detail.model,
-          });
+        const { detail } = match;
+        usageService.applyCorrelation(log.id, log, {
+          cliproxy_account: detail.source,
+          cliproxy_auth_index: detail.auth_index,
+          cliproxy_source: detail.source,
+          reasoning_tokens: detail.tokens.reasoning_tokens,
+          actual_model: detail.model,
+        });
 
-          pool.splice(match.index, 1);
-          matched++;
-        }
+        pool.splice(match.index, 1);
+        matched++;
+      }
 
-        if (matched > 0) {
-          logger.info("correlated logs", { matched, total: uncorrelated.length });
-        }
-      } catch (err) {
-        logger.error("tick error", { err });
+      if (matched > 0) {
+        logger.info("correlated logs", { matched, total: uncorrelated.length });
       }
     }
 
-    setInterval(tick, intervalMs);
-    setTimeout(tick, 5_000);
+    Supervisor.run("correlator", tick, {
+      intervalMs,
+      initialDelayMs: 5_000,
+      runOnStart: true,
+      signal: options.signal,
+    });
 
     logger.info("started", { interval_ms: intervalMs, lookback_ms: lookbackMs });
   }

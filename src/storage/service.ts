@@ -1,16 +1,16 @@
 import type { Database } from "bun:sqlite";
+import { readdir } from "node:fs/promises";
 import { QuotaRepo, RequestRepo, UsageRepo } from "./repo";
 import { Pricing } from "./pricing";
 import { Cost } from "./cost";
 import { Usage } from "../usage";
 import { QuotaProbe } from "../cliproxy/quota";
 import { Logger } from "../util/logger";
+import { Config } from "../config";
+import { Supervisor } from "../runtime/supervisor";
 
 const logger = Logger.fromConfig().child({ component: "usage-service" });
 const costBackfillLogger = Logger.fromConfig().child({ component: "cost" });
-
-const DEFAULT_COST_BACKFILL_INTERVAL_MS = 1_800_000;
-const DEFAULT_COST_BACKFILL_LOOKBACK_MS = 604_800_000;
 
 export namespace UsageService {
   export function create(db: Database) {
@@ -106,7 +106,7 @@ export namespace UsageService {
         logger.warn("pricing refresh failed before cost backfill", { err, event: "cost.backfill_pricing_failed" });
       }
 
-      const lookbackMs = options.lookbackMs ?? readPositiveEnvNumber("COST_BACKFILL_LOOKBACK_MS", DEFAULT_COST_BACKFILL_LOOKBACK_MS);
+      const lookbackMs = options.lookbackMs ?? Config.costBackfillLookbackMs;
       const limitClause = options.limit && options.limit > 0 ? " LIMIT ?" : "";
       const sinceClause = options.all ? "" : "AND started_at >= ?";
       const sinceIso = new Date(Date.now() - lookbackMs).toISOString();
@@ -380,6 +380,45 @@ export namespace UsageService {
       return { ...result, inserted, accounts };
     }
 
+    async function startQuotaRefresh(options: { intervalMs?: number; signal?: AbortSignal } = {}): Promise<Supervisor.Handle | null> {
+      if (!Config.cliproxyAuthDir) {
+        logger.info("quota background refresh skipped", {
+          event: "quota.refresh_skipped",
+          reason: "missing_auth_dir",
+        });
+        return null;
+      }
+
+      let authFileNames: string[];
+      try {
+        authFileNames = await readdir(Config.cliproxyAuthDir);
+      } catch (err) {
+        logger.warn("quota background refresh skipped", {
+          event: "quota.refresh_skipped",
+          reason: "auth_dir_unreadable",
+          err,
+          path: Config.cliproxyAuthDir,
+        });
+        return null;
+      }
+
+      if (!authFileNames.some((name) => name.endsWith(".json"))) {
+        logger.info("quota background refresh skipped", {
+          event: "quota.refresh_skipped",
+          reason: "no_auth_files",
+          path: Config.cliproxyAuthDir,
+        });
+        return null;
+      }
+
+      return Supervisor.run("quota-refresh", async () => {
+        await refreshQuotas();
+      }, {
+        intervalMs: options.intervalMs ?? Config.quotaRefreshIntervalMs,
+        signal: options.signal,
+      });
+    }
+
     function getLatestQuotas(): Usage.QuotaSnapshot[] {
       return QuotaRepo.getLatest(db);
     }
@@ -403,6 +442,7 @@ export namespace UsageService {
       getAccountDaily,
       getAccountRange,
       refreshQuotas,
+      startQuotaRefresh,
       getLatestQuotas,
     };
   }
@@ -417,25 +457,16 @@ export namespace UsageService {
     unsupported: number;
   }
 
-  export function startCostBackfillLoop(service: UsageService): ReturnType<typeof setInterval> {
-    const intervalMs = readPositiveEnvNumber("COST_BACKFILL_INTERVAL_MS", DEFAULT_COST_BACKFILL_INTERVAL_MS);
-    const runBackfill = (): void => {
-      service.backfillCosts().then((result) => {
-        costBackfillLogger.info("cost backfill completed", { event: "cost.backfill", ...result });
-      }).catch((err) => {
-        costBackfillLogger.warn("cost backfill failed", { event: "cost.backfill_failed", err });
-      });
-    };
-
-    runBackfill();
-    // TODO(T11): migrate to Supervisor.run when supervisor module exists
-    return setInterval(runBackfill, intervalMs);
+  export function startCostBackfillLoop(
+    service: UsageService,
+    options: { intervalMs?: number; signal?: AbortSignal } = {},
+  ): Supervisor.Handle {
+    return Supervisor.run("cost-backfill", async () => {
+      const result = await service.backfillCosts();
+      costBackfillLogger.info("cost backfill completed", { event: "cost.backfill", ...result });
+    }, {
+      intervalMs: options.intervalMs ?? Config.costBackfillIntervalMs,
+      signal: options.signal,
+    });
   }
-}
-
-function readPositiveEnvNumber(key: string, fallback: number): number {
-  const raw = process.env[key];
-  if (raw === undefined) return fallback;
-  const parsed = Number(raw);
-  return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
 }

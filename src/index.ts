@@ -1,6 +1,7 @@
 import { Logger } from "./util/logger";
 
 const logger = Logger.fromConfig().child({ component: "startup" });
+export const shutdownController = new AbortController();
 
 async function main(): Promise<void> {
   const { Config } = await import("./config");
@@ -13,14 +14,16 @@ async function main(): Promise<void> {
   Pricing.fetchPricing().catch((err) => {
     logger.warn("pricing fetch failed", { err });
   });
+  Pricing.startBackgroundRefresh({ signal: shutdownController.signal });
 
   const db = Storage.initDb(Config.dbPath);
   Storage.recoverStalePending(db);
   const usageService = UsageService.create(db);
-  UsageService.startCostBackfillLoop(usageService);
+  UsageService.startCostBackfillLoop(usageService, { signal: shutdownController.signal });
   const handleRequest = Handler.create(usageService);
 
-  Correlator.start(usageService);
+  Correlator.start(usageService, { signal: shutdownController.signal });
+  await usageService.startQuotaRefresh({ signal: shutdownController.signal });
 
   Bun.serve({
     port: Config.port,
