@@ -1,4 +1,5 @@
 import type { Database } from "bun:sqlite";
+import { Storage } from "./db";
 
 export namespace AccountSubscriptionRepo {
   export interface AccountSubscription {
@@ -12,19 +13,23 @@ export namespace AccountSubscriptionRepo {
     cliproxyAccount: string,
     subscriptionCode: string,
   ): void {
-    db.prepare(`
-      INSERT INTO account_subscriptions (
-        cliproxy_account, subscription_code, bound_at
-      ) VALUES (?, ?, CURRENT_TIMESTAMP)
-      ON CONFLICT(cliproxy_account) DO UPDATE SET
-        subscription_code = excluded.subscription_code,
-        bound_at = CURRENT_TIMESTAMP
-    `).run(cliproxyAccount, subscriptionCode);
+    Storage.runWriteWithRetry(db, () => {
+      db.prepare(`
+        INSERT INTO account_subscriptions (
+          cliproxy_account, subscription_code, bound_at
+        ) VALUES (?, ?, CURRENT_TIMESTAMP)
+        ON CONFLICT(cliproxy_account) DO UPDATE SET
+          subscription_code = excluded.subscription_code,
+          bound_at = CURRENT_TIMESTAMP
+      `).run(cliproxyAccount, subscriptionCode);
+    });
   }
 
   export function unbind(db: Database, cliproxyAccount: string): void {
-    db.prepare("DELETE FROM account_subscriptions WHERE cliproxy_account = ?")
-      .run(cliproxyAccount);
+    Storage.runWriteWithRetry(db, () => {
+      db.prepare("DELETE FROM account_subscriptions WHERE cliproxy_account = ?")
+        .run(cliproxyAccount);
+    });
   }
 
   export function get(

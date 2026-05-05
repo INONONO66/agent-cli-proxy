@@ -4,6 +4,8 @@ import { join } from "path";
 import { Logger } from "../util/logger";
 
 const logger = Logger.fromConfig().child({ component: "storage-db" });
+const SQLITE_BUSY_TIMEOUT_MS = 5_000;
+const SQLITE_WRITE_RETRY_DELAYS_MS: readonly number[] = [50, 200, 800];
 
 export const STALE_PENDING_MAX_AGE_MS = parseStalePendingMaxAgeMs(process.env.STALE_PENDING_MAX_AGE_MS);
 
@@ -31,6 +33,18 @@ export namespace Storage {
     }
   }
 
+  export function runWriteWithRetry<T>(_db: Database, fn: () => T): T {
+    for (let attempt = 0; ; attempt += 1) {
+      try {
+        return fn();
+      } catch (err) {
+        const delayMs = SQLITE_WRITE_RETRY_DELAYS_MS[attempt];
+        if (delayMs === undefined || !isSqliteBusyError(err)) throw err;
+        sleepSync(delayMs);
+      }
+    }
+  }
+
   function ensureColumn(
     db: Database,
     table: string,
@@ -48,6 +62,7 @@ export namespace Storage {
     const db = new Database(dbPath);
     db.exec("PRAGMA journal_mode = WAL");
     db.exec("PRAGMA synchronous = NORMAL");
+    db.query(`PRAGMA busy_timeout = ${SQLITE_BUSY_TIMEOUT_MS}`).run();
 
     db.exec(`
       CREATE TABLE IF NOT EXISTS schema_migrations (
@@ -245,6 +260,29 @@ export namespace Storage {
     }
     return recovered;
   }
+}
+
+function isSqliteBusyError(err: unknown): boolean {
+  if (!(err instanceof Error)) return false;
+
+  const code = getErrorCode(err);
+  if (code === "SQLITE_BUSY" || code === "SQLITE_LOCKED") return true;
+
+  const message = err.message.toLowerCase();
+  return message.includes("sqlite_busy") ||
+    message.includes("sqlite_locked") ||
+    message.includes("database is locked") ||
+    message.includes("database table is locked");
+}
+
+function getErrorCode(err: Error): unknown {
+  if (!("code" in err)) return undefined;
+  return (err as { readonly code?: unknown }).code;
+}
+
+function sleepSync(ms: number): void {
+  const buffer = new SharedArrayBuffer(4);
+  Atomics.wait(new Int32Array(buffer), 0, 0, ms);
 }
 
 function parseStalePendingMaxAgeMs(raw: string | undefined): number {

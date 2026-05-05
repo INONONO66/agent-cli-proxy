@@ -1,4 +1,5 @@
 import type { Database } from "bun:sqlite";
+import { Storage } from "../storage/db";
 import { RequestRepo } from "../storage/repo";
 import { Logger } from "../util/logger";
 
@@ -175,13 +176,15 @@ export namespace Shutdown {
       .all() as Array<{ id: number }>;
     const finalizedAt = new Date().toISOString();
 
-    for (const row of rows) {
-      RequestRepo.updateLifecycle(db, row.id, {
-        lifecycle_status: "aborted",
-        error_message: "shutdown",
-        finalized_at: finalizedAt,
-      });
-    }
+    Storage.runWriteWithRetry(db, () => {
+      for (const row of rows) {
+        RequestRepo.updateLifecycle(db, row.id, {
+          lifecycle_status: "aborted",
+          error_message: "shutdown",
+          finalized_at: finalizedAt,
+        });
+      }
+    });
 
     return rows.length;
   }
