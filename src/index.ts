@@ -10,6 +10,8 @@ async function main(): Promise<void> {
   const { Pricing } = await import("./storage/pricing");
   const { Handler } = await import("./server/handler");
   const { Correlator } = await import("./cliproxy/correlator");
+  const { Supervisor } = await import("./runtime/supervisor");
+  const { Shutdown } = await import("./runtime/shutdown");
 
   Pricing.fetchPricing().catch((err) => {
     logger.warn("pricing fetch failed", { err });
@@ -25,7 +27,7 @@ async function main(): Promise<void> {
   Correlator.start(usageService, { signal: shutdownController.signal });
   await usageService.startQuotaRefresh({ signal: shutdownController.signal });
 
-  Bun.serve({
+  const server = Bun.serve({
     port: Config.port,
     hostname: Config.host,
     idleTimeout: 0,
@@ -35,6 +37,10 @@ async function main(): Promise<void> {
         ? { hmr: true, console: true }
         : undefined,
   });
+
+  if (process.env.NODE_ENV !== "test" && process.env.DISABLE_SHUTDOWN_HANDLERS !== "1") {
+    Shutdown.register({ server, db, supervisor: Supervisor });
+  }
 
   logger.info("server running", { host: Config.host, port: Config.port, url: `http://${Config.host}:${Config.port}` });
 }
