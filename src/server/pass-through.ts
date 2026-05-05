@@ -14,6 +14,7 @@ const FINALIZE_RETRY_BACKOFF_MS = 50;
 
 type ParsedUsage = ParsedResponse["usage"];
 type FetchUpstream = typeof UpstreamClient.fetch;
+type BodyReadResult = Awaited<ReturnType<ReadableStreamDefaultReader<Uint8Array>["read"]>>;
 
 interface BodyBuildResult {
   body: BodyInit | null;
@@ -72,14 +73,23 @@ export namespace PassThroughProxy {
 
         if (isStreaming) {
           streamHandedOff = true;
-          return handleStreaming(upstreamResponse, requestInfo, usageService, lifecycle);
+          return await handleStreaming(upstreamResponse, requestInfo, usageService, lifecycle);
         }
 
         return await handleNonStreaming(upstreamResponse, requestInfo, usageService, lifecycle);
       } catch (err) {
-        const aborted = isAbortLike(err, req.signal);
-        const status = aborted ? 499 : 502;
-        const message = errorMessage(err, aborted ? "request aborted" : "upstream unavailable");
+        const upstreamBodyTimeout = isUpstreamBodyTimeout(err);
+        const aborted = !upstreamBodyTimeout && isAbortLike(err, req.signal);
+        const status = upstreamBodyTimeout ? 504 : aborted ? 499 : 502;
+        const responseError = aborted
+          ? "Request aborted"
+          : upstreamBodyTimeout
+            ? "Upstream timeout"
+            : "Upstream unavailable";
+        const message = errorMessage(
+          err,
+          upstreamBodyTimeout ? "upstream timeout" : aborted ? "request aborted" : "upstream unavailable",
+        );
         logger.error("upstream fetch failed", { event: "passthrough.upstream_error", err, path: requestInfo.path, request_id: lifecycle.requestId });
         await finalizeOnce(usageService, lifecycle, {
           parsed: { actualModel: null, usage: null },
@@ -87,10 +97,10 @@ export namespace PassThroughProxy {
           isStreaming: false,
           lifecycleStatus: aborted ? "aborted" : "error",
           errorMessage: message,
-          errorCode: aborted ? "aborted" : "bad_gateway",
+          errorCode: upstreamBodyTimeout ? "upstream_timeout" : aborted ? "aborted" : "bad_gateway",
         });
         return new Response(
-          JSON.stringify({ error: aborted ? "Request aborted" : "Upstream unavailable" }),
+          JSON.stringify({ error: responseError }),
           { status, headers: { "content-type": "application/json" } },
         );
       } finally {
@@ -250,12 +260,12 @@ export namespace PassThroughProxy {
     });
   }
 
-  function handleStreaming(
+  async function handleStreaming(
     upstreamResponse: Response,
     info: RequestInfo,
     usageService: UsageService.UsageService,
     lifecycle: LifecycleContext,
-  ): Response {
+  ): Promise<Response> {
     const upstreamBody = upstreamResponse.body;
     if (!upstreamBody) {
       void finalizeOnce(usageService, lifecycle, {
@@ -305,31 +315,83 @@ export namespace PassThroughProxy {
       return tail ? encoder.encode(processLine(tail)) : null;
     }
 
-    let upstreamReader: ReadableStreamDefaultReader<Uint8Array> | null = null;
+    const upstreamReader = upstreamBody.getReader();
+    let firstRead: BodyReadResult;
+    try {
+      firstRead = await upstreamReader.read();
+    } catch (err) {
+      if (!streamDone) {
+        streamDone = true;
+        const upstreamBodyTimeout = isUpstreamBodyTimeout(err);
+        await finalizeOnce(usageService, lifecycle, {
+          parsed: { actualModel, usage: accumulated },
+          status: upstreamBodyTimeout ? 504 : upstreamResponse.status,
+          isStreaming: true,
+          lifecycleStatus: "error",
+          errorMessage: errorMessage(err, "stream relay failed"),
+          errorCode: upstreamBodyTimeout ? "upstream_timeout" : "stream_error",
+        });
+      }
+      await upstreamReader.cancel(err).catch((cancelErr) => {
+        logger.debug("stream cancel after first read failure failed", {
+          event: "passthrough.stream_cancel_failed",
+          err: cancelErr,
+          request_id: lifecycle.requestId,
+          path: info.path,
+        });
+      });
+      throw err;
+    }
+
+    if (firstRead.done) {
+      streamDone = true;
+      await finalizeOnce(usageService, lifecycle, {
+        parsed: { actualModel, usage: accumulated },
+        status: upstreamResponse.status,
+        isStreaming: true,
+        lifecycleStatus: upstreamResponse.status >= 400 ? "error" : "completed",
+        errorMessage: upstreamResponse.status >= 400 ? `upstream HTTP ${upstreamResponse.status}` : undefined,
+        errorCode: upstreamResponse.status >= 400 ? "upstream_error" : undefined,
+      });
+      return new Response(null, {
+        status: upstreamResponse.status,
+        headers: {
+          "content-type": "text/event-stream",
+          "cache-control": "no-cache",
+          "connection": "keep-alive",
+        },
+      });
+    }
+
+    UpstreamClient.releaseBodyTimeout(upstreamResponse);
+
+    let queuedFirstChunk: Uint8Array | null = firstRead.value;
     const outputStream = new ReadableStream<Uint8Array>({
-      start() {
-        upstreamReader = upstreamBody.getReader();
-      },
       async pull(controller) {
-        const reader = upstreamReader;
-        if (!reader) return;
         try {
           while (true) {
-            const { done, value } = await reader.read();
-            if (done) {
-              const tail = flushPartialLine();
-              if (tail) controller.enqueue(tail);
-              streamDone = true;
-              await finalizeOnce(usageService, lifecycle, {
-                parsed: { actualModel, usage: accumulated },
-                status: upstreamResponse.status,
-                isStreaming: true,
-                lifecycleStatus: upstreamResponse.status >= 400 ? "error" : "completed",
-                errorMessage: upstreamResponse.status >= 400 ? `upstream HTTP ${upstreamResponse.status}` : undefined,
-                errorCode: upstreamResponse.status >= 400 ? "upstream_error" : undefined,
-              });
-              controller.close();
-              return;
+            let value: Uint8Array;
+            if (queuedFirstChunk) {
+              value = queuedFirstChunk;
+              queuedFirstChunk = null;
+            } else {
+              const read = await upstreamReader.read();
+              if (read.done) {
+                const tail = flushPartialLine();
+                if (tail) controller.enqueue(tail);
+                streamDone = true;
+                await finalizeOnce(usageService, lifecycle, {
+                  parsed: { actualModel, usage: accumulated },
+                  status: upstreamResponse.status,
+                  isStreaming: true,
+                  lifecycleStatus: upstreamResponse.status >= 400 ? "error" : "completed",
+                  errorMessage: upstreamResponse.status >= 400 ? `upstream HTTP ${upstreamResponse.status}` : undefined,
+                  errorCode: upstreamResponse.status >= 400 ? "upstream_error" : undefined,
+                });
+                controller.close();
+                return;
+              }
+              value = read.value;
             }
 
             const output = transformChunk(value);
@@ -341,21 +403,21 @@ export namespace PassThroughProxy {
         } catch (err) {
           if (!streamDone) {
             streamDone = true;
+            const upstreamBodyTimeout = isUpstreamBodyTimeout(err);
+            const aborted = !upstreamBodyTimeout && isAbortLike(err);
             await finalizeOnce(usageService, lifecycle, {
               parsed: { actualModel, usage: accumulated },
-              status: isAbortLike(err) ? 499 : upstreamResponse.status,
+              status: upstreamBodyTimeout ? 504 : aborted ? 499 : upstreamResponse.status,
               isStreaming: true,
-              lifecycleStatus: isAbortLike(err) ? "aborted" : "error",
+              lifecycleStatus: aborted ? "aborted" : "error",
               errorMessage: errorMessage(err, "stream relay failed"),
-              errorCode: isAbortLike(err) ? "aborted" : "stream_error",
+              errorCode: upstreamBodyTimeout ? "upstream_timeout" : aborted ? "aborted" : "stream_error",
             });
           }
           controller.error(err);
         }
       },
       async cancel(reason) {
-        const reader = upstreamReader;
-        upstreamReader = null;
         if (!streamDone) {
           streamDone = true;
           await finalizeOnce(usageService, lifecycle, {
@@ -367,7 +429,7 @@ export namespace PassThroughProxy {
             errorCode: "aborted",
           });
         }
-        await reader?.cancel(reason).catch((err) => {
+        await upstreamReader.cancel(reason).catch((err) => {
           logger.error("stream cancel failed", { event: "passthrough.flush_error", err, request_id: lifecycle.requestId, path: info.path });
         });
       },
@@ -538,6 +600,10 @@ export namespace PassThroughProxy {
     if (err instanceof Error && err.message) return err.message;
     if (typeof err === "string" && err) return err;
     return fallback;
+  }
+
+  function isUpstreamBodyTimeout(err: unknown): boolean {
+    return errorMessage(err, "").includes("upstream_body_timeout");
   }
 
   function isAbortLike(err: unknown, signal?: AbortSignal): boolean {
