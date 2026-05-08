@@ -1,0 +1,18 @@
+Task 2: Current-day dedup behavior preserved
+
+Evidence: dedup still works for current day after pruning
+
+Test: tests/unit/unmapped-warning-prune.test.ts
+
+Dedup preservation test assertions:
+- Seeded alice:2026-05-06 (stale) and bob:2026-05-08 (current)
+- Called warnUnmappedSubscription for bob on 2026-05-08
+- alice:2026-05-06 → pruned
+- bob:2026-05-08 → preserved
+- No new warning emitted for bob (dedup works)
+- warn call count: 0
+
+Cross-day behavior:
+- alice warned on 2026-05-07
+- alice warned again on 2026-05-08 (new day, new entry)
+- warn call count: 2
