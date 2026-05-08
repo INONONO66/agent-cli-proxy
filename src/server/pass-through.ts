@@ -13,6 +13,7 @@ const logger = Logger.fromConfig().child({ component: "pass-through" });
 const FINALIZE_ATTEMPTS = 3;
 const FINALIZE_RETRY_BACKOFF_MS = 50;
 const MAX_SSE_LINE_BYTES = 1_048_576;
+const MAX_RESPONSE_BODY_BYTES = 52_428_800;
 
 type ParsedUsage = ParsedResponse["usage"];
 type FetchUpstream = typeof UpstreamClient.fetch;
@@ -294,7 +295,71 @@ export namespace PassThroughProxy {
     usageService: UsageService.UsageService,
     lifecycle: LifecycleContext | null,
   ): Promise<Response> {
-    let responseText = await upstreamResponse.text();
+    const contentLength = upstreamResponse.headers.get("content-length");
+    if (contentLength && parseInt(contentLength, 10) > MAX_RESPONSE_BODY_BYTES) {
+      logger.warn("upstream response body exceeded limit", {
+        event: "passthrough.response_body_too_large",
+        request_id: requestIdFor(lifecycle, info),
+        content_length: contentLength,
+        max_bytes: MAX_RESPONSE_BODY_BYTES,
+      });
+      await finalizeOnce(usageService, lifecycle, {
+        parsed: { actualModel: null, usage: null },
+        status: 502,
+        isStreaming: false,
+        lifecycleStatus: "error",
+        errorCode: "response_too_large",
+        errorMessage: "upstream response body exceeded 50MB limit",
+      });
+      return new Response(JSON.stringify({ error: { type: "proxy_error", message: "upstream response too large" } }), {
+        status: 502,
+        headers: { "content-type": "application/json" },
+      });
+    }
+
+    const reader = upstreamResponse.body?.getReader();
+    const chunks: Uint8Array[] = [];
+    let totalBytes = 0;
+    if (reader) {
+      try {
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          totalBytes += value.length;
+          if (totalBytes > MAX_RESPONSE_BODY_BYTES) {
+            logger.warn("upstream response body exceeded limit", {
+              event: "passthrough.response_body_too_large",
+              request_id: requestIdFor(lifecycle, info),
+              max_bytes: MAX_RESPONSE_BODY_BYTES,
+            });
+            await finalizeOnce(usageService, lifecycle, {
+              parsed: { actualModel: null, usage: null },
+              status: 502,
+              isStreaming: false,
+              lifecycleStatus: "error",
+              errorCode: "response_too_large",
+              errorMessage: "upstream response body exceeded 50MB limit",
+            });
+            return new Response(JSON.stringify({ error: { type: "proxy_error", message: "upstream response too large" } }), {
+              status: 502,
+              headers: { "content-type": "application/json" },
+            });
+          }
+          chunks.push(value);
+        }
+      } finally {
+        reader.releaseLock();
+      }
+    }
+
+    const allBytes = new Uint8Array(totalBytes);
+    let offset = 0;
+    for (const chunk of chunks) {
+      allBytes.set(chunk, offset);
+      offset += chunk.length;
+    }
+    let responseText = new TextDecoder().decode(allBytes);
+
     if (info.path.includes("messages") && upstreamResponse.status < 400) {
       try {
         responseText = JSON.stringify(stripToolPrefix(JSON.parse(responseText) as Anthropic.Response));
