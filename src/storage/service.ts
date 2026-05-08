@@ -13,7 +13,7 @@ import { Supervisor } from "../runtime/supervisor";
 
 const logger = Logger.fromConfig().child({ component: "usage-service" });
 const costBackfillLogger = Logger.fromConfig().child({ component: "cost" });
-const unmappedSubscriptionWarnings = new Map<string, true>();
+export const unmappedSubscriptionWarnings = new Map<string, true>();
 
 export namespace UsageService {
   export interface CreateOptions {
@@ -574,12 +574,22 @@ export namespace UsageService {
 
   export type UsageService = ReturnType<typeof create>;
 
+  function pruneStaleWarnings(today: string): void {
+    for (const key of unmappedSubscriptionWarnings.keys()) {
+      const day = key.slice(key.lastIndexOf(":") + 1);
+      if (day !== today) {
+        unmappedSubscriptionWarnings.delete(key);
+      }
+    }
+  }
+
   export function warnUnmappedSubscription(
     targetLogger: Logger.Logger,
     cliproxyAccount: string,
     date: Date = new Date(),
   ): void {
     const day = date.toISOString().slice(0, 10);
+    pruneStaleWarnings(day);
     const key = `${cliproxyAccount}:${day}`;
     if (unmappedSubscriptionWarnings.has(key)) return;
 

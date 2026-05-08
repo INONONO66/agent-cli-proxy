@@ -1,0 +1,25 @@
+Task 2: Prune stale entries from unmapped subscription warning map
+
+Evidence: stale entries are pruned on each call to warnUnmappedSubscription
+
+Test: tests/unit/unmapped-warning-prune.test.ts
+
+Test output:
+$ PROXY_LOCAL_OK=1 bun test tests/unit/unmapped-warning-prune.test.ts
+bun test v1.3.11 (af24e281)
+
+ 3 pass
+ 0 fail
+ 14 expect() calls
+Ran 3 tests across 1 file.
+
+Stale prune test assertions:
+- alice:2026-05-06 (stale) → pruned
+- bob:2026-05-07 (stale) → pruned
+- charlie:2026-05-08 (current) → preserved
+- dave:2026-05-08 (new) → added
+
+Implementation:
+- Added pruneStaleWarnings(today: string) helper in src/storage/service.ts
+- Called at start of warnUnmappedSubscription before dedup check
+- Iterates Map keys, extracts date after last colon, deletes if not today
