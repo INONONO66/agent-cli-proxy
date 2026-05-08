@@ -62,13 +62,24 @@ export namespace Correlator {
       const response = await CLIProxyClient.fetchUsage();
       if (!response) return;
 
-      const details = CLIProxyClient.flattenDetails(response);
-      if (details.length === 0) return;
+      const MAX_POOL_SIZE = 10_000;
+
+      const allDetails = CLIProxyClient.flattenDetails(response);
+      if (allDetails.length === 0) return;
+
+      const cutoff = Date.now() - lookbackMs;
+      const filtered = allDetails.filter((d) => {
+        const ts = Date.parse(d.timestamp);
+        return !Number.isNaN(ts) && ts >= cutoff;
+      });
+      if (filtered.length === 0) return;
+
+      const pool = filtered.length > MAX_POOL_SIZE
+        ? filtered.slice(-MAX_POOL_SIZE)
+        : filtered;
 
       const uncorrelated = usageService.getUncorrelatedLogs(lookbackMs, 200);
       if (uncorrelated.length === 0) return;
-
-      const pool = [...details];
       let matched = 0;
 
       for (const log of uncorrelated) {
