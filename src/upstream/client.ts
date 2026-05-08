@@ -36,6 +36,7 @@ export namespace UpstreamClient {
     state: BreakerState;
     failures: number;
     openedAt: number;
+    lastActivity: number;
   }
 
   type TimeoutKind = "connect" | "total" | "body";
@@ -46,8 +47,10 @@ export namespace UpstreamClient {
   const MAX_RETRIES = 2;
   const OPEN_AFTER_FAILURES = 5;
   const HALF_OPEN_AFTER_MS = 30_000;
+  const BREAKER_EVICT_AFTER_MS = 300_000;
 
   const breakers = new Map<string, CircuitBreaker>();
+  let lastEvictionAt = 0;
   let responseTimeouts = new WeakMap<Response, () => void>();
 
   let logger = Logger.fromConfig().child({ component: "upstream-client" });
@@ -124,6 +127,7 @@ export namespace UpstreamClient {
 
   export function __resetForTests(): void {
     breakers.clear();
+    lastEvictionAt = 0;
     responseTimeouts = new WeakMap<Response, () => void>();
     logger = Logger.fromConfig().child({ component: "upstream-client" });
     sleep = (ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms));
@@ -131,6 +135,10 @@ export namespace UpstreamClient {
     random = (): number => Math.random();
     upstreamTimeoutMs = null;
     upstreamConnectTimeoutMs = null;
+  }
+
+  export function __getBreakerCountForTests(): number {
+    return breakers.size;
   }
 
   export function __setTestHooks(hooks: {
@@ -156,7 +164,18 @@ export namespace UpstreamClient {
   function breakerFor(providerId: string): CircuitBreaker {
     const existing = breakers.get(providerId);
     if (existing) return existing;
-    const created: CircuitBreaker = { state: "closed", failures: 0, openedAt: 0 };
+
+    const t = now();
+    if (t - lastEvictionAt > 60_000) {
+      for (const [key, breaker] of breakers) {
+        if (breaker.state === "closed" && breaker.failures === 0 && t - breaker.lastActivity >= BREAKER_EVICT_AFTER_MS) {
+          breakers.delete(key);
+        }
+      }
+      lastEvictionAt = t;
+    }
+
+    const created: CircuitBreaker = { state: "closed", failures: 0, openedAt: 0, lastActivity: t };
     breakers.set(providerId, created);
     return created;
   }
@@ -169,6 +188,7 @@ export namespace UpstreamClient {
   }
 
   function recordFailure(breaker: CircuitBreaker): void {
+    breaker.lastActivity = now();
     if (breaker.state === "half-open") {
       breaker.state = "open";
       breaker.openedAt = now();
@@ -184,6 +204,7 @@ export namespace UpstreamClient {
   }
 
   function recordSuccess(breaker: CircuitBreaker): void {
+    breaker.lastActivity = now();
     breaker.state = "closed";
     breaker.failures = 0;
     breaker.openedAt = 0;
