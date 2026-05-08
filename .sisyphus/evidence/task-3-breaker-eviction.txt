@@ -1,0 +1,15 @@
+Task 3: Evict stale circuit breaker entries
+Evidence: closed breakers evicted after inactivity
+
+Test: evicts inactive closed breakers after BREAKER_EVICT_AFTER_MS
+Result: PASS
+
+Steps:
+1. Created 10 breakers by calling fetch() with unique providerIds
+2. Recorded success on all (state=closed, failures=0)
+3. Advanced time by 300_001 ms (BREAKER_EVICT_AFTER_MS + 1)
+4. Called fetch() with a new providerId to trigger eviction scan
+5. Asserted old 10 breakers are evicted (breaker count = 1)
+6. Asserted new breaker exists (breaker count = 1)
+
+Verification: __getBreakerCountForTests() returned 1 after eviction.
