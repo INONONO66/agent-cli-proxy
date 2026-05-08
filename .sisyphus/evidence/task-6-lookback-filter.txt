@@ -1,0 +1,20 @@
+# Task 6: Lookback Filter Evidence
+
+## Change: Filter details by timestamp cutoff (Date.now() - lookbackMs)
+
+Entries with timestamps older than lookback window are excluded before pooling.
+Empty filtered result triggers early return.
+
+## Test: details outside lookback window are excluded
+- lookbackMs = 60,000 (from env)
+- Old detail (120s ago) filtered out; recent detail (10s ago) kept
+- Log matching old detail NOT correlated (also >30s from remaining detail)
+- Log matching recent detail correlated
+- PASS
+
+## Test: all details outside lookback returns early without matching
+- Single old detail (120s ago) filtered out
+- applyCorrelation never called
+- PASS
+
+## Typecheck: bun run typecheck — PASS (no errors)

@@ -1,0 +1,11 @@
+=== Normal Operation Unaffected Evidence ===
+Unrelated unit tests pass with no regression:
+- tests/unit/upstream-client.test.ts: PASS
+- tests/unit/config.test.ts: PASS
+- tests/unit/logger.test.ts: PASS
+
+Total: 17 pass, 0 fail across 3 files.
+
+Typecheck: PASS (bunx tsc --noEmit)
+
+No changes to SSE parsing logic, usage accumulation, processLine(), or flush() behavior.

@@ -38,9 +38,56 @@ export namespace Logger {
 
   const REDACTED = "[REDACTED]";
 
+  const MAX_PENDING = 1000;
+  const pendingLines: string[] = [];
+  let stdoutBackpressured = false;
+  let droppedCount = 0;
+
+  function flushPending(): void {
+    while (pendingLines.length > 0) {
+      const line = pendingLines.shift()!;
+      const ok = process.stdout.write(`${line}\n`);
+      if (!ok) {
+        stdoutBackpressured = true;
+        return;
+      }
+    }
+    stdoutBackpressured = false;
+    if (droppedCount > 0) {
+      const summary = JSON.stringify({
+        ts: new Date().toISOString(),
+        level: "warn",
+        msg: "stdout backpressure caused line drops",
+        event: "logger.dropped_lines",
+        count: droppedCount,
+      });
+      process.stderr.write(`${summary}\n`);
+      droppedCount = 0;
+    }
+  }
+
+  process.stdout.on("drain", flushPending);
+
+  export function _resetBackpressure(): void {
+    pendingLines.length = 0;
+    stdoutBackpressured = false;
+    droppedCount = 0;
+  }
+
   const defaultSink: Sink = {
     stdout(line) {
-      process.stdout.write(`${line}\n`);
+      if (stdoutBackpressured) {
+        if (pendingLines.length >= MAX_PENDING) {
+          pendingLines.shift();
+          droppedCount++;
+        }
+        pendingLines.push(line);
+        return;
+      }
+      const ok = process.stdout.write(`${line}\n`);
+      if (!ok) {
+        stdoutBackpressured = true;
+      }
     },
     stderr(line) {
       process.stderr.write(`${line}\n`);
