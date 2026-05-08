@@ -13,7 +13,7 @@ import { Supervisor } from "../runtime/supervisor";
 
 const logger = Logger.fromConfig().child({ component: "usage-service" });
 const costBackfillLogger = Logger.fromConfig().child({ component: "cost" });
-const unmappedSubscriptionWarnings = new Map<string, true>();
+export const unmappedSubscriptionWarnings = new Map<string, true>();
 
 export namespace UsageService {
   export interface CreateOptions {
@@ -209,7 +209,6 @@ export namespace UsageService {
     ): number {
       const updateTxn = db.transaction(() => {
         let chunkUpdated = 0;
-        const affectedBuckets = new Map<string, UsageRepo.DailyBucket>();
         const updateLog = db.prepare(`
           UPDATE request_logs
           SET cost_usd = ?, cost_status = ?
@@ -225,21 +224,22 @@ export namespace UsageService {
 
           if (row.cost_status === "pending" || row.cost_status === "unresolved") {
             const result = updateLog.run(cost.cost_usd, cost.cost_status, row.id, cost.cost_status, cost.cost_usd);
-            if (cost.cost_status !== "ok") continue;
-            chunkUpdated += result.changes;
             if (result.changes > 0) {
-              const bucket = {
+              UsageRepo.upsertDaily(db, {
                 day: row.started_at.slice(0, 10),
                 provider: row.provider,
                 model: row.model,
-              };
-              affectedBuckets.set(`${bucket.day}\u0000${bucket.provider}\u0000${bucket.model}`, bucket);
+                request_count: 0,
+                prompt_tokens: 0,
+                completion_tokens: 0,
+                cache_creation_tokens: 0,
+                cache_read_tokens: 0,
+                total_tokens: 0,
+                cost_usd: cost.cost_usd - row.cost_usd,
+              });
+              if (cost.cost_status === "ok") chunkUpdated += result.changes;
             }
           }
-        }
-
-        for (const bucket of affectedBuckets.values()) {
-          UsageRepo.refreshDailyBucket(db, bucket);
         }
 
         return chunkUpdated;
@@ -574,12 +574,22 @@ export namespace UsageService {
 
   export type UsageService = ReturnType<typeof create>;
 
+  function pruneStaleWarnings(today: string): void {
+    for (const key of unmappedSubscriptionWarnings.keys()) {
+      const day = key.slice(key.lastIndexOf(":") + 1);
+      if (day !== today) {
+        unmappedSubscriptionWarnings.delete(key);
+      }
+    }
+  }
+
   export function warnUnmappedSubscription(
     targetLogger: Logger.Logger,
     cliproxyAccount: string,
     date: Date = new Date(),
   ): void {
     const day = date.toISOString().slice(0, 10);
+    pruneStaleWarnings(day);
     const key = `${cliproxyAccount}:${day}`;
     if (unmappedSubscriptionWarnings.has(key)) return;
 

@@ -49,6 +49,67 @@ export namespace Correlator {
     return { detail: pool[bestIdx], index: bestIdx };
   }
 
+  const MAX_POOL_SIZE = 10_000;
+
+  export async function runTick(
+    usageService: UsageService.UsageService,
+    options: { lookbackMs: number; maxPoolSize?: number } = { lookbackMs: 30_000 },
+  ): Promise<void> {
+    const lookbackMs = options.lookbackMs;
+    const maxPoolSize = options.maxPoolSize ?? MAX_POOL_SIZE;
+
+    const response = await CLIProxyClient.fetchUsage();
+    if (!response) return;
+
+    const allDetails = CLIProxyClient.flattenDetails(response);
+    if (allDetails.length === 0) return;
+
+    const cutoff = Date.now() - lookbackMs;
+    const filtered = allDetails.filter((d) => {
+      const ts = Date.parse(d.timestamp);
+      return !Number.isNaN(ts) && ts >= cutoff;
+    });
+    if (filtered.length === 0) return;
+
+    const pool = filtered.length > maxPoolSize
+      ? filtered.slice(-maxPoolSize)
+      : filtered;
+
+    const uncorrelated = usageService.getUncorrelatedLogs(lookbackMs, 200);
+    if (uncorrelated.length === 0) return;
+    let matched = 0;
+
+    for (const log of uncorrelated) {
+      if (log.id == null) continue;
+      const match = bestMatch(
+        {
+          started_at: log.started_at,
+          model: log.model,
+          total_tokens: log.total_tokens,
+          latency_ms: log.latency_ms,
+        },
+        pool,
+      );
+      if (!match) continue;
+
+      const { detail } = match;
+      usageService.applyCorrelation(log.id, log, {
+        cliproxy_account: detail.source,
+        cliproxy_auth_index: detail.auth_index,
+        cliproxy_source: detail.source,
+        reasoning_tokens: detail.tokens.reasoning_tokens,
+        actual_model: detail.model,
+      });
+
+      pool.splice(match.index, 1);
+      matched++;
+    }
+
+    if (matched > 0) {
+      logger.info("correlated logs", { matched, total: uncorrelated.length });
+    }
+  }
+
   export function start(usageService: UsageService.UsageService, options: { signal?: AbortSignal } = {}) {
     if (!Config.cliproxyMgmtKey) {
       logger.warn("CLIPROXY_MGMT_KEY not set, skipping correlator");
@@ -58,51 +119,7 @@ export namespace Correlator {
     const intervalMs = Config.cliproxyCorrelationIntervalMs;
     const lookbackMs = Config.cliproxyCorrelationLookbackMs;
 
-    async function tick() {
-      const response = await CLIProxyClient.fetchUsage();
-      if (!response) return;
-
-      const details = CLIProxyClient.flattenDetails(response);
-      if (details.length === 0) return;
-
-      const uncorrelated = usageService.getUncorrelatedLogs(lookbackMs, 200);
-      if (uncorrelated.length === 0) return;
-
-      const pool = [...details];
-      let matched = 0;
-
-      for (const log of uncorrelated) {
-        if (log.id == null) continue;
-        const match = bestMatch(
-          {
-            started_at: log.started_at,
-            model: log.model,
-            total_tokens: log.total_tokens,
-            latency_ms: log.latency_ms,
-          },
-          pool,
-        );
-        if (!match) continue;
-
-        const { detail } = match;
-        usageService.applyCorrelation(log.id, log, {
-          cliproxy_account: detail.source,
-          cliproxy_auth_index: detail.auth_index,
-          cliproxy_source: detail.source,
-          reasoning_tokens: detail.tokens.reasoning_tokens,
-          actual_model: detail.model,
-        });
-
-        pool.splice(match.index, 1);
-        matched++;
-      }
-
-      if (matched > 0) {
-        logger.info("correlated logs", { matched, total: uncorrelated.length });
-      }
-    }
-
-    Supervisor.run("correlator", tick, {
+    Supervisor.run("correlator", () => runTick(usageService, { lookbackMs }), {
       intervalMs,
       initialDelayMs: 5_000,
       runOnStart: true,

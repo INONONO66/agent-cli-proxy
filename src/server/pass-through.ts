@@ -12,6 +12,7 @@ import { Shutdown } from "../runtime/shutdown";
 const logger = Logger.fromConfig().child({ component: "pass-through" });
 const FINALIZE_ATTEMPTS = 3;
 const FINALIZE_RETRY_BACKOFF_MS = 50;
+const MAX_SSE_LINE_BYTES = 1_048_576;
 const MAX_RESPONSE_BODY_BYTES = 52_428_800;
 
 type ParsedUsage = ParsedResponse["usage"];
@@ -427,6 +428,10 @@ export namespace PassThroughProxy {
       const combined = partialLine + text;
       const lines = combined.split("\n");
       partialLine = lines.pop() ?? "";
+      if (partialLine.length > MAX_SSE_LINE_BYTES) {
+        logger.warn("SSE partial line exceeds max size, truncating", { event: "passthrough.sse_line_too_long", length: partialLine.length });
+        partialLine = "";
+      }
 
       let output = "";
       for (const line of lines) {

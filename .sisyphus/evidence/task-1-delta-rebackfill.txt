@@ -1,0 +1,9 @@
+bun test v1.3.11 (af24e281)
+{"ts":"2026-05-08T06:15:09.517Z","level":"warn","msg":"configuration warning","component":"config","event":"config.warning","path":"CLI_PROXY_API_URL","message":"defaulted to http://localhost:8317 because PROXY_LOCAL_OK=1"}
+{"ts":"2026-05-08T06:15:09.527Z","level":"warn","msg":"pricing fetch failed, using cached data","component":"pricing","err":{"name":"Error","message":"use in-memory pricing","stack":"Error: use in-memory pricing\n    at <anonymous> (/Users/ino/Develop/agent-cli-proxy-fix-backfill-race/tests/unit/cost-backfill-race.test.ts:18:48)\n    at refreshPricing (/Users/ino/Develop/agent-cli-proxy-fix-backfill-race/src/storage/pricing.ts:179:25)\n    at fetchPricing (/Users/ino/Develop/agent-cli-proxy-fix-backfill-race/src/storage/pricing.ts:65:21)\n    at backfillCosts (/Users/ino/Develop/agent-cli-proxy-fix-backfill-race/src/storage/service.ts:132:23)\n    at <anonymous> (/Users/ino/Develop/agent-cli-proxy-fix-backfill-race/tests/unit/cost-backfill-race.test.ts:81:34)"},"source":"models.dev"}
+{"ts":"2026-05-08T06:15:09.533Z","level":"warn","msg":"pricing fetch failed, using cached data","component":"pricing","err":{"name":"Error","message":"use in-memory pricing","stack":"Error: use in-memory pricing\n    at <anonymous> (/Users/ino/Develop/agent-cli-proxy-fix-backfill-race/tests/unit/cost-backfill-race.test.ts:18:48)\n    at refreshPricing (/Users/ino/Develop/agent-cli-proxy-fix-backfill-race/src/storage/pricing.ts:179:25)\n    at fetchPricing (/Users/ino/Develop/agent-cli-proxy-fix-backfill-race/src/storage/pricing.ts:65:21)\n    at backfillCosts (/Users/ino/Develop/agent-cli-proxy-fix-backfill-race/src/storage/service.ts:132:23)\n    at <anonymous> (/Users/ino/Develop/agent-cli-proxy-fix-backfill-race/tests/unit/cost-backfill-race.test.ts:141:34)"},"source":"models.dev"}
+
+ 2 pass
+ 0 fail
+ 6 expect() calls
+Ran 2 tests across 1 file. [33.00ms]
