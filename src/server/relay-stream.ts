@@ -3,6 +3,10 @@ import { parseAnthropicSSELine, accumulateUsage, finalizeUsage } from "../provid
 import { parseOpenAISSELine, finalizeOpenAIUsage } from "../provider/openai/stream-usage";
 import type { Anthropic } from "../provider/anthropic";
 import type { OpenAI } from "../provider/openai/stream-usage";
+import { Logger } from "../util/logger";
+
+const logger = Logger.fromConfig().child({ component: "relay-stream" });
+const MAX_SSE_LINE_BYTES = 1_048_576;
 
 export namespace RelayStream {
   export interface Options {
@@ -38,6 +42,10 @@ export namespace RelayStream {
       const combined = partialLine + text;
       const lines = combined.split("\n");
       partialLine = lines.pop() ?? "";
+      if (partialLine.length > MAX_SSE_LINE_BYTES) {
+        logger.warn("SSE partial line exceeds max size, truncating", { event: "relay.sse_line_too_long", length: partialLine.length });
+        partialLine = "";
+      }
 
       let output = "";
       for (const line of lines) {

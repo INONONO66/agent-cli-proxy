@@ -1,0 +1,18 @@
+=== SSE Line Cap Evidence ===
+Typecheck: PASS
+Tests: 3 pass, 0 fail
+
+Test output:
+bun test tests/unit/sse-line-cap.test.ts
+  3 pass
+  0 fail
+  4 expect() calls
+
+Log evidence (relay.sse_line_too_long emitted correctly):
+{"level":"warn","msg":"SSE partial line exceeds max size, truncating","component":"relay-stream","event":"relay.sse_line_too_long","length":2097152}
+{"level":"warn","msg":"SSE partial line exceeds max size, truncating","component":"relay-stream","event":"relay.sse_line_too_long","length":1048577}
+
+Files modified:
+- src/server/pass-through.ts (MAX_SSE_LINE_BYTES constant + cap logic)
+- src/server/relay-stream.ts (MAX_SSE_LINE_BYTES constant + cap logic + Logger import)
+- tests/unit/sse-line-cap.test.ts (new)
