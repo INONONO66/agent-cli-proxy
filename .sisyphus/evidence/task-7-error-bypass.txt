@@ -1,8 +1,0 @@
-Evidence: error-level logs bypass backpressure
-
-StructuredLogger.write() routes error to sink.stderr (line 115-118).
-defaultSink.stderr uses process.stderr.write() directly — no queue, no drops.
-
-Test: "error logs bypass backpressure queue entirely"
-- Triggers stdout backpressure, then writes 2 error logs
-- Both reach stderr immediately (verified via mock capture)

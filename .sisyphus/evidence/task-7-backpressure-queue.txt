@@ -1,8 +1,0 @@
-Evidence: stdout backpressure queue implementation
-
-defaultSink.stdout now checks process.stdout.write() return value.
-When false, subsequent lines are queued in pendingLines[] (bounded at MAX_PENDING=1000).
-On drain event, flushPending() writes queued lines back to stdout.
-
-Test: "buffers lines when stdout.write returns false" — 4/4 pass
-Test: "drain event resets backpressure so new writes go direct" — verifies flush + reset

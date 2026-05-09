@@ -42,3 +42,9 @@ report.[0-9]_.[0-9]_.[0-9]_.[0-9]_.json
 
 # DB backups
 data/*.backup*
+
+# sisyphus work artifacts
+.sisyphus/
+
+# local agent rules
+*.local.md
