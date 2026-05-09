@@ -31,6 +31,10 @@ export interface ValidatedConfig {
   quotaRefreshTimeoutMs: number;
   upstreamTimeoutMs: number;
   upstreamConnectTimeoutMs: number;
+  upstreamMaxRetries: number;
+  upstreamCircuitBreakerOpenAfterFailures: number;
+  upstreamCircuitBreakerHalfOpenAfterMs: number;
+  upstreamCircuitBreakerEvictAfterMs: number;
   maxRequestBodyBytes: number;
 }
 
@@ -91,6 +95,26 @@ export namespace Config {
       quotaRefreshTimeoutMs: readPositiveNumber(env, "QUOTA_REFRESH_TIMEOUT_MS", 15000, issues),
       upstreamTimeoutMs: readPositiveNumber(env, "UPSTREAM_TIMEOUT_MS", 300000, issues),
       upstreamConnectTimeoutMs: readPositiveNumber(env, "UPSTREAM_CONNECT_TIMEOUT_MS", 10000, issues),
+      upstreamMaxRetries: readPositiveInteger(env, "UPSTREAM_MAX_RETRIES", 2, 100, issues),
+      upstreamCircuitBreakerOpenAfterFailures: readPositiveInteger(
+        env,
+        "UPSTREAM_CIRCUIT_BREAKER_OPEN_AFTER_FAILURES",
+        5,
+        1000,
+        issues,
+      ),
+      upstreamCircuitBreakerHalfOpenAfterMs: readPositiveNumber(
+        env,
+        "UPSTREAM_CIRCUIT_BREAKER_HALF_OPEN_AFTER_MS",
+        30000,
+        issues,
+      ),
+      upstreamCircuitBreakerEvictAfterMs: readPositiveNumber(
+        env,
+        "UPSTREAM_CIRCUIT_BREAKER_EVICT_AFTER_MS",
+        300000,
+        issues,
+      ),
       maxRequestBodyBytes: readPositiveInteger(env, "MAX_REQUEST_BODY_BYTES", 25_000_000, 1_000_000_000, issues),
     };
 
