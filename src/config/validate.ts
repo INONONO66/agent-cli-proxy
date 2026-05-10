@@ -36,6 +36,9 @@ export interface ValidatedConfig {
   upstreamCircuitBreakerHalfOpenAfterMs: number;
   upstreamCircuitBreakerEvictAfterMs: number;
   maxRequestBodyBytes: number;
+  breakerOpenAfterFailures: number;
+  breakerHalfOpenAfterMs: number;
+  breakerEvictAfterMs: number;
 }
 
 export interface ConfigIssue {
@@ -116,6 +119,9 @@ export namespace Config {
         issues,
       ),
       maxRequestBodyBytes: readPositiveInteger(env, "MAX_REQUEST_BODY_BYTES", 25_000_000, 1_000_000_000, issues),
+      breakerOpenAfterFailures: readPositiveInteger(env, "UPSTREAM_CIRCUIT_BREAKER_OPEN_AFTER_FAILURES", 5, 1000, issues),
+      breakerHalfOpenAfterMs: readPositiveNumber(env, "UPSTREAM_CIRCUIT_BREAKER_HALF_OPEN_AFTER_MS", 30_000, issues),
+      breakerEvictAfterMs: readPositiveNumber(env, "UPSTREAM_CIRCUIT_BREAKER_EVICT_AFTER_MS", 300_000, issues),
     };
 
     if (!isLoopbackHost(config.host) && !config.adminApiKey) {

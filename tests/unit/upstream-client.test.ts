@@ -138,7 +138,123 @@ test("opens breaker after five failures and short-circuits without fetch", async
   expect(attempts).toBe(5);
   expect(short.status).toBe(503);
   expect(body.error).toMatchObject({ code: "short-circuit", providerId: "breaker-provider" });
-  expect(logs.some((entry) => entry.fields?.event === "upstream.short_circuit")).toBe(true);
+
+  // short-circuit uses upstream.breaker_reject, not upstream.error
+  expect(logs.some((entry) => entry.fields?.event === "upstream.breaker_reject")).toBe(true);
+  // short-circuit should NOT produce upstream.error
+  const shortCircuitErrors = logs.filter(
+    (entry) => entry.fields?.event === "upstream.error" && entry.fields?.code === "short-circuit",
+  );
+  expect(shortCircuitErrors).toHaveLength(0);
+});
+
+test("short-circuit response includes Retry-After header", async () => {
+  replaceFetch(async () => new Response("failed", { status: 503 }));
+
+  for (let i = 0; i < 5; i += 1) {
+    await UpstreamClient.fetch({
+      method: "POST",
+      url: "https://upstream.example/breaker",
+      providerId: "retry-after-provider",
+      idempotent: false,
+    });
+  }
+
+  const short = await UpstreamClient.fetch({
+    method: "POST",
+    url: "https://upstream.example/breaker",
+    providerId: "retry-after-provider",
+    idempotent: false,
+  });
+
+  expect(short.headers.get("retry-after")).toBe("30");
+});
+
+test("configurable breaker threshold via __setTestHooks", async () => {
+  UpstreamClient.__setTestHooks({ openAfterFailures: 3 });
+
+  let attempts = 0;
+  replaceFetch(async () => {
+    attempts += 1;
+    return new Response("failed", { status: 503 });
+  });
+
+  for (let i = 0; i < 3; i += 1) {
+    await UpstreamClient.fetch({
+      method: "POST",
+      url: "https://upstream.example/threshold",
+      providerId: "threshold-provider",
+      idempotent: false,
+    });
+  }
+
+  const short = await UpstreamClient.fetch({
+    method: "POST",
+    url: "https://upstream.example/threshold",
+    providerId: "threshold-provider",
+    idempotent: false,
+  });
+  const body = await short.json() as { error: { code: string } };
+
+  expect(attempts).toBe(3);
+  expect(body.error.code).toBe("short-circuit");
+});
+
+test("getBreakerSnapshots returns current breaker state", async () => {
+  replaceFetch(async () => new Response("failed", { status: 503 }));
+
+  for (let i = 0; i < 5; i += 1) {
+    await UpstreamClient.fetch({
+      method: "POST",
+      url: "https://upstream.example/snap",
+      providerId: "snap-provider",
+      idempotent: false,
+    });
+  }
+
+  const snapshots = UpstreamClient.getBreakerSnapshots();
+  const snap = snapshots.find((s) => s.providerId === "snap-provider");
+  expect(snap).toBeDefined();
+  expect(snap!.state).toBe("open");
+  expect(snap!.failures).toBe(5);
+});
+
+test("resetBreaker closes an open breaker", async () => {
+  replaceFetch(async () => new Response("failed", { status: 503 }));
+
+  for (let i = 0; i < 5; i += 1) {
+    await UpstreamClient.fetch({
+      method: "POST",
+      url: "https://upstream.example/reset",
+      providerId: "reset-provider",
+      idempotent: false,
+    });
+  }
+
+  expect(UpstreamClient.resetBreaker("reset-provider")).toBe(true);
+
+  const snap = UpstreamClient.getBreakerSnapshots().find((s) => s.providerId === "reset-provider");
+  expect(snap!.state).toBe("closed");
+  expect(snap!.failures).toBe(0);
+
+  // after reset, requests go through to upstream again
+  let fetched = false;
+  replaceFetch(async () => {
+    fetched = true;
+    return new Response("ok", { status: 200 });
+  });
+
+  await UpstreamClient.fetch({
+    method: "POST",
+    url: "https://upstream.example/reset",
+    providerId: "reset-provider",
+    idempotent: false,
+  });
+  expect(fetched).toBe(true);
+});
+
+test("resetBreaker returns false for unknown provider", () => {
+  expect(UpstreamClient.resetBreaker("nonexistent")).toBe(false);
 });
 
 test("uses configured failure threshold before opening breaker", async () => {
