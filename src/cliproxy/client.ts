@@ -59,6 +59,9 @@ export namespace CLIProxyClient {
         idempotent: true,
       });
       if (!res.ok) {
+        await res.text().catch((err) => {
+          logger.debug("usage fetch error body read failed", { err, status: res.status });
+        });
         logger.error("usage fetch failed", { status: res.status, status_text: res.statusText });
         return null;
       }

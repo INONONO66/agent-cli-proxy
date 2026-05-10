@@ -56,6 +56,10 @@ test("valid config is frozen and keeps typed values", () => {
     PROXY_PORT: "4310",
     CCH_POSITIONS: "[1,2,3]",
     CLIENT_NAME_MAPPING: "key1=alice,key2=bob",
+    UPSTREAM_MAX_RETRIES: "4",
+    UPSTREAM_CIRCUIT_BREAKER_OPEN_AFTER_FAILURES: "12",
+    UPSTREAM_CIRCUIT_BREAKER_HALF_OPEN_AFTER_MS: "45000",
+    UPSTREAM_CIRCUIT_BREAKER_EVICT_AFTER_MS: "600000",
     PROVIDERS_JSON: JSON.stringify({
       providers: [{
         id: "local",
@@ -74,6 +78,10 @@ test("valid config is frozen and keeps typed values", () => {
   expect(Object.isFrozen(config)).toBe(true);
   expect(config.port).toBe(4310);
   expect(config.maxRequestBodyBytes).toBe(25_000_000);
+  expect(config.upstreamMaxRetries).toBe(4);
+  expect(config.upstreamCircuitBreakerOpenAfterFailures).toBe(12);
+  expect(config.upstreamCircuitBreakerHalfOpenAfterMs).toBe(45000);
+  expect(config.upstreamCircuitBreakerEvictAfterMs).toBe(600000);
   expect(config.cchPositions).toEqual([1, 2, 3]);
   expect(config.clientNameMapping).toBeInstanceOf(Map);
   expect(config.clientNameMapping.get("key1")).toBe("alice");
@@ -97,6 +105,10 @@ test("invalid port and timeout values fail fast", () => {
     QUOTA_REFRESH_INTERVAL_MS: "0",
     QUOTA_REFRESH_TIMEOUT_MS: "Infinity",
     READY_PRICING_MAX_AGE_MS: "0",
+    UPSTREAM_MAX_RETRIES: "1.5",
+    UPSTREAM_CIRCUIT_BREAKER_OPEN_AFTER_FAILURES: "0",
+    UPSTREAM_CIRCUIT_BREAKER_HALF_OPEN_AFTER_MS: "NaN",
+    UPSTREAM_CIRCUIT_BREAKER_EVICT_AFTER_MS: "-1",
     MAX_REQUEST_BODY_BYTES: "1000000001",
   })));
 
@@ -111,6 +123,10 @@ test("invalid port and timeout values fail fast", () => {
     "QUOTA_REFRESH_INTERVAL_MS",
     "QUOTA_REFRESH_TIMEOUT_MS",
     "READY_PRICING_MAX_AGE_MS",
+    "UPSTREAM_MAX_RETRIES",
+    "UPSTREAM_CIRCUIT_BREAKER_OPEN_AFTER_FAILURES",
+    "UPSTREAM_CIRCUIT_BREAKER_HALF_OPEN_AFTER_MS",
+    "UPSTREAM_CIRCUIT_BREAKER_EVICT_AFTER_MS",
     "MAX_REQUEST_BODY_BYTES",
   ]));
 });

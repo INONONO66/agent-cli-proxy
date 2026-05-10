@@ -311,6 +311,7 @@ export namespace PassThroughProxy {
         errorCode: "response_too_large",
         errorMessage: "upstream response body exceeded 50MB limit",
       });
+      await upstreamResponse.body?.cancel(new Error("upstream response body exceeded limit"));
       return new Response(JSON.stringify({ error: { type: "proxy_error", message: "upstream response too large" } }), {
         status: 502,
         headers: { "content-type": "application/json" },
@@ -340,6 +341,7 @@ export namespace PassThroughProxy {
               errorCode: "response_too_large",
               errorMessage: "upstream response body exceeded 50MB limit",
             });
+            await reader.cancel(new Error("upstream response body exceeded limit"));
             return new Response(JSON.stringify({ error: { type: "proxy_error", message: "upstream response too large" } }), {
               status: 502,
               headers: { "content-type": "application/json" },
