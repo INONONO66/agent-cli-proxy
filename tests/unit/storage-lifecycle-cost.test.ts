@@ -167,12 +167,21 @@ test("migration 005 upgrades old rows without data loss and backfills lifecycle/
 
 test("RequestRepo.insert derives lifecycle/cost defaults and keeps HTTP status correlation", () => {
   const db = Storage.initDb(":memory:");
-  const successId = RequestRepo.insert(db, baseLog({ request_id: "success", cost_usd: 0.1 }));
+  const now = Date.now();
+  const startedAt = new Date(now).toISOString();
+  const finishedAt = new Date(now + 1_000).toISOString();
+  const successId = RequestRepo.insert(db, baseLog({
+    request_id: "success",
+    cost_usd: 0.1,
+    started_at: startedAt,
+    finished_at: finishedAt,
+  }));
   const errorId = RequestRepo.insert(db, baseLog({
     request_id: "error",
     status: 503,
     cost_usd: 0,
     error_code: "bad_gateway",
+    started_at: startedAt,
     finished_at: undefined,
   }));
 
@@ -180,16 +189,16 @@ test("RequestRepo.insert derives lifecycle/cost defaults and keeps HTTP status c
     status: 200,
     lifecycle_status: "completed",
     cost_status: "ok",
-    finalized_at: "2026-05-04T10:00:01.000Z",
+    finalized_at: finishedAt,
   });
   expect(RequestRepo.getById(db, errorId)).toMatchObject({
     status: 503,
     lifecycle_status: "error",
     cost_status: "pending",
-    finalized_at: "2026-05-04T10:00:00.000Z",
+    finalized_at: startedAt,
   });
 
-  const uncorrelated = RequestRepo.getUncorrelated(db, 10_000_000_000, 10);
+  const uncorrelated = RequestRepo.getUncorrelated(db, 60_000, 10);
   expect(uncorrelated.map((row) => row.id)).toEqual([successId]);
   expect(uncorrelated[0]?.status).toBe(200);
 });
