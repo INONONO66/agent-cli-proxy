@@ -189,7 +189,7 @@ test("RequestRepo.insert derives lifecycle/cost defaults and keeps HTTP status c
     finalized_at: "2026-05-04T10:00:00.000Z",
   });
 
-  const uncorrelated = RequestRepo.getUncorrelated(db, 200_000_000, 10);
+  const uncorrelated = RequestRepo.getUncorrelated(db, 10_000_000_000, 10);
   expect(uncorrelated.map((row) => row.id)).toEqual([successId]);
   expect(uncorrelated[0]?.status).toBe(200);
 });
