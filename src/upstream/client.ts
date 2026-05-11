@@ -94,6 +94,14 @@ export namespace UpstreamClient {
         timeout.beginBody();
 
         if (response.status >= 500) {
+          if (response.status === 503 && await isUpstreamShortCircuit(response)) {
+            logger.warn("upstream returned short-circuit, passing through without breaker penalty", {
+              event: "upstream.passthrough_short_circuit",
+              providerId,
+              attempt,
+            });
+            return withBodyTimeout(response, timeout);
+          }
           const normalized = normalizeHttpFailure(response, providerId, canRetry(idempotent, streaming));
           const retrying = shouldRetry(normalized, attempt, streaming, idempotent);
           logFailure(normalized, attempt, retrying);
@@ -517,6 +525,17 @@ export namespace UpstreamClient {
       return { name: err.name, message: err.message };
     }
     return err;
+  }
+
+  async function isUpstreamShortCircuit(response: Response): Promise<boolean> {
+    try {
+      const cloned = response.clone();
+      const text = await cloned.text();
+      const parsed = JSON.parse(text);
+      return parsed?.error?.code === "short-circuit";
+    } catch {
+      return false;
+    }
   }
 
   async function discardResponse(response: Response): Promise<void> {
