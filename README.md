@@ -118,6 +118,9 @@ Provider API keys are intentionally **not** stored by this proxy. The proxy rout
 | `PLANS_PATH` | | Path to a custom plans.json file |
 | `CLIPROXY_MGMT_KEY` | | Optional CLIProxyAPI management key for account correlation |
 | `CLIPROXY_AUTH_DIR` | | Optional CLIProxyAPI auth directory for subscription quota checks |
+| `UPSTREAM_CIRCUIT_BREAKER_OPEN_AFTER_FAILURES` | `5` | Consecutive upstream failures before the circuit breaker opens |
+| `UPSTREAM_CIRCUIT_BREAKER_HALF_OPEN_AFTER_MS` | `30000` | Delay before a half-open probe is allowed (30s) |
+| `UPSTREAM_CIRCUIT_BREAKER_EVICT_AFTER_MS` | `300000` | Idle time before a healthy breaker is evicted (5m) |
 
 ## Custom Providers
 
@@ -243,6 +246,9 @@ All `/admin/*` endpoints require `ADMIN_API_KEY` when the proxy is not bound to 
 | `GET` | `/admin/plans` | List all plans |
 | `GET` | `/admin/plans/cost-summary?month=YYYY-MM` | Monthly cost summary by account |
 | `GET` | `/admin/plans/account/:account` | Plan binding and recent usage for an account |
+| `GET` | `/admin/breakers` | List all circuit breaker states |
+| `GET` | `/admin/breakers/:providerId` | Single breaker state by provider |
+| `POST` | `/admin/breakers/:providerId/reset` | Reset a breaker to closed state |
 
 ## Health and Readiness
 
@@ -277,7 +283,9 @@ Key event names:
 | `lifecycle.pre_logged` | Request row inserted before upstream call |
 | `lifecycle.finalized` | Request row updated after upstream response |
 | `lifecycle.aborted` | Request aborted before upstream response |
-| `upstream.error` | Upstream call failed (with error details) |
+| `upstream.error` | Upstream call failed (timeout, 5xx, network) |
+| `upstream.breaker_reject` | Request rejected by open circuit breaker (not an upstream failure) |
+| `upstream.breaker_reset` | Circuit breaker manually reset via admin endpoint |
 | `cost.guard` | Cost computation skipped or guarded |
 | `plans.unmapped` | CLIProxyAPI account has no plan binding |
 | `shutdown.drain` | Graceful shutdown draining in-flight requests |

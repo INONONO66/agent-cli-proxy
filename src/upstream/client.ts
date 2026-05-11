@@ -31,18 +31,12 @@ export namespace UpstreamClient {
   }
 
   type BreakerState = "closed" | "open" | "half-open";
-  type BodyLifecycle = {
-    complete: () => void;
-    fail: () => void;
-    cancel: () => void;
-  };
 
   interface CircuitBreaker {
     state: BreakerState;
     failures: number;
     openedAt: number;
     lastActivity: number;
-    halfOpenProbeInFlight: boolean;
   }
 
   type TimeoutKind = "connect" | "total" | "body";
@@ -50,10 +44,10 @@ export namespace UpstreamClient {
 
   const BODY_TIMEOUT_MESSAGE = "upstream_body_timeout";
 
-  export const DEFAULT_MAX_RETRIES = 2;
-  export const DEFAULT_OPEN_AFTER_FAILURES = 5;
-  export const DEFAULT_HALF_OPEN_AFTER_MS = 30_000;
-  export const DEFAULT_BREAKER_EVICT_AFTER_MS = 300_000;
+  const MAX_RETRIES = 2;
+  let openAfterFailures = 5;
+  let halfOpenAfterMs = 30_000;
+  let breakerEvictAfterMs = 300_000;
 
   const breakers = new Map<string, CircuitBreaker>();
   let lastEvictionAt = 0;
@@ -65,23 +59,20 @@ export namespace UpstreamClient {
   let random = (): number => Math.random();
   let upstreamTimeoutMs: number | null = null;
   let upstreamConnectTimeoutMs: number | null = null;
-  let upstreamMaxRetries: number | null = null;
-  let circuitBreakerOpenAfterFailures: number | null = null;
-  let circuitBreakerHalfOpenAfterMs: number | null = null;
-  let circuitBreakerEvictAfterMs: number | null = null;
 
   export async function fetch(options: FetchOptions): Promise<Response> {
     const providerId = options.providerId || "unknown";
     const breaker = breakerFor(providerId);
     const breakerState = currentBreakerState(breaker);
     if (breakerState === "open") {
-      return shortCircuit(providerId);
+      const retryAfterSec = Math.ceil(Math.max(halfOpenAfterMs - (now() - breaker.openedAt), 0) / 1000);
+      logger.warn("upstream circuit breaker open", {
+        event: "upstream.breaker_reject",
+        providerId,
+        retryAfterSec,
+      });
+      return shortCircuitResponse(providerId, retryAfterSec);
     }
-    if (breakerState === "half-open" && breaker.halfOpenProbeInFlight) {
-      return shortCircuit(providerId);
-    }
-
-    if (breakerState === "half-open") breaker.halfOpenProbeInFlight = true;
 
     const streaming = isStreamingRequest(options);
     const idempotent = options.idempotent === true;
@@ -103,6 +94,14 @@ export namespace UpstreamClient {
         timeout.beginBody();
 
         if (response.status >= 500) {
+          if (response.status === 503 && await isUpstreamShortCircuit(response)) {
+            logger.warn("upstream returned short-circuit, passing through without breaker penalty", {
+              event: "upstream.passthrough_short_circuit",
+              providerId,
+              attempt,
+            });
+            return withBodyTimeout(response, timeout);
+          }
           const normalized = normalizeHttpFailure(response, providerId, canRetry(idempotent, streaming));
           const retrying = shouldRetry(normalized, attempt, streaming, idempotent);
           logFailure(normalized, attempt, retrying);
@@ -116,9 +115,6 @@ export namespace UpstreamClient {
           return withBodyTimeout(response, timeout);
         }
 
-        if (breakerState === "half-open") {
-          return withBodyTimeout(response, timeout, breakerBodyLifecycle(breaker));
-        }
         recordSuccess(breaker);
         return withBodyTimeout(response, timeout);
       } catch (err) {
@@ -137,6 +133,52 @@ export namespace UpstreamClient {
     }
   }
 
+  export function configure(config: {
+    breakerOpenAfterFailures: number;
+    breakerHalfOpenAfterMs: number;
+    breakerEvictAfterMs: number;
+  }): void {
+    openAfterFailures = config.breakerOpenAfterFailures;
+    halfOpenAfterMs = config.breakerHalfOpenAfterMs;
+    breakerEvictAfterMs = config.breakerEvictAfterMs;
+  }
+
+  export interface BreakerSnapshot {
+    providerId: string;
+    state: BreakerState;
+    failures: number;
+    openedAt: number;
+    lastActivity: number;
+  }
+
+  export function getBreakerSnapshots(): BreakerSnapshot[] {
+    const snapshots: BreakerSnapshot[] = [];
+    for (const [providerId, breaker] of breakers) {
+      snapshots.push({
+        providerId,
+        state: currentBreakerState(breaker),
+        failures: breaker.failures,
+        openedAt: breaker.openedAt,
+        lastActivity: breaker.lastActivity,
+      });
+    }
+    return snapshots;
+  }
+
+  export function resetBreaker(providerId: string): boolean {
+    const breaker = breakers.get(providerId);
+    if (!breaker) return false;
+    breaker.state = "closed";
+    breaker.failures = 0;
+    breaker.openedAt = 0;
+    breaker.lastActivity = now();
+    logger.info("circuit breaker reset by admin", {
+      event: "upstream.breaker_reset",
+      providerId,
+    });
+    return true;
+  }
+
   export function __resetForTests(): void {
     breakers.clear();
     lastEvictionAt = 0;
@@ -147,10 +189,9 @@ export namespace UpstreamClient {
     random = (): number => Math.random();
     upstreamTimeoutMs = null;
     upstreamConnectTimeoutMs = null;
-    upstreamMaxRetries = null;
-    circuitBreakerOpenAfterFailures = null;
-    circuitBreakerHalfOpenAfterMs = null;
-    circuitBreakerEvictAfterMs = null;
+    openAfterFailures = 5;
+    halfOpenAfterMs = 30_000;
+    breakerEvictAfterMs = 300_000;
   }
 
   export function __getBreakerCountForTests(): number {
@@ -164,10 +205,9 @@ export namespace UpstreamClient {
     random?: () => number;
     upstreamTimeoutMs?: number;
     upstreamConnectTimeoutMs?: number;
-    upstreamMaxRetries?: number;
-    circuitBreakerOpenAfterFailures?: number;
-    circuitBreakerHalfOpenAfterMs?: number;
-    circuitBreakerEvictAfterMs?: number;
+    openAfterFailures?: number;
+    halfOpenAfterMs?: number;
+    breakerEvictAfterMs?: number;
   }): void {
     if (hooks.logger) logger = hooks.logger;
     if (hooks.sleep) sleep = hooks.sleep;
@@ -175,14 +215,9 @@ export namespace UpstreamClient {
     if (hooks.random) random = hooks.random;
     if (hooks.upstreamTimeoutMs !== undefined) upstreamTimeoutMs = hooks.upstreamTimeoutMs;
     if (hooks.upstreamConnectTimeoutMs !== undefined) upstreamConnectTimeoutMs = hooks.upstreamConnectTimeoutMs;
-    if (hooks.upstreamMaxRetries !== undefined) upstreamMaxRetries = hooks.upstreamMaxRetries;
-    if (hooks.circuitBreakerOpenAfterFailures !== undefined) {
-      circuitBreakerOpenAfterFailures = hooks.circuitBreakerOpenAfterFailures;
-    }
-    if (hooks.circuitBreakerHalfOpenAfterMs !== undefined) {
-      circuitBreakerHalfOpenAfterMs = hooks.circuitBreakerHalfOpenAfterMs;
-    }
-    if (hooks.circuitBreakerEvictAfterMs !== undefined) circuitBreakerEvictAfterMs = hooks.circuitBreakerEvictAfterMs;
+    if (hooks.openAfterFailures !== undefined) openAfterFailures = hooks.openAfterFailures;
+    if (hooks.halfOpenAfterMs !== undefined) halfOpenAfterMs = hooks.halfOpenAfterMs;
+    if (hooks.breakerEvictAfterMs !== undefined) breakerEvictAfterMs = hooks.breakerEvictAfterMs;
   }
 
   export function releaseBodyTimeout(response: Response): void {
@@ -196,47 +231,38 @@ export namespace UpstreamClient {
     const t = now();
     if (t - lastEvictionAt > 60_000) {
       for (const [key, breaker] of breakers) {
-        if (breaker.state === "closed" && breaker.failures === 0 && t - breaker.lastActivity >= breakerEvictAfterMs()) {
+        if (breaker.state === "closed" && breaker.failures === 0 && t - breaker.lastActivity >= breakerEvictAfterMs) {
           breakers.delete(key);
         }
       }
       lastEvictionAt = t;
     }
 
-    const created: CircuitBreaker = {
-      state: "closed",
-      failures: 0,
-      openedAt: 0,
-      lastActivity: t,
-      halfOpenProbeInFlight: false,
-    };
+    const created: CircuitBreaker = { state: "closed", failures: 0, openedAt: 0, lastActivity: t };
     breakers.set(providerId, created);
     return created;
   }
 
   function currentBreakerState(breaker: CircuitBreaker): BreakerState {
-    if (breaker.state === "open" && now() - breaker.openedAt >= halfOpenAfterMs()) {
+    if (breaker.state === "open" && now() - breaker.openedAt >= halfOpenAfterMs) {
       breaker.state = "half-open";
-      breaker.halfOpenProbeInFlight = false;
     }
     return breaker.state;
   }
 
   function recordFailure(breaker: CircuitBreaker): void {
     breaker.lastActivity = now();
-    breaker.halfOpenProbeInFlight = false;
     if (breaker.state === "half-open") {
       breaker.state = "open";
       breaker.openedAt = now();
-      breaker.failures = openAfterFailures();
+      breaker.failures = openAfterFailures;
       return;
     }
 
     breaker.failures += 1;
-    if (breaker.failures >= openAfterFailures()) {
+    if (breaker.failures >= openAfterFailures) {
       breaker.state = "open";
       breaker.openedAt = now();
-      breaker.halfOpenProbeInFlight = false;
     }
   }
 
@@ -245,21 +271,6 @@ export namespace UpstreamClient {
     breaker.state = "closed";
     breaker.failures = 0;
     breaker.openedAt = 0;
-    breaker.halfOpenProbeInFlight = false;
-  }
-
-  function breakerBodyLifecycle(breaker: CircuitBreaker): BodyLifecycle {
-    let finalized = false;
-    const once = (finalize: () => void): void => {
-      if (finalized) return;
-      finalized = true;
-      finalize();
-    };
-    return {
-      complete: () => once(() => recordSuccess(breaker)),
-      fail: () => once(() => recordFailure(breaker)),
-      cancel: () => once(() => recordFailure(breaker)),
-    };
   }
 
   function canRetry(idempotent: boolean, streaming: boolean): boolean {
@@ -273,26 +284,8 @@ export namespace UpstreamClient {
     idempotent: boolean,
   ): boolean {
     if (!canRetry(idempotent, streaming)) return false;
-    if (attempt >= maxRetries()) return false;
+    if (attempt >= MAX_RETRIES) return false;
     return failure.code === "network" || failure.code === "5xx" || failure.code === "aborted-due-to-timeout";
-  }
-
-  function maxRetries(): number {
-    return upstreamMaxRetries ?? Config.upstreamMaxRetries ?? DEFAULT_MAX_RETRIES;
-  }
-
-  function openAfterFailures(): number {
-    return circuitBreakerOpenAfterFailures
-      ?? Config.upstreamCircuitBreakerOpenAfterFailures
-      ?? DEFAULT_OPEN_AFTER_FAILURES;
-  }
-
-  function halfOpenAfterMs(): number {
-    return circuitBreakerHalfOpenAfterMs ?? Config.upstreamCircuitBreakerHalfOpenAfterMs ?? DEFAULT_HALF_OPEN_AFTER_MS;
-  }
-
-  function breakerEvictAfterMs(): number {
-    return circuitBreakerEvictAfterMs ?? Config.upstreamCircuitBreakerEvictAfterMs ?? DEFAULT_BREAKER_EVICT_AFTER_MS;
   }
 
   function backoffMs(attempt: number): number {
@@ -335,12 +328,10 @@ export namespace UpstreamClient {
   function withBodyTimeout(
     response: Response,
     timeout: ReturnType<typeof createTimeoutSignal>,
-    lifecycle?: BodyLifecycle,
   ): Response {
     const body = response.body;
     if (!body) {
       timeout.clear();
-      lifecycle?.complete();
       return response;
     }
 
@@ -359,14 +350,12 @@ export namespace UpstreamClient {
           const { done, value } = await readWithTimeout(reader, timeout);
           if (done) {
             release();
-            lifecycle?.complete();
             controller.close();
             return;
           }
           controller.enqueue(value);
         } catch (err) {
           release();
-          lifecycle?.fail();
           if (timeout.kind === "body") {
             const marker = timeoutError();
             await reader.cancel(marker).catch((cancelErr) => {
@@ -383,7 +372,6 @@ export namespace UpstreamClient {
       },
       async cancel(reason) {
         release();
-        lifecycle?.cancel();
         await reader.cancel(reason);
       },
     });
@@ -490,24 +478,19 @@ export namespace UpstreamClient {
     };
   }
 
-  function normalizeShortCircuit(providerId: string): NormalizedError {
-    return {
-      code: "short-circuit",
-      status: 503,
-      providerId,
-      retryable: false,
-      cause: "circuit breaker open",
+  function shortCircuitResponse(providerId: string, retryAfterSec: number): Response {
+    const body = {
+      error: {
+        code: "short-circuit" as const,
+        status: 503,
+        providerId,
+        retryable: false,
+        cause: "circuit breaker open",
+      },
     };
-  }
-
-  function shortCircuit(providerId: string): Response {
-    const normalized = normalizeShortCircuit(providerId);
-    logger.warn("upstream circuit breaker open", {
-      event: "upstream.short_circuit",
-      ...withoutCause(normalized),
-    });
-    logFailure(normalized, 0, false);
-    return normalizedResponse(normalized);
+    const headers: Record<string, string> = { "content-type": "application/json" };
+    if (retryAfterSec > 0) headers["retry-after"] = String(retryAfterSec);
+    return new Response(JSON.stringify(body), { status: 503, headers });
   }
 
   function isAbortError(err: unknown): boolean {
@@ -520,7 +503,7 @@ export namespace UpstreamClient {
       ...withoutCause(failure),
       cause: failure.cause,
       attempt,
-      max_retries: maxRetries(),
+      max_retries: MAX_RETRIES,
       retrying,
     });
   }
@@ -542,6 +525,17 @@ export namespace UpstreamClient {
       return { name: err.name, message: err.message };
     }
     return err;
+  }
+
+  async function isUpstreamShortCircuit(response: Response): Promise<boolean> {
+    try {
+      const cloned = response.clone();
+      const text = await cloned.text();
+      const parsed = JSON.parse(text);
+      return parsed?.error?.code === "short-circuit";
+    } catch {
+      return false;
+    }
   }
 
   async function discardResponse(response: Response): Promise<void> {

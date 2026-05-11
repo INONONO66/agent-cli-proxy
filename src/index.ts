@@ -5,6 +5,7 @@ export const shutdownController = new AbortController();
 
 async function main(): Promise<void> {
   const { Config } = await import("./config");
+  const { UpstreamClient } = await import("./upstream/client");
   const { Storage } = await import("./storage/db");
   const { UsageService } = await import("./storage/service");
   const { Pricing } = await import("./storage/pricing");
@@ -12,6 +13,12 @@ async function main(): Promise<void> {
   const { Correlator } = await import("./cliproxy/correlator");
   const { Supervisor } = await import("./runtime/supervisor");
   const { Shutdown } = await import("./runtime/shutdown");
+
+  UpstreamClient.configure({
+    breakerOpenAfterFailures: Config.breakerOpenAfterFailures,
+    breakerHalfOpenAfterMs: Config.breakerHalfOpenAfterMs,
+    breakerEvictAfterMs: Config.breakerEvictAfterMs,
+  });
 
   Pricing.fetchPricing().catch((err) => {
     logger.warn("pricing fetch failed", { err });

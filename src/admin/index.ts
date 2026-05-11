@@ -3,6 +3,7 @@ import { AccountSubscriptionRepo } from "../storage/account-subscriptions";
 import { RequestRepo } from "../storage/repo";
 import { Plans } from "../plans";
 import { Logger } from "../util/logger";
+import { UpstreamClient } from "../upstream/client";
 
 const logger = Logger.fromConfig().child({ component: "admin" });
 
@@ -12,9 +13,28 @@ export namespace Admin {
       const url = new URL(req.url);
       const path = url.pathname;
 
-      if (req.method !== "GET") return null;
-
       try {
+        if (path === "/admin/breakers" && req.method === "GET") {
+          return json({ breakers: UpstreamClient.getBreakerSnapshots() });
+        }
+
+        const breakerResetMatch = path.match(/^\/admin\/breakers\/([^/]+)\/reset$/);
+        if (breakerResetMatch && req.method === "POST") {
+          const providerId = decodeURIComponent(breakerResetMatch[1]);
+          const ok = UpstreamClient.resetBreaker(providerId);
+          if (!ok) return json({ error: "Breaker not found" }, 404);
+          return json({ ok: true, providerId });
+        }
+
+        const breakerDetailMatch = path.match(/^\/admin\/breakers\/([^/]+)$/);
+        if (breakerDetailMatch && req.method === "GET") {
+          const providerId = decodeURIComponent(breakerDetailMatch[1]);
+          const snap = UpstreamClient.getBreakerSnapshots().find((s) => s.providerId === providerId);
+          if (!snap) return json({ error: "Breaker not found" }, 404);
+          return json(snap);
+        }
+
+        if (req.method !== "GET") return null;
         if (path === "/admin/usage/today") {
           return json(usageService.getToday());
         }
