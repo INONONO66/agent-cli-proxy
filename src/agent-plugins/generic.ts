@@ -1,12 +1,47 @@
-import type { AgentPlugin } from "./types";
-import type { RequestInfo } from "./types";
+import type { AgentPlugin, RequestInfo } from "./types";
+import { Anthropic } from "../provider/anthropic";
+import {
+  rewriteRequestBody,
+  stripToolPrefix,
+  stripToolPrefixFromLine,
+} from "../provider/anthropic/transform";
+
+function isAnthropicMessagesPath(path: string): boolean {
+  return path.includes("messages");
+}
 
 export const genericPlugin: AgentPlugin = {
   id: "generic",
   matches(_info: RequestInfo): boolean {
     return true;
   },
-  transformHeaders(headers: Headers, _info: RequestInfo): Headers {
-    return headers;
+  transformHeaders(headers: Headers, info: RequestInfo): Headers {
+    if (!isAnthropicMessagesPath(info.path)) return headers;
+
+    const result = new Headers(headers);
+    for (const [key, value] of Object.entries(Anthropic.buildClaudeCodeHeaders())) {
+      result.set(key, value);
+    }
+    return result;
+  },
+
+  transformBody(body: unknown, info: RequestInfo): unknown {
+    if (!isAnthropicMessagesPath(info.path)) return body;
+    return rewriteRequestBody(body as Anthropic.Request);
+  },
+
+  transformResponse(responseBody: string, info: RequestInfo): string {
+    if (!isAnthropicMessagesPath(info.path)) return responseBody;
+
+    try {
+      return JSON.stringify(stripToolPrefix(JSON.parse(responseBody) as Anthropic.Response));
+    } catch {
+      return responseBody;
+    }
+  },
+
+  transformStreamLine(line: string, info: RequestInfo): string {
+    if (!isAnthropicMessagesPath(info.path)) return line;
+    return stripToolPrefixFromLine(line);
   },
 };
