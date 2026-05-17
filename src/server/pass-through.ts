@@ -2,8 +2,9 @@ import { Config } from "../config";
 import { RequestInspector, type RequestInfo } from "./request-inspector";
 import { ResponseParser, type ParsedResponse } from "./response-parser";
 import { UsageService } from "../storage/service";
-import { Anthropic } from "../provider/anthropic";
-import { rewriteRequestBody, stripToolPrefix, stripToolPrefixFromLine } from "../provider/anthropic/transform";
+import { AgentPlugins, type AgentPlugin } from "../agent-plugins";
+import { opencodePlugin } from "../agent-plugins/opencode";
+import { ProviderRegistry } from "../provider/registry";
 import { UpstreamClient } from "../upstream/client";
 import { Logger } from "../util/logger";
 import type { Usage } from "../usage";
@@ -66,6 +67,7 @@ export namespace PassThroughProxy {
 
     return async function handle(req: Request, info: RequestInfo): Promise<Response> {
       const startTime = Date.now();
+      const plugin = resolveAgentPlugin(info);
       const lifecycle = preLog(req, info, usageService, startTime);
       const requestInfo: RequestInfo = { ...info, requestId: lifecycle?.requestId ?? info.requestId };
       const upstreamUrl = `${Config.cliProxyApiUrl}${requestInfo.path}`;
@@ -73,13 +75,13 @@ export namespace PassThroughProxy {
       let streamHandedOff = false;
 
       try {
-        const { body, rewritten } = await buildBody(req, requestInfo);
+        const { body, rewritten } = await buildBody(req, requestInfo, plugin);
         const upstreamResponse = await fetchUpstream({
           method: req.method,
           url: upstreamUrl,
-          headers: buildHeaders(req.headers, requestInfo, rewritten),
+          headers: buildHeaders(req.headers, requestInfo, plugin, rewritten),
           body,
-          providerId: lifecycle?.provider ?? providerForPath(requestInfo.path),
+          providerId: lifecycle?.provider ?? providerForPath(requestInfo.path, requestInfo.model),
           idempotent: isIdempotentMethod(req.method),
           signal: passthroughSignal,
         });
@@ -90,10 +92,10 @@ export namespace PassThroughProxy {
 
         if (isStreaming) {
           streamHandedOff = true;
-          return await handleStreaming(upstreamResponse, requestInfo, usageService, lifecycle);
+          return await handleStreaming(upstreamResponse, requestInfo, usageService, lifecycle, plugin);
         }
 
-        return await handleNonStreaming(upstreamResponse, requestInfo, usageService, lifecycle);
+        return await handleNonStreaming(upstreamResponse, requestInfo, usageService, lifecycle, plugin);
       } catch (err) {
         const upstreamBodyTimeout = isUpstreamBodyTimeout(err);
         const aborted = !upstreamBodyTimeout && isAbortLike(err, req.signal);
@@ -143,7 +145,7 @@ export namespace PassThroughProxy {
   ): LifecycleContext | null {
     const requestId = crypto.randomUUID();
     info.requestId = requestId;
-    const provider = providerForPath(info.path);
+    const provider = providerForPath(info.path, info.model);
     const tool = RequestInspector.detectTool(info);
     const clientId = RequestInspector.generateClientId(tool, info);
     const startedAt = new Date(startTime).toISOString();
@@ -257,32 +259,29 @@ export namespace PassThroughProxy {
     return AbortSignal.any(signals);
   }
 
-  async function buildBody(req: Request, info: RequestInfo): Promise<BodyBuildResult> {
-    if (!info.path.includes("messages")) return { body: req.body, rewritten: false };
+  async function buildBody(req: Request, info: RequestInfo, plugin: AgentPlugin): Promise<BodyBuildResult> {
+    if (!plugin.transformBody || info.isStreaming) return { body: req.body, rewritten: false };
     const text = await req.text();
     try {
-      const rewritten = rewriteRequestBody(JSON.parse(text) as Anthropic.Request);
+      const parsed = JSON.parse(text) as unknown;
+      const rewritten = plugin.transformBody(parsed, info);
       return { body: JSON.stringify(rewritten), rewritten: true };
     } catch (err) {
-      logger.warn("anthropic rewrite failed, forwarding original body", { err, path: info.path, request_id: info.requestId });
+      logger.warn("plugin body transform failed, forwarding original body", { err, path: info.path, request_id: info.requestId });
       return { body: text, rewritten: false };
     }
   }
 
-  export function buildHeaders(headers: Headers, info: RequestInfo, bodyRewritten = false): Headers {
+  export function buildHeaders(headers: Headers, info: RequestInfo, plugin: AgentPlugin, bodyRewritten = false): Headers {
     const result = new Headers(headers);
     result.set("authorization", `Bearer ${Config.cliProxyApiKey}`);
     result.delete("host");
     result.delete("content-length");
     result.delete("content-encoding");
     result.delete("accept-encoding");
-    if (info.path.includes("messages")) {
-      for (const [key, value] of Object.entries(Anthropic.buildClaudeCodeHeaders())) {
-        result.set(key, value);
-      }
-      if (bodyRewritten) result.set("content-type", "application/json");
-    }
-    return result;
+    const transformed = plugin.transformHeaders(result, info);
+    if (bodyRewritten) transformed.set("content-type", "application/json");
+    return transformed;
   }
 
   function isIdempotentMethod(method: string): boolean {
@@ -294,6 +293,7 @@ export namespace PassThroughProxy {
     info: RequestInfo,
     usageService: UsageService.UsageService,
     lifecycle: LifecycleContext | null,
+    plugin: AgentPlugin,
   ): Promise<Response> {
     const contentLength = upstreamResponse.headers.get("content-length");
     if (contentLength && parseInt(contentLength, 10) > MAX_RESPONSE_BODY_BYTES) {
@@ -362,11 +362,11 @@ export namespace PassThroughProxy {
     }
     let responseText = new TextDecoder().decode(allBytes);
 
-    if (info.path.includes("messages") && upstreamResponse.status < 400) {
+    if (plugin.transformResponse && upstreamResponse.status < 400) {
       try {
-        responseText = JSON.stringify(stripToolPrefix(JSON.parse(responseText) as Anthropic.Response));
+        responseText = plugin.transformResponse(responseText, info);
       } catch (err) {
-        logger.warn("anthropic response transform failed", { err, path: info.path, status: upstreamResponse.status, request_id: requestIdFor(lifecycle, info) });
+        logger.warn("plugin response transform failed", { err, path: info.path, status: upstreamResponse.status, request_id: requestIdFor(lifecycle, info) });
       }
     }
 
@@ -394,6 +394,7 @@ export namespace PassThroughProxy {
     info: RequestInfo,
     usageService: UsageService.UsageService,
     lifecycle: LifecycleContext | null,
+    plugin: AgentPlugin,
   ): Promise<Response> {
     const upstreamBody = upstreamResponse.body;
     if (!upstreamBody) {
@@ -422,7 +423,7 @@ export namespace PassThroughProxy {
         if (parsed.actualModel) actualModel = parsed.actualModel;
         if (parsed.usage) accumulated = mergeUsage(accumulated, parsed.usage);
       }
-      return info.path.includes("messages") ? stripToolPrefixFromLine(line) : line;
+      return plugin.transformStreamLine ? plugin.transformStreamLine(line, info) : line;
     }
 
     function transformChunk(chunk: Uint8Array): Uint8Array | null {
@@ -741,8 +742,17 @@ export namespace PassThroughProxy {
     return lifecycle?.requestId ?? info.requestId;
   }
 
-  function providerForPath(path: string): string {
-    return path.includes("messages") ? "anthropic" : "openai";
+  function providerForPath(path: string, model?: string | null): string {
+    const resolved = ProviderRegistry.resolve({ path, model });
+    return resolved?.id ?? "generic";
+  }
+
+  function resolveAgentPlugin(info: RequestInfo): AgentPlugin {
+    const plugin = AgentPlugins.resolve(info);
+    if (plugin.id !== "generic") return plugin;
+
+    const provider = ProviderRegistry.resolve({ path: info.path, model: info.model });
+    return provider?.type === "anthropic" ? opencodePlugin : plugin;
   }
 
   function upstreamErrorMessage(status: number, body: string): string {
