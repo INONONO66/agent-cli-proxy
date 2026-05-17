@@ -1,6 +1,7 @@
 import type { AgentPlugin } from "./types";
 import type { RequestInfo } from "./types";
 import { genericPlugin } from "./generic";
+import { opencodePlugin } from "./opencode";
 
 export type { AgentPlugin } from "./types";
 export type { RequestInfo } from "./types";
@@ -19,3 +20,5 @@ export namespace AgentPlugins {
     return genericPlugin;
   }
 }
+
+AgentPlugins.register(opencodePlugin);
