@@ -3,7 +3,6 @@ import { RequestInspector, type RequestInfo } from "./request-inspector";
 import { ResponseParser, type ParsedResponse } from "./response-parser";
 import { UsageService } from "../storage/service";
 import { AgentPlugins, type AgentPlugin } from "../agent-plugins";
-import { opencodePlugin } from "../agent-plugins/opencode";
 import { ProviderRegistry } from "../provider/registry";
 import { UpstreamClient } from "../upstream/client";
 import { Logger } from "../util/logger";
@@ -67,7 +66,7 @@ export namespace PassThroughProxy {
 
     return async function handle(req: Request, info: RequestInfo): Promise<Response> {
       const startTime = Date.now();
-      const plugin = resolveAgentPlugin(info);
+      const plugin = AgentPlugins.resolve(info);
       const lifecycle = preLog(req, info, usageService, startTime);
       const requestInfo: RequestInfo = { ...info, requestId: lifecycle?.requestId ?? info.requestId };
       const upstreamUrl = `${Config.cliProxyApiUrl}${requestInfo.path}`;
@@ -745,14 +744,6 @@ export namespace PassThroughProxy {
   function providerForPath(path: string, model?: string | null): string {
     const resolved = ProviderRegistry.resolve({ path, model });
     return resolved?.id ?? "generic";
-  }
-
-  function resolveAgentPlugin(info: RequestInfo): AgentPlugin {
-    const plugin = AgentPlugins.resolve(info);
-    if (plugin.id !== "generic") return plugin;
-
-    const provider = ProviderRegistry.resolve({ path: info.path, model: info.model });
-    return provider?.type === "anthropic" ? opencodePlugin : plugin;
   }
 
   function upstreamErrorMessage(status: number, body: string): string {
