@@ -19,7 +19,6 @@ describe.if(MOCK_MODE)("E2E Proxy Tests (mock mode)", () => {
     const { Handler } = await import("../../src/server/handler");
     const { Storage } = await import("../../src/storage/db");
     const { UsageService } = await import("../../src/storage/service");
-    const { Config } = await import("../../src/config");
     
     const db = Storage.initDb(":memory:");
     const usageService = UsageService.create(db);
@@ -134,9 +133,55 @@ describe.if(MOCK_MODE)("E2E Proxy Tests (mock mode)", () => {
     expect(Array.isArray(body)).toBe(true);
   });
 
-  it("Unknown route → 404", async () => {
+  it("Unknown route → proxied (not 404)", async () => {
     const res = await fetch(`${BASE}/nonexistent`);
-    expect(res.status).toBe(404);
+    // Universal routing: unknown paths are proxied to upstream, not 404'd
+    expect(res.status).not.toBe(404);
+  });
+
+  it("GET /v1/models → proxied (not 404)", async () => {
+    const res = await fetch(`${BASE}/v1/models`);
+    expect(res.status).not.toBe(404);
+  });
+
+  it("POST /v1/images/generations → proxied (not 404)", async () => {
+    const res = await fetch(`${BASE}/v1/images/generations`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ model: "dall-e-3", prompt: "test" }),
+    });
+    expect(res.status).not.toBe(404);
+  });
+
+  it("POST /api/chat → proxied (not 404)", async () => {
+    const res = await fetch(`${BASE}/api/chat`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ message: "hello" }),
+    });
+    expect(res.status).not.toBe(404);
+  });
+
+  it("Universal routed request writes thin log row", async () => {
+    const path = "/api/thin-log";
+    const res = await fetch(`${BASE}${path}`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ message: "hello" }),
+    });
+    expect(res.status).not.toBe(404);
+    await res.text();
+
+    const logsRes = await fetch(`${BASE}/admin/logs?limit=50&offset=0`);
+    expect(logsRes.status).toBe(200);
+    const logs = (await logsRes.json()) as Array<Record<string, unknown>>;
+    const row = logs.find((log) => log.path === path);
+    expect(row).toBeDefined();
+    expect(row?.provider).toBe("generic");
+    expect(row?.model).toBe("unknown");
+    expect(row?.status).toBe(200);
+    expect(row?.lifecycle_status).toBe("completed");
+    expect(row?.total_tokens).toBe(0);
   });
 
   it("Anthropic request has Claude Code headers forwarded to mock", async () => {

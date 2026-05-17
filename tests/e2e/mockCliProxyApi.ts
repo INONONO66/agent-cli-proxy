@@ -120,7 +120,10 @@ export function startMockCliProxyApi(port: number): MockCliProxyApi {
         );
       }
 
-      return new Response("Not Found", { status: 404, headers: { connection: "close" } });
+      return new Response(
+        JSON.stringify({ ok: true, path: url.pathname, method: req.method }),
+        { headers: { "content-type": "application/json", connection: "close" } },
+      );
     },
   });
 
