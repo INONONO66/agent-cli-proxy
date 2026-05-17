@@ -361,6 +361,28 @@ export namespace PassThroughProxy {
     }
     let responseText = new TextDecoder().decode(allBytes);
 
+    const responseContentType = upstreamResponse.headers.get("content-type") ?? "";
+    const isBinaryResponse = !responseContentType.startsWith("application/json") && !responseContentType.startsWith("text/");
+
+    if (isBinaryResponse) {
+      const lifecycleStatus: Usage.LifecycleStatus = upstreamResponse.status >= 400 ? "error" : "completed";
+      await finalizeOnce(usageService, lifecycle, {
+        parsed: { actualModel: null, usage: null },
+        status: upstreamResponse.status,
+        isStreaming: false,
+        lifecycleStatus,
+        errorMessage: lifecycleStatus === "error" ? upstreamErrorMessage(upstreamResponse.status, "") : undefined,
+        errorCode: lifecycleStatus === "error" ? "upstream_error" : undefined,
+      });
+
+      return new Response(allBytes, {
+        status: upstreamResponse.status,
+        headers: {
+          "content-type": responseContentType || "application/octet-stream",
+        },
+      });
+    }
+
     if (plugin.transformResponse && upstreamResponse.status < 400) {
       try {
         responseText = plugin.transformResponse(responseText, info);
