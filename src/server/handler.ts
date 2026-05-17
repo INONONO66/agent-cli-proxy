@@ -104,14 +104,12 @@ export namespace Handler {
           return new Response("Not Found", { status: 404 });
         }
 
-        if ((path === "/v1/messages" || path === "/v1/chat/completions") && method === "POST") {
-          const bounded = enforceRequestBodyLimit(req, maxRequestBodyBytes);
-          if (bounded instanceof Response) return bounded;
-          const info = await RequestInspector.inspect(bounded);
-          return passThrough(bounded, info);
-        }
-
-        return new Response("Not Found", { status: 404 });
+        // Body limit enforcement only for methods that carry a body
+        const needsBodyLimit = method === "POST" || method === "PUT" || method === "PATCH";
+        const bounded = needsBodyLimit ? enforceRequestBodyLimit(req, maxRequestBodyBytes) : req;
+        if (bounded instanceof Response) return bounded;
+        const info = await RequestInspector.inspect(bounded);
+        return passThrough(bounded, info);
       } catch (err) {
         if (isRequestBodyTooLargeError(err)) {
           return payloadTooLargeResponse(maxRequestBodyBytes);
