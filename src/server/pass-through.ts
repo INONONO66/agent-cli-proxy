@@ -260,6 +260,11 @@ export namespace PassThroughProxy {
 
   async function buildBody(req: Request, info: RequestInfo, plugin: AgentPlugin): Promise<BodyBuildResult> {
     if (!plugin.transformBody || info.isStreaming) return { body: req.body, rewritten: false };
+    const contentType = req.headers.get("content-type") ?? "";
+    // only attempt JSON transform for JSON bodies; binary/multipart pass through unchanged
+    if (!contentType.startsWith("application/json") && !contentType.startsWith("text/")) {
+      return { body: req.body, rewritten: false };
+    }
     const text = await req.text();
     try {
       const parsed = JSON.parse(text) as unknown;

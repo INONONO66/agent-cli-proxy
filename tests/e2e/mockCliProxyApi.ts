@@ -23,7 +23,9 @@ export function startMockCliProxyApi(port: number): MockCliProxyApi {
       let body: unknown = null;
       try {
         body = JSON.parse(bodyText);
-      } catch {}
+      } catch {
+        // body is not JSON (e.g., multipart, binary) — leave as null
+      }
 
       receivedRequests.push({
         method: req.method,
