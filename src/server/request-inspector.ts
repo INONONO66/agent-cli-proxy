@@ -51,7 +51,7 @@ export namespace RequestInspector {
     let model: string | null = null;
     let isStreaming = false;
 
-    if (method === "POST" && (path === "/v1/messages" || path === "/v1/chat/completions")) {
+    if (method === "POST") {
       try {
         const cloned = req.clone();
         const body = await cloned.json() as Record<string, unknown>;
