@@ -33,7 +33,7 @@ test("release package metadata is populated for npm publishing", async () => {
   expect(pkg.author).toBe("Agent CLI Proxy contributors");
   expect(pkg.engines).toEqual({ bun: ">=1.0.0", node: ">=20.0.0" });
   expect(pkg.bin).toEqual({ "agent-cli-proxy": "./dist/cli.js" });
-  expect(pkg.files).toEqual(["dist", "README.md", "LICENSE"]);
+  expect(pkg.files).toEqual(["dist", "README.md", "CHANGELOG.md", "LICENSE"]);
 });
 
 test("pack dry-run includes only required install artifacts after build", async () => {

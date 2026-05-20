@@ -36,6 +36,7 @@
   "files": [
     "dist",
     "README.md",
+    "CHANGELOG.md",
     "LICENSE"
   ],
   "scripts": {
@@ -49,7 +50,12 @@
     "test:e2e": "bun test tests/e2e/",
     "test:e2e:mock": "MOCK_CLI_PROXY=1 CLI_PROXY_API_URL=http://localhost:18317 bun test tests/e2e/",
     "start": "bun run dist/index.js",
-    "backfill:costs": "bun run src/cli.ts backfill-costs --env .env"
+    "backfill:costs": "bun run src/cli.ts backfill-costs --env .env",
+    "release": "bun run scripts/release.ts",
+    "release:patch": "bun run scripts/release.ts patch",
+    "release:minor": "bun run scripts/release.ts minor",
+    "release:major": "bun run scripts/release.ts major",
+    "release:dry-run": "bun run scripts/release.ts --dry-run"
   },
   "devDependencies": {
     "@types/bun": "latest",
