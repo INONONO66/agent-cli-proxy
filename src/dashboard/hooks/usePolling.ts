@@ -21,11 +21,13 @@ export function usePolling<T>(
   });
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const mountedRef = useRef(true);
+  const fetchFnRef = useRef(fetchFn);
+  fetchFnRef.current = fetchFn;
 
   const fetchData = useCallback(async () => {
     setState((prev) => ({ ...prev, loading: prev.data === null, error: null }));
     try {
-      const data = await fetchFn();
+      const data = await fetchFnRef.current();
       if (!mountedRef.current) return;
       setState({ data, loading: false, error: null });
     } catch (err) {
@@ -33,7 +35,7 @@ export function usePolling<T>(
       const message = err instanceof Error ? err.message : String(err);
       setState((prev) => ({ ...prev, loading: false, error: message }));
     }
-  }, [fetchFn]);
+  }, []);
 
   const refresh = useCallback(() => {
     void fetchData();
