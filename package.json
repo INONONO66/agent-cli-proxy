@@ -41,7 +41,7 @@
   ],
   "scripts": {
     "dev": "bun run --watch src/index.ts",
-    "build": "bun build src/index.ts src/cli.ts --target=bun --outdir=./dist && bun build src/dashboard/index.html --target=browser --outdir=./dist/dashboard && rm -rf dist/migrations && cp -R src/storage/migrations dist/migrations && mkdir -p dist/data && cp data/plans.default.json dist/data/plans.default.json && bun run scripts/post-build.ts",
+    "build": "bun build src/index.ts src/cli.ts --target=bun --outdir=./dist && rm -rf dist/dashboard && bun build src/dashboard/index.html --target=browser --outdir=./dist/dashboard && rm -rf dist/migrations && cp -R src/storage/migrations dist/migrations && mkdir -p dist/data && cp data/plans.default.json dist/data/plans.default.json && bun run scripts/post-build.ts",
     "build:dashboard": "bun build src/dashboard/index.html --target=browser --outdir=./dist/dashboard",
     "typecheck": "bunx tsc --noEmit",
     "test": "bun test",
