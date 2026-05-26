@@ -29,12 +29,15 @@ export interface AccountListResponse {
 }
 
 export interface AuthAccount {
-  provider: string;
+  type?: string;
+  provider?: string;
   email?: string;
   expires_at?: string;
   expired?: string;
+  last_refresh?: string;
   is_expired?: boolean;
   refreshed_at?: string;
+  disabled?: boolean;
   [key: string]: unknown;
 }
 

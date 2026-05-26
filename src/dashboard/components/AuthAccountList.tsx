@@ -1,5 +1,9 @@
 import type { AuthAccount } from "../api";
 
+function resolveProvider(account: AuthAccount): string {
+  return account.type ?? account.provider ?? "unknown";
+}
+
 function providerClass(provider: string): string {
   const p = provider.toLowerCase();
   if (p.includes("claude")) return "claude";
@@ -52,24 +56,25 @@ export function AuthAccountList({ accounts, onRefresh }: AuthAccountListProps) {
     <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
       {accounts.map((account, i) => {
         const status = expiryStatus(account);
+        const provider = resolveProvider(account);
         const email = account.email ?? "Unknown";
         return (
           <div key={i} className="oauth-account">
             <div className="info">
-              <div className={`provider-badge ${providerClass(account.provider)}`}>
-                {account.provider}
+              <div className={`provider-badge ${providerClass(provider)}`}>
+                {provider}
               </div>
               <div className="email">{email}</div>
               <div className="meta">
                 <span className={`status-badge ${status.className}`}>{status.label}</span>
-                {account.refreshed_at && (
+                {(account.last_refresh ?? account.refreshed_at) && (
                   <span style={{ marginLeft: 8 }}>
-                    Refreshed: {formatDate(account.refreshed_at)}
+                    Refreshed: {formatDate(account.last_refresh ?? account.refreshed_at)}
                   </span>
                 )}
               </div>
             </div>
-            <button onClick={() => onRefresh(account.provider)}>
+            <button onClick={() => onRefresh(provider)}>
               Refresh Login
             </button>
           </div>
