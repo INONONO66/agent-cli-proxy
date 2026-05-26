@@ -1,4 +1,4 @@
-import { useCallback, useState } from "react";
+import { Fragment, useCallback, useState } from "react";
 import type { Usage } from "../../usage";
 
 function formatDate(iso: string): string {
@@ -78,9 +78,8 @@ export function LogTable({ logs, loading, limit, offset, onLimitChange, onOffset
               </>
             )}
             {logs.map((log) => (
-              <>
+              <Fragment key={log.id}>
                 <tr
-                  key={log.id}
                   className={`log-row ${expandedId === log.id ? "expanded" : ""}`}
                   onClick={() => toggleExpand(log.id ?? 0)}
                 >
@@ -99,7 +98,7 @@ export function LogTable({ logs, loading, limit, offset, onLimitChange, onOffset
                   </td>
                 </tr>
                 {expandedId === log.id && (
-                  <tr key={`${log.id}-detail`}>
+                  <tr>
                     <td colSpan={10}>
                       <div className="log-detail">
                         <pre>{JSON.stringify(log, null, 2)}</pre>
@@ -107,7 +106,7 @@ export function LogTable({ logs, loading, limit, offset, onLimitChange, onOffset
                     </td>
                   </tr>
                 )}
-              </>
+              </Fragment>
             ))}
             {!loading && logs.length === 0 && (
               <tr>

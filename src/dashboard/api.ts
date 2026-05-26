@@ -32,7 +32,7 @@ export interface AuthAccount {
   provider: string;
   email?: string;
   expires_at?: string;
-  expired?: number;
+  expired?: string;
   is_expired?: boolean;
   refreshed_at?: string;
   [key: string]: unknown;
