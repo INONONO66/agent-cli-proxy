@@ -45,6 +45,11 @@
 - Added `src/storage/migrations/008_api_keys.sql` with `api_keys` and `request_logs.proxy_api_key_id`.
 - Migration stays schema-only: no plaintext key storage, no indexes on `request_logs`.
 
+### 2026-05-27 — Quota history time-series endpoint
+- `QuotaRepo.getHistory(db, { hours, provider?, account? })` buckets `quota_snapshots` with SQLite `strftime()` and returns aligned empty buckets.
+- `/admin/quotas/history` defaults to 24h, accepts optional `provider` and `account`, and wraps the repo result as `{ buckets: [...] }`.
+- Bucket sizes follow the dashboard zoom levels: 5m for ≤5h, 1h for ≤24h, 4h for ≤7d, 1d for ≤30d.
+
 ### 2026-05-26 — Quota retention cleanup
 - Added `QuotaRepo.deleteOlderThan30Days(db)` to delete `quota_snapshots` rows older than 30 days using SQLite `datetime('now', '-30 days')`.
 - Added a `quota-retention` supervisor loop helper with a 24h interval and `quota.retention_cleanup` info logging for deleted rows.
