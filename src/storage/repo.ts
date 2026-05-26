@@ -106,17 +106,91 @@ export namespace RequestRepo {
     offset: number,
     tool?: string,
     clientId?: string,
+  ): Usage.RequestLog[];
+  export function getRecent(
+    db: Database,
+    limit: number,
+    offset: number,
+    filters?: {
+      tool?: string;
+      clientId?: string;
+      model?: string;
+      provider?: string;
+      statusMin?: number;
+      statusMax?: number;
+      lifecycleStatus?: Usage.LifecycleStatus;
+    },
+  ): Usage.RequestLog[];
+  export function getRecent(
+    db: Database,
+    limit: number,
+    offset: number,
+    toolOrFilters?: string | {
+      tool?: string;
+      clientId?: string;
+      model?: string;
+      provider?: string;
+      statusMin?: number;
+      statusMax?: number;
+      lifecycleStatus?: Usage.LifecycleStatus;
+    },
+    clientId?: string,
+  ): Usage.RequestLog[] {
+    const filters =
+      typeof toolOrFilters === "object" && toolOrFilters !== null
+        ? toolOrFilters
+        : {
+            tool: toolOrFilters,
+            clientId,
+          };
+
+    return getRecentWithFilters(db, limit, offset, filters);
+  }
+
+  function getRecentWithFilters(
+    db: Database,
+    limit: number,
+    offset: number,
+    filters: {
+      tool?: string;
+      clientId?: string;
+      model?: string;
+      provider?: string;
+      statusMin?: number;
+      statusMax?: number;
+      lifecycleStatus?: Usage.LifecycleStatus;
+    },
   ): Usage.RequestLog[] {
     let sql = `SELECT * FROM request_logs WHERE 1=1`;
     const params: (string | number)[] = [];
 
-    if (tool) {
+    if (filters.tool) {
       sql += ` AND tool = ?`;
-      params.push(tool);
+      params.push(filters.tool);
     }
-    if (clientId) {
+    if (filters.clientId) {
       sql += ` AND client_id = ?`;
-      params.push(clientId);
+      params.push(filters.clientId);
+    }
+    if (filters.model) {
+      sql += ` AND model = ?`;
+      params.push(filters.model);
+    }
+    if (filters.provider) {
+      sql += ` AND provider = ?`;
+      params.push(filters.provider);
+    }
+    if (filters.statusMin !== undefined) {
+      sql += ` AND status >= ?`;
+      params.push(filters.statusMin);
+    }
+    if (filters.statusMax !== undefined) {
+      sql += ` AND status <= ?`;
+      params.push(filters.statusMax);
+    }
+    if (filters.lifecycleStatus) {
+      sql += ` AND lifecycle_status = ?`;
+      params.push(filters.lifecycleStatus);
     }
 
     sql += ` ORDER BY started_at DESC LIMIT ? OFFSET ?`;

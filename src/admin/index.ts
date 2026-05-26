@@ -1,13 +1,20 @@
 import { UsageService } from "../storage/service";
 import { AccountSubscriptionRepo } from "../storage/account-subscriptions";
+import { Config } from "../config";
 import { QuotaRepo, RequestRepo } from "../storage/repo";
+import { Storage } from "../storage/db";
 import { Plans } from "../plans";
 import { Logger } from "../util/logger";
 import { UpstreamClient } from "../upstream/client";
 import { Session } from "./session";
 import { OAuthAdmin } from "./oauth";
+import { Usage } from "../usage";
+import { dirname } from "path";
+import { mkdirSync } from "fs";
 
 const logger = Logger.fromConfig().child({ component: "admin" });
+mkdirSync(dirname(Config.dbPath), { recursive: true });
+const requestLogDb = Storage.initDb(Config.dbPath);
 
 export namespace Admin {
   export interface SessionConfig {
@@ -208,16 +215,26 @@ export namespace Admin {
           const offset = Number(url.searchParams.get("offset") ?? 0);
           const tool = url.searchParams.get("tool");
           const clientId = url.searchParams.get("client_id");
+          const model = url.searchParams.get("model");
+          const provider = url.searchParams.get("provider");
+          const statusMin = parseOptionalInteger(url.searchParams.get("status_min"));
+          const statusMax = parseOptionalInteger(url.searchParams.get("status_max"));
+          const lifecycleStatus = parseLifecycleStatus(url.searchParams.get("lifecycle_status"));
+
+          if (statusMin === null || statusMax === null || lifecycleStatus === null) {
+            return json({ error: "Invalid filter parameter" }, 400);
+          }
           if (!Number.isFinite(limit) || !Number.isFinite(offset) || limit < 1 || offset < 0)
             return json({ error: "Invalid limit or offset" }, 400);
-          return json(
-            usageService.getRecentLogs(
-              limit,
-              offset,
-              tool ?? undefined,
-              clientId ?? undefined,
-            ),
-          );
+          return json(RequestRepo.getRecent(requestLogDb, limit, offset, {
+            tool: tool ?? undefined,
+            clientId: clientId ?? undefined,
+            model: model ?? undefined,
+            provider: provider ?? undefined,
+            statusMin,
+            statusMax,
+            lifecycleStatus,
+          }));
         }
 
         const logsMatch = path.match(/^\/admin\/logs\/(\d+)$/);
@@ -234,6 +251,21 @@ export namespace Admin {
         return json({ error: "Internal server error" }, 500);
       }
     };
+  }
+
+  function parseOptionalInteger(value: string | null): number | null | undefined {
+    if (value === null) return undefined;
+    if (value === "") return null;
+    const parsed = Number.parseInt(value, 10);
+    return Number.isInteger(parsed) ? parsed : null;
+  }
+
+  function parseLifecycleStatus(value: string | null): Usage.LifecycleStatus | null | undefined {
+    if (value === null || value === "") return undefined;
+    if (value === "pending" || value === "completed" || value === "error" || value === "aborted") {
+      return value;
+    }
+    return null;
   }
 
   function json(data: unknown, status = 200): Response {
