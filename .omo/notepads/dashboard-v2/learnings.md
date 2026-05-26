@@ -36,6 +36,13 @@
 - Migration naming: `00N_description.sql` (immutable once merged)
 - Loop registration: see `src/runtime/supervisor.ts`
 
+## [2026-05-27] Session task-2 — Request log filters
+
+### Request Log Filtering
+- `RequestRepo.getRecent()` now accepts exact-match `model`, `provider`, and `lifecycle_status` filters plus `status_min`/`status_max` range bounds.
+- Filters are appended as parameterized `AND` clauses so the log query stays injection-safe.
+- `/admin/logs` now reads `model`, `provider`, `status_min`, `status_max`, and `lifecycle_status` from query params and returns the same response shape.
+
 ### 2026-05-26 — Path allowlist passthrough guard
 - `src/server/handler.ts` now rejects non-reserved, non-API paths with `404 {"error":"not found"}`.
 - Allowlist is hardcoded to `/v1/` and `/api/` prefixes only.
