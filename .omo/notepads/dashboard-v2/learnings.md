@@ -76,3 +76,9 @@
 - "Last Refreshed: X ago" uses `Date.now()` relative time (s/m/h/d).
 - `OAuthJobPanel`: added visual status step progression (Starting → Waiting for URL → Auth URL ready → SSH tunnel needed → Completed/Failed).
 - Copy-to-clipboard buttons for both OAuth URL and SSH tunnel command with `navigator.clipboard.writeText()` + "Copied!" feedback via `useState`.
+
+### 2026-05-27 — API key repository and admin routes
+- `ApiKeyRepo.create()` generates a 32-byte hex key, stores only a SHA-256 hash, and returns the full key only in the create response.
+- `ApiKeyRepo.list()` exposes `keyPrefix` plus usage count from `request_logs.proxy_api_key_id`, never the full key or hash.
+- `/admin/api-keys` routes live in `src/admin/api-keys.ts`; POST and DELETE require `x-csrf: 1` even when bearer-token auth is used.
+- Per-key usage endpoint returns `{ id, requestCount, totalTokens, totalCostUsd }` from `request_logs` aggregates.

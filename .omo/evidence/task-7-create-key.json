@@ -1,0 +1,6 @@
+{
+  "note": "create returns {id, key(64chars), keyPrefix, name, createdAt}",
+  "route": "POST /admin/api-keys",
+  "csrfRequired": true,
+  "keyReturnedOnce": true
+}

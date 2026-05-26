@@ -8,6 +8,7 @@ import { Logger } from "../util/logger";
 import { UpstreamClient } from "../upstream/client";
 import { Session } from "./session";
 import { OAuthAdmin } from "./oauth";
+import { ApiKeysAdmin } from "./api-keys";
 import { Usage } from "../usage";
 import { dirname } from "path";
 import { mkdirSync } from "fs";
@@ -36,6 +37,7 @@ export namespace Admin {
     oauthConfig: OAuthConfig = { authDir: "", binaryPath: "", configPath: "", timeoutMs: 300000 },
   ) {
     const oauthRouter = OAuthAdmin.createRouter(oauthConfig);
+    const apiKeysRouter = ApiKeysAdmin.createRouter(usageService.db);
 
     return async function handleAdminRequest(req: Request): Promise<Response | null> {
       const url = new URL(req.url);
@@ -76,6 +78,9 @@ export namespace Admin {
 
         const oauthResponse = await oauthRouter(req);
         if (oauthResponse) return oauthResponse;
+
+        const apiKeysResponse = await apiKeysRouter(req);
+        if (apiKeysResponse) return apiKeysResponse;
 
         if (req.method !== "GET") return null;
         if (path === "/admin/usage/today") {
