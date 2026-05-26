@@ -103,3 +103,11 @@
 - Revoke uses `window.confirm()` then calls DELETE `/admin/api-keys/:id`.
 - Per-key usage summary (requests, tokens, cost) fetched on-demand from GET `/admin/api-keys/:id/usage`.
 - Nav link added to `Layout.tsx` and route wired in `main.tsx` under `#/api-keys`.
+
+### 2026-05-27 — QuotasPage redesign with account grouping and pace insights
+- `QuotasPage` now groups `QuotaSnapshot` rows by `provider + account` (em-dash key) instead of rendering a flat card grid.
+- `AccountQuotaCard` shows a provider-colored badge (claude=orange, codex=green, kimi=blue, xai=red) plus the account email in the header, then lists all quota windows (session/5h, weekly, model-specific) as rows inside one card.
+- Snapshots are sorted by a hardcoded type order so `5h`/`session` appear first, then `week`, then model variants.
+- Color thresholds use inline styles (no new CSS file): green (<50%), yellow (50-75%), orange (75-90%), red (>90%).
+- Pace insight is computed per window using `elapsedHours = windowDuration - hoursUntilReset` derived from `resets_at`; if the predicted limit occurs before the reset, it warns with "At current pace, limit in ~Xh", otherwise "within quota".
+- "Expired" badge renders as a `.status-badge.critical` when `resets_at < now`.

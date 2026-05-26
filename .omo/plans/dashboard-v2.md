@@ -612,7 +612,7 @@ Wave FINAL (After ALL tasks — 4 parallel reviews, then user okay):
   - Message: `build: add recharts dependency`
   - Files: `package.json`, `bun.lock`
 
-- [ ] 10. QuotasPage redesign: account grouping + pace insights
+- [x] 10. QuotasPage redesign: account grouping + pace insights
 
   **What to do**:
   - Group quota cards by account (provider + email)

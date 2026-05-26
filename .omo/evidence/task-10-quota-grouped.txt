@@ -1,0 +1,12 @@
+Task 10: QuotasPage redesign — account grouping verification
+
+Build: PASS (bun run typecheck exit 0, bun run build exit 0)
+Tests: 175 pass / 6 fail (pre-existing ready.test.ts port conflicts)
+
+Implementation verified:
+- src/dashboard/pages/QuotasPage.tsx groups snapshots by provider + account (em-dash key)
+- src/dashboard/components/AccountQuotaCard.tsx renders one card per account group
+- Each card contains all quota windows for that account (session/5h, weekly, model-specific)
+- Provider badge shown with color mapping (claude=orange, codex=green, kimi=blue, xai=red)
+- Snapshots sorted by type order: 5h/session first, then week, then model-specific
+- Cards rendered inside existing .card-grid layout

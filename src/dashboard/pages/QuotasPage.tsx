@@ -1,7 +1,8 @@
-import { useCallback } from "react";
+import { useCallback, useMemo } from "react";
+import type { Usage } from "../../usage";
 import { getQuotas } from "../api";
 import { usePolling } from "../hooks/usePolling";
-import { QuotaCard } from "../components/QuotaCard";
+import { AccountQuotaCard } from "../components/AccountQuotaCard";
 
 export function QuotasPage() {
   const { data, loading, error, refresh } = usePolling(
@@ -13,6 +14,33 @@ export function QuotasPage() {
     await getQuotas(true);
     refresh();
   }, [refresh]);
+
+  const groups = useMemo(() => {
+    if (!data) return [];
+    const map = new Map<
+      string,
+      { provider: string; account: string; snapshots: Usage.QuotaSnapshot[] }
+    >();
+    for (const snap of data.snapshots) {
+      const key = `${snap.provider}\u2014${snap.account}`;
+      const group = map.get(key);
+      if (group) {
+        group.snapshots.push(snap);
+      } else {
+        map.set(key, {
+          provider: snap.provider,
+          account: snap.account,
+          snapshots: [snap],
+        });
+      }
+    }
+    return Array.from(map.values()).sort((a, b) => {
+      const pa = a.provider.toLowerCase();
+      const pb = b.provider.toLowerCase();
+      if (pa !== pb) return pa.localeCompare(pb);
+      return a.account.toLowerCase().localeCompare(b.account.toLowerCase());
+    });
+  }, [data]);
 
   return (
     <div>
@@ -35,14 +63,19 @@ export function QuotasPage() {
         </div>
       )}
 
-      {data && data.snapshots.length === 0 && (
+      {data && groups.length === 0 && (
         <div className="empty-state">No quota snapshots available.</div>
       )}
 
-      {data && data.snapshots.length > 0 && (
+      {data && groups.length > 0 && (
         <div className="card-grid">
-          {data.snapshots.map((snap) => (
-            <QuotaCard key={`${snap.provider}-${snap.account}-${snap.quota_type}`} snapshot={snap} />
+          {groups.map((group) => (
+            <AccountQuotaCard
+              key={`${group.provider}\u2014${group.account}`}
+              provider={group.provider}
+              account={group.account}
+              snapshots={group.snapshots}
+            />
           ))}
         </div>
       )}
