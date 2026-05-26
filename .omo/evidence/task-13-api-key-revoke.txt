@@ -1,0 +1,6 @@
+Revoke confirmation works
+
+- Revoke button triggers window.confirm() with message: 'Revoke API key "<name>"? This cannot be undone.'
+- On confirm: DELETE /admin/api-keys/:id is called
+- On success: key list refreshes and key row shows "Revoked" badge with reduced opacity
+- On cancel: no API call is made

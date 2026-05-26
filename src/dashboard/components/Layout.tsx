@@ -19,6 +19,7 @@ const NAV = [
   { path: "#/quotas", label: "Quotas" },
   { path: "#/logs", label: "Logs" },
   { path: "#/usage", label: "Usage" },
+  { path: "#/api-keys", label: "API Keys" },
   { path: "#/oauth", label: "OAuth" },
 ];
 

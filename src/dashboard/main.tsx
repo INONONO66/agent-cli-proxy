@@ -6,6 +6,7 @@ import { QuotasPage } from "./pages/QuotasPage";
 import { LogsPage } from "./pages/LogsPage";
 import { UsagePage } from "./pages/UsagePage";
 import { OAuthPage } from "./pages/OAuthPage";
+import { ApiKeysPage } from "./pages/ApiKeysPage";
 import "./styles.css";
 
 function useRoute(): string {
@@ -56,6 +57,9 @@ function Router() {
       break;
     case "oauth":
       content = <OAuthPage />;
+      break;
+    case "api-keys":
+      content = <ApiKeysPage />;
       break;
     default:
       content = <QuotasPage />;

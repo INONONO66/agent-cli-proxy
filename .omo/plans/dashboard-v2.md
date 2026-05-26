@@ -662,7 +662,7 @@ Wave FINAL (After ALL tasks — 4 parallel reviews, then user okay):
   **Commit**: YES
   - Message: `feat(dashboard): redesign quota cards with account grouping and pace insights`
 
-- [ ] 11. UsagePage: time-series graphs with Recharts
+- [x] 11. UsagePage: time-series graphs with Recharts
 
   **What to do**:
   - Add quota trend chart: line chart showing used_pct over time per provider/account
@@ -748,7 +748,7 @@ Wave FINAL (After ALL tasks — 4 parallel reviews, then user okay):
   **Commit**: YES
   - Message: `feat(dashboard): add model, provider, and status filters to logs page`
 
-- [ ] 13. ApiKeysPage: new management page
+- [x] 13. ApiKeysPage: new management page
 
   **What to do**:
   - Create `src/dashboard/pages/ApiKeysPage.tsx`

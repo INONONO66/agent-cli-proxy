@@ -61,6 +61,33 @@ export interface BreakerListResponse {
   breakers: BreakerSnapshot[];
 }
 
+export interface QuotaHistorySnapshot {
+  provider: string;
+  account: string;
+  quota_type: string;
+  used_pct: number | null;
+}
+
+export interface QuotaHistoryBucket {
+  timestamp: string;
+  snapshots: QuotaHistorySnapshot[];
+}
+
+export interface QuotaHistoryResponse {
+  buckets: QuotaHistoryBucket[];
+}
+
+export interface UsageTrendBucket {
+  timestamp: string;
+  requests: number;
+  tokens: number;
+  cost_usd: number;
+}
+
+export interface UsageTrendResponse {
+  buckets: UsageTrendBucket[];
+}
+
 export interface BreakerSnapshot {
   providerId: string;
   state: "closed" | "open" | "half-open";
@@ -87,6 +114,35 @@ export interface CostSummaryRow {
   total_requests: number;
   total_cost_usd: number;
   computed_overage_usd: number;
+}
+
+export interface ApiKey {
+  id: number;
+  keyPrefix: string;
+  name: string;
+  createdAt: string;
+  revokedAt: string | null;
+  lastUsedAt: string | null;
+  requestCount: number;
+}
+
+export interface ApiKeyCreateResponse {
+  id: number;
+  key: string;
+  keyPrefix: string;
+  name: string;
+  createdAt: string;
+}
+
+export interface ApiKeyUsageResponse {
+  id: number;
+  requestCount: number;
+  totalTokens: number;
+  totalCostUsd: number;
+}
+
+export interface ApiKeyListResponse {
+  apiKeys: ApiKey[];
 }
 
 const BASE = "";
@@ -224,4 +280,33 @@ export function cancelOAuthJob(jobId: string): Promise<{ ok: boolean }> {
   return api<{ ok: boolean }>(`/admin/oauth/jobs/${encodeURIComponent(jobId)}/cancel`, {
     method: "POST",
   });
+}
+
+export function fetchQuotaHistory(hours: number): Promise<QuotaHistoryResponse> {
+  return api<QuotaHistoryResponse>(`/admin/quotas/history?hours=${encodeURIComponent(hours)}`);
+}
+
+export function fetchUsageTrend(hours: number): Promise<UsageTrendResponse> {
+  return api<UsageTrendResponse>(`/admin/usage/trend?hours=${encodeURIComponent(hours)}`);
+}
+
+export function fetchApiKeys(): Promise<ApiKeyListResponse> {
+  return api<ApiKeyListResponse>("/admin/api-keys");
+}
+
+export function createApiKey(name: string): Promise<ApiKeyCreateResponse> {
+  return api<ApiKeyCreateResponse>("/admin/api-keys", {
+    method: "POST",
+    body: JSON.stringify({ name }),
+  });
+}
+
+export function revokeApiKey(id: number): Promise<{ revokedAt: string | null }> {
+  return api<{ revokedAt: string | null }>(`/admin/api-keys/${id}`, {
+    method: "DELETE",
+  });
+}
+
+export function fetchApiKeyUsage(id: number): Promise<ApiKeyUsageResponse> {
+  return api<ApiKeyUsageResponse>(`/admin/api-keys/${id}/usage`);
 }

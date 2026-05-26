@@ -87,3 +87,19 @@
 - `x-proxy-key` is resolved only for identification: SHA-256 hash lookup via `ApiKeyRepo.findByHash(db, hash)` and `touchLastUsed(db, id)` on a hit.
 - The pass-through layer strips `x-proxy-key` before upstream forwarding so the header never escapes the proxy boundary.
 - When the header is absent or the key is unknown, request logging stays unchanged and `proxy_api_key_id` remains `NULL`.
+
+### 2026-05-27 — UsagePage time-series graphs with Recharts
+- Added `fetchQuotaHistory(hours)` and `fetchUsageTrend(hours)` to `src/dashboard/api.ts` with typed responses (`QuotaHistoryResponse`, `UsageTrendResponse`).
+- `UsagePage` now has a "Trends" section with time range buttons (5h, 24h, 7d, 30d) that drive both charts via shared `hours` state.
+- Quota trend chart: `LineChart` inside `ResponsiveContainer`, one line per `provider — account` combo, Y-axis clamped to 0-100%, dark-themed axes/tooltip.
+- Request/cost trend chart: `BarChart` with `Bar` for requests (left Y-axis) and `Line` for `cost_usd` (right Y-axis), both inside `ResponsiveContainer`.
+- Dark theme styling: axis stroke `#6e7681`, grid `#30363d`, tooltip background `#161b22` with `#30363d` border — matching the existing dashboard CSS variable palette.
+- Data transformation: `transformQuotaHistory` flattens bucketed snapshots into per-series keys so Recharts can render each as a `<Line>`; multiple `quota_type` values for the same provider/account are merged via `Math.max(used_pct)`.
+- Time formatting on X-axis adapts to zoom: `HH:mm` for ≤24h, `MM-DD` for longer ranges.
+
+### 2026-05-27 — ApiKeysPage dashboard UI
+- Created `src/dashboard/pages/ApiKeysPage.tsx` with table listing (name, keyPrefix, created, lastUsed, requestCount), inline create form, and per-key usage toggle.
+- Creation modal shows the full key exactly once with a "Copy to Clipboard" button; closing the modal discards the key from React state.
+- Revoke uses `window.confirm()` then calls DELETE `/admin/api-keys/:id`.
+- Per-key usage summary (requests, tokens, cost) fetched on-demand from GET `/admin/api-keys/:id/usage`.
+- Nav link added to `Layout.tsx` and route wired in `main.tsx` under `#/api-keys`.
