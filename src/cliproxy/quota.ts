@@ -35,7 +35,8 @@ type ProbeResult = {
 
 function normalizePercent(value: unknown): number | undefined {
   if (typeof value !== "number" || !Number.isFinite(value)) return undefined;
-  const pct = value <= 1 ? value * 100 : value;
+  // providers return 0-100 integer percentages; only convert if strictly fractional (< 1 and > 0)
+  const pct = value > 0 && value < 1 ? value * 100 : value;
   return Math.max(0, Math.min(100, pct));
 }
 
