@@ -1,5 +1,17 @@
 import { useCallback, useMemo, useState } from "react";
 import {
+  LineChart,
+  Line,
+  BarChart,
+  Bar,
+  XAxis,
+  YAxis,
+  CartesianGrid,
+  Tooltip,
+  Legend,
+  ResponsiveContainer,
+} from "recharts";
+import {
   getAccountSummary,
   getCostSummary,
   getModelBreakdown,
@@ -7,6 +19,8 @@ import {
   getStats,
   getTodayUsage,
   getUsageRange,
+  fetchQuotaHistory,
+  fetchUsageTrend,
 } from "../api";
 import { usePolling } from "../hooks/usePolling";
 import { UsageSummary } from "../components/UsageSummary";
@@ -27,10 +41,80 @@ function formatCost(n: number): string {
   return `$${n.toFixed(4)}`;
 }
 
+function formatAxisTime(hours: number, timestamp: string): string {
+  const d = new Date(timestamp);
+  if (hours <= 24) {
+    const h = String(d.getHours()).padStart(2, "0");
+    const m = String(d.getMinutes()).padStart(2, "0");
+    return `${h}:${m}`;
+  }
+  const mo = String(d.getMonth() + 1).padStart(2, "0");
+  const da = String(d.getDate()).padStart(2, "0");
+  return `${mo}-${da}`;
+}
+
+const LINE_COLORS = [
+  "#58a6ff",
+  "#3fb950",
+  "#d29922",
+  "#f85149",
+  "#e3b341",
+  "#a371f7",
+  "#56d364",
+  "#79c0ff",
+  "#ff7b72",
+  "#ffa657",
+];
+
+const CHART_AXIS_COLOR = "#6e7681";
+const CHART_GRID_COLOR = "#30363d";
+const CHART_TOOLTIP_BG = "#161b22";
+const CHART_TOOLTIP_BORDER = "#30363d";
+
+type TimeRange = 5 | 24 | 168 | 720;
+
+const TIME_RANGE_LABELS: Record<TimeRange, string> = {
+  5: "5h",
+  24: "24h",
+  168: "7d",
+  720: "30d",
+};
+
+interface QuotaChartPoint {
+  timestamp: string;
+  [key: string]: number | string;
+}
+
+function transformQuotaHistory(
+  buckets: { timestamp: string; snapshots: { provider: string; account: string; used_pct: number | null }[] }[],
+): { data: QuotaChartPoint[]; lines: string[] } {
+  const allKeys = new Set<string>();
+  for (const bucket of buckets) {
+    for (const snap of bucket.snapshots) {
+      allKeys.add(`${snap.provider} — ${snap.account}`);
+    }
+  }
+  const lines = Array.from(allKeys);
+  const data = buckets.map((bucket) => {
+    const point: QuotaChartPoint = { timestamp: bucket.timestamp };
+    for (const key of lines) {
+      point[key] = 0;
+    }
+    for (const snap of bucket.snapshots) {
+      const key = `${snap.provider} — ${snap.account}`;
+      const current = (point[key] as number) ?? 0;
+      point[key] = Math.max(current, snap.used_pct ?? 0);
+    }
+    return point;
+  });
+  return { data, lines };
+}
+
 export function UsagePage() {
   const [from, setFrom] = useState(todayIso());
   const [to, setTo] = useState(todayIso());
   const [month, setMonth] = useState(currentMonth());
+  const [hours, setHours] = useState<TimeRange>(24);
 
   const { data: today } = usePolling(getTodayUsage, 30000);
   const { data: range } = usePolling(
@@ -51,6 +135,15 @@ export function UsagePage() {
     30000,
   );
 
+  const { data: quotaHistory } = usePolling(
+    useCallback(() => fetchQuotaHistory(hours), [hours]),
+    30000,
+  );
+  const { data: usageTrend } = usePolling(
+    useCallback(() => fetchUsageTrend(hours), [hours]),
+    30000,
+  );
+
   const maxModelTokens = useMemo(
     () => Math.max(1, ...(modelBreakdown ?? []).map((m) => m.total_tokens)),
     [modelBreakdown],
@@ -60,13 +153,136 @@ export function UsagePage() {
     [providerBreakdown],
   );
 
+  const quotaChart = useMemo(() => {
+    if (!quotaHistory || quotaHistory.buckets.length === 0) {
+      return { data: [], lines: [] };
+    }
+    return transformQuotaHistory(quotaHistory.buckets);
+  }, [quotaHistory]);
+
+  const trendData = useMemo(() => {
+    if (!usageTrend) return [];
+    return usageTrend.buckets.map((b) => ({
+      timestamp: b.timestamp,
+      requests: b.requests,
+      cost_usd: b.cost_usd,
+    }));
+  }, [usageTrend]);
+
+  const tooltipStyle = {
+    backgroundColor: CHART_TOOLTIP_BG,
+    border: `1px solid ${CHART_TOOLTIP_BORDER}`,
+    borderRadius: 4,
+    color: "#e6edf3",
+    fontSize: 12,
+  };
+
   return (
     <div>
       <div className="content-header">
-        <h2>Usage & Cost</h2>
+        <h2>Usage &amp; Cost</h2>
       </div>
 
       {today && <UsageSummary summary={today} />}
+
+      <div className="section">
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: 12 }}>
+          <h3>Trends</h3>
+          <div style={{ display: "flex", gap: 6 }}>
+            {(Object.keys(TIME_RANGE_LABELS) as unknown as TimeRange[]).map((h) => (
+              <button
+                key={h}
+                className={hours === h ? "primary" : undefined}
+                onClick={() => setHours(h)}
+                style={{ padding: "4px 10px", fontSize: 12 }}
+              >
+                {TIME_RANGE_LABELS[h]}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        {quotaChart.lines.length > 0 && (
+          <div className="card" style={{ marginTop: 12, marginBottom: 16 }}>
+            <div style={{ fontSize: 12, color: "var(--text-secondary)", marginBottom: 8, fontWeight: 600 }}>
+              Quota Usage (%)
+            </div>
+            <ResponsiveContainer width="100%" height={260}>
+              <LineChart data={quotaChart.data}>
+                <CartesianGrid stroke={CHART_GRID_COLOR} strokeDasharray="3 3" />
+                <XAxis
+                  dataKey="timestamp"
+                  tick={{ fill: CHART_AXIS_COLOR, fontSize: 11 }}
+                  tickFormatter={(v: string) => formatAxisTime(hours, v)}
+                  stroke={CHART_AXIS_COLOR}
+                />
+                <YAxis
+                  domain={[0, 100]}
+                  tick={{ fill: CHART_AXIS_COLOR, fontSize: 11 }}
+                  stroke={CHART_AXIS_COLOR}
+                  unit="%"
+                />
+                <Tooltip contentStyle={tooltipStyle} itemStyle={{ fontSize: 12 }} />
+                <Legend wrapperStyle={{ fontSize: 11, color: "var(--text-secondary)" }} />
+                {quotaChart.lines.map((line, i) => (
+                  <Line
+                    key={line}
+                    type="monotone"
+                    dataKey={line}
+                    stroke={LINE_COLORS[i % LINE_COLORS.length]}
+                    strokeWidth={2}
+                    dot={false}
+                    activeDot={{ r: 4 }}
+                  />
+                ))}
+              </LineChart>
+            </ResponsiveContainer>
+          </div>
+        )}
+
+        {trendData.length > 0 && (
+          <div className="card">
+            <div style={{ fontSize: 12, color: "var(--text-secondary)", marginBottom: 8, fontWeight: 600 }}>
+              Requests &amp; Cost
+            </div>
+            <ResponsiveContainer width="100%" height={260}>
+              <BarChart data={trendData}>
+                <CartesianGrid stroke={CHART_GRID_COLOR} strokeDasharray="3 3" />
+                <XAxis
+                  dataKey="timestamp"
+                  tick={{ fill: CHART_AXIS_COLOR, fontSize: 11 }}
+                  tickFormatter={(v: string) => formatAxisTime(hours, v)}
+                  stroke={CHART_AXIS_COLOR}
+                />
+                <YAxis
+                  yAxisId="left"
+                  tick={{ fill: CHART_AXIS_COLOR, fontSize: 11 }}
+                  stroke={CHART_AXIS_COLOR}
+                />
+                <YAxis
+                  yAxisId="right"
+                  orientation="right"
+                  tick={{ fill: CHART_AXIS_COLOR, fontSize: 11 }}
+                  stroke={CHART_AXIS_COLOR}
+                  tickFormatter={(v: number) => `$${v.toFixed(2)}`}
+                />
+                <Tooltip contentStyle={tooltipStyle} itemStyle={{ fontSize: 12 }} />
+                <Legend wrapperStyle={{ fontSize: 11, color: "var(--text-secondary)" }} />
+                <Bar yAxisId="left" dataKey="requests" fill="rgba(88, 166, 255, 0.6)" radius={[2, 2, 0, 0]} />
+                <Line
+                  yAxisId="right"
+                  type="monotone"
+                  dataKey="cost_usd"
+                  stroke="#3fb950"
+                  strokeWidth={2}
+                  dot={false}
+                  activeDot={{ r: 4 }}
+                />
+              </BarChart>
+            </ResponsiveContainer>
+          </div>
+        )}
+      </div>
 
       <div className="section">
         <h3>Date Range</h3>
