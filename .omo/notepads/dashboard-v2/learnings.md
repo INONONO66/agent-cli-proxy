@@ -111,3 +111,11 @@
 - Color thresholds use inline styles (no new CSS file): green (<50%), yellow (50-75%), orange (75-90%), red (>90%).
 - Pace insight is computed per window using `elapsedHours = windowDuration - hoursUntilReset` derived from `resets_at`; if the predicted limit occurs before the reset, it warns with "At current pace, limit in ~Xh", otherwise "within quota".
 - "Expired" badge renders as a `.status-badge.critical` when `resets_at < now`.
+
+### 2026-05-27 — LogsPage enhanced filters UI (Task 12)
+- `LogsPage` now has six filter controls: tool (dropdown), client ID (text), model (text), provider (dropdown), status (dropdown: All/2xx/3xx/4xx/5xx), and lifecycle (dropdown: All/Pending/Completed/Error/Aborted).
+- Status ranges map to `status_min` + `status_max` backend params (e.g. "2xx" → 200-299).
+- Provider dropdown uses the known proxy providers: anthropic, openai, kimi, xai.
+- Filter state is persisted in the URL hash (`#/logs/?model=gpt&provider=openai`) and restored on page load and browser back/forward navigation.
+- `Clear Filters` resets all inputs, applied states, and the hash to `#/logs`.
+- `getLogs()` in `api.ts` was refactored from positional args to a `LogQuery` options object so new filter params are passed cleanly.

@@ -231,17 +231,29 @@ export function getStats(): Promise<Usage.TotalStats> {
   return api<Usage.TotalStats>("/admin/stats");
 }
 
-export function getLogs(
-  limit: number,
-  offset: number,
-  tool?: string,
-  clientId?: string,
-): Promise<Usage.RequestLog[]> {
+export interface LogQuery {
+  limit: number;
+  offset: number;
+  tool?: string;
+  clientId?: string;
+  model?: string;
+  provider?: string;
+  statusMin?: number;
+  statusMax?: number;
+  lifecycleStatus?: Usage.LifecycleStatus;
+}
+
+export function getLogs(query: LogQuery): Promise<Usage.RequestLog[]> {
   const params = new URLSearchParams();
-  params.set("limit", String(limit));
-  params.set("offset", String(offset));
-  if (tool) params.set("tool", tool);
-  if (clientId) params.set("client_id", clientId);
+  params.set("limit", String(query.limit));
+  params.set("offset", String(query.offset));
+  if (query.tool) params.set("tool", query.tool);
+  if (query.clientId) params.set("client_id", query.clientId);
+  if (query.model) params.set("model", query.model);
+  if (query.provider) params.set("provider", query.provider);
+  if (query.statusMin !== undefined) params.set("status_min", String(query.statusMin));
+  if (query.statusMax !== undefined) params.set("status_max", String(query.statusMax));
+  if (query.lifecycleStatus) params.set("lifecycle_status", query.lifecycleStatus);
   return api<Usage.RequestLog[]>(`/admin/logs?${params.toString()}`);
 }
 

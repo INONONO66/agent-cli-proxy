@@ -1,0 +1,21 @@
+Task 12 Evidence — LogsPage Enhanced Filters
+
+Files changed:
+- src/dashboard/api.ts        → extended getLogs() with LogQuery interface
+- src/dashboard/pages/LogsPage.tsx → added model, provider, status, lifecycle filters + URL hash persistence
+
+Build:
+- bun run typecheck  → PASS
+- bun run build      → PASS
+
+Filter mapping:
+- model text input        → ?model=X
+- provider dropdown       → ?provider=X
+- status dropdown (2xx..) → ?status_min=N&status_max=M
+- lifecycle dropdown      → ?lifecycle_status=X
+- tool + client_id        → preserved existing behavior
+
+URL hash example after applying filters:
+  #/logs/?provider=openai&status=2xx&lifecycle_status=completed
+
+Clear Filters button resets hash to #/logs.

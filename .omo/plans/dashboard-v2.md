@@ -707,7 +707,7 @@ Wave FINAL (After ALL tasks — 4 parallel reviews, then user okay):
   **Commit**: YES
   - Message: `feat(dashboard): add usage time-series graphs with Recharts`
 
-- [ ] 12. LogsPage: enhanced filters UI
+- [x] 12. LogsPage: enhanced filters UI
 
   **What to do**:
   - Add filter dropdowns/inputs for: model (text input), provider (dropdown from known providers), status (dropdown: all/2xx/4xx/5xx), lifecycle (dropdown)
