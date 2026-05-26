@@ -8,6 +8,8 @@ import { Logger } from "../util/logger";
 import { Pricing } from "../storage/pricing";
 import { UpstreamClient } from "../upstream/client";
 import { Supervisor } from "../runtime/supervisor";
+import { Session } from "../admin/session";
+import { Dashboard } from "./dashboard";
 
 const logger = Logger.fromConfig().child({ component: "handler" });
 const readyLogger = logger.child({ component: "handler.ready" });
@@ -55,6 +57,8 @@ let readyInFlight: Promise<ReadyResult> | null = null;
 export namespace Handler {
   export interface Options {
     maxRequestBodyBytes?: number;
+    sessionConfig?: Admin.SessionConfig;
+    oauthConfig?: Admin.OAuthConfig;
   }
 
   export function __clearReadyCacheForTests(): void {
@@ -64,7 +68,19 @@ export namespace Handler {
 
   export function create(usageService: UsageService.UsageService, options: Options = {}) {
     const passThrough = PassThroughProxy.create(usageService);
-    const adminRouter = Admin.createRouter(usageService);
+    const sessionConfig = options.sessionConfig ?? {
+      passwordHash: Config.dashboardPasswordHash,
+      secret: Config.dashboardSessionSecret,
+      ttlMs: Config.dashboardSessionTtlMs,
+    };
+    const oauthConfig = options.oauthConfig ?? {
+      authDir: Config.cliproxyAuthDir,
+      binaryPath: Config.cliproxyBinaryPath,
+      configPath: Config.cliproxyConfigPath,
+      timeoutMs: Config.oauthJobTimeoutMs,
+    };
+    const adminRouter = Admin.createRouter(usageService, sessionConfig, oauthConfig);
+    const dashboardHandler = Dashboard.createHandler();
     const maxRequestBodyBytes = options.maxRequestBodyBytes ?? Config.maxRequestBodyBytes;
 
     return async function handleRequest(req: Request): Promise<Response> {
@@ -92,8 +108,28 @@ export namespace Handler {
       }
 
       try {
+        if (path === "/dashboard") {
+          return new Response(null, { status: 302, headers: { location: "/dashboard/" } });
+        }
+
+        if (path.startsWith("/dashboard/")) {
+          return dashboardHandler(req);
+        }
+
         if (path.startsWith("/admin/")) {
-          if (!isAdminAuthorized(req)) {
+          if (isSessionRoute(path)) {
+            const sessionResponse = await adminRouter(req);
+            if (sessionResponse) return sessionResponse;
+          }
+
+          const auth = await isAdminAuthorized(req, sessionConfig);
+          if (!auth.authorized) {
+            return new Response(JSON.stringify({ error: "Forbidden" }), {
+              status: 403,
+              headers: { "content-type": "application/json" },
+            });
+          }
+          if (auth.viaCookie && requiresCsrf(req)) {
             return new Response(JSON.stringify({ error: "Forbidden" }), {
               status: 403,
               headers: { "content-type": "application/json" },
@@ -123,14 +159,26 @@ export namespace Handler {
     };
   }
 
-  function isAdminAuthorized(req: Request): boolean {
+  async function isAdminAuthorized(req: Request, sessionConfig: Admin.SessionConfig): Promise<{ authorized: boolean; viaCookie: boolean }> {
     if (!Config.adminApiKey) {
-      return Config.host === "127.0.0.1" || Config.host === "localhost" || Config.host === "::1";
+      return { authorized: Config.host === "127.0.0.1" || Config.host === "localhost" || Config.host === "::1", viaCookie: false };
     }
 
     const bearer = req.headers.get("authorization")?.replace(/^Bearer\s+/i, "").trim();
     const token = req.headers.get("x-admin-token")?.trim() || bearer;
-    return token === Config.adminApiKey;
+    if (token) return { authorized: token === Config.adminApiKey, viaCookie: false };
+
+    const authorized = await Session.extractSession(req, sessionConfig.secret, sessionConfig.ttlMs);
+    return { authorized, viaCookie: authorized };
+  }
+
+  function requiresCsrf(req: Request): boolean {
+    if (req.method === "GET" || req.method === "HEAD" || req.method === "OPTIONS") return false;
+    return req.headers.get("x-csrf") !== "1";
+  }
+
+  function isSessionRoute(path: string): boolean {
+    return path === "/admin/session" || path === "/admin/session/login" || path === "/admin/session/logout";
   }
 
   function enforceRequestBodyLimit(req: Request, limit: number): Request | Response {

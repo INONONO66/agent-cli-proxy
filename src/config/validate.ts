@@ -27,6 +27,12 @@ export interface ValidatedConfig {
   cliproxyCorrelationIntervalMs: number;
   cliproxyCorrelationLookbackMs: number;
   cliproxyAuthDir: string;
+  dashboardPasswordHash: string;
+  dashboardSessionSecret: string;
+  dashboardSessionTtlMs: number;
+  oauthJobTimeoutMs: number;
+  cliproxyBinaryPath: string;
+  cliproxyConfigPath: string;
   quotaRefreshIntervalMs: number;
   quotaRefreshTimeoutMs: number;
   upstreamTimeoutMs: number;
@@ -94,6 +100,12 @@ export namespace Config {
       cliproxyCorrelationIntervalMs: readPositiveNumber(env, "CLIPROXY_CORRELATION_INTERVAL_MS", 15000, issues),
       cliproxyCorrelationLookbackMs: readPositiveNumber(env, "CLIPROXY_CORRELATION_LOOKBACK_MS", 300000, issues),
       cliproxyAuthDir: readString(env, "CLIPROXY_AUTH_DIR", ""),
+      dashboardPasswordHash: readString(env, "DASHBOARD_PASSWORD_HASH", ""),
+      dashboardSessionSecret: readString(env, "DASHBOARD_SESSION_SECRET", ""),
+      dashboardSessionTtlMs: readPositiveNumber(env, "DASHBOARD_SESSION_TTL_MS", 604800000, issues),
+      oauthJobTimeoutMs: readPositiveNumber(env, "OAUTH_JOB_TIMEOUT_MS", 300000, issues),
+      cliproxyBinaryPath: readString(env, "CLIPROXY_BINARY_PATH", ""),
+      cliproxyConfigPath: readString(env, "CLIPROXY_CONFIG_PATH", ""),
       quotaRefreshIntervalMs: readPositiveNumber(env, "QUOTA_REFRESH_INTERVAL_MS", 300000, issues),
       quotaRefreshTimeoutMs: readPositiveNumber(env, "QUOTA_REFRESH_TIMEOUT_MS", 15000, issues),
       upstreamTimeoutMs: readPositiveNumber(env, "UPSTREAM_TIMEOUT_MS", 300000, issues),

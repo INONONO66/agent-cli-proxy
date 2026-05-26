@@ -41,7 +41,8 @@
   ],
   "scripts": {
     "dev": "bun run --watch src/index.ts",
-    "build": "bun build src/index.ts src/cli.ts --target=bun --outdir=./dist && rm -rf dist/migrations && cp -R src/storage/migrations dist/migrations && mkdir -p dist/data && cp data/plans.default.json dist/data/plans.default.json && bun run scripts/post-build.ts",
+    "build": "bun build src/index.ts src/cli.ts --target=bun --outdir=./dist && bun build src/dashboard/index.html --target=browser --outdir=./dist/dashboard && rm -rf dist/migrations && cp -R src/storage/migrations dist/migrations && mkdir -p dist/data && cp data/plans.default.json dist/data/plans.default.json && bun run scripts/post-build.ts",
+    "build:dashboard": "bun build src/dashboard/index.html --target=browser --outdir=./dist/dashboard",
     "typecheck": "bunx tsc --noEmit",
     "test": "bun test",
     "release-check": "bun run typecheck && bun run test && bun run build && (bunx publint dist || bun run scripts/release-fallback-check.ts)",
@@ -58,11 +59,16 @@
     "release:dry-run": "bun run scripts/release.ts --dry-run"
   },
   "devDependencies": {
+    "@tokscale/core": "^1.4.3",
     "@types/bun": "latest",
-    "@tokscale/core": "^1.4.3"
+    "@types/react": "^19.2.15",
+    "@types/react-dom": "^19.2.3"
   },
   "peerDependencies": {
     "typescript": "^5"
   },
-  "dependencies": {}
+  "dependencies": {
+    "react": "^19.2.6",
+    "react-dom": "^19.2.6"
+  }
 }

@@ -10,6 +10,7 @@ async function main(): Promise<void> {
   const { UsageService } = await import("./storage/service");
   const { Pricing } = await import("./storage/pricing");
   const { Handler } = await import("./server/handler");
+  const { Session } = await import("./admin/session");
   const { Correlator } = await import("./cliproxy/correlator");
   const { Supervisor } = await import("./runtime/supervisor");
   const { Shutdown } = await import("./runtime/shutdown");
@@ -29,7 +30,20 @@ async function main(): Promise<void> {
   Storage.recoverStalePending(db);
   const usageService = UsageService.create(db);
   UsageService.startCostBackfillLoop(usageService, { signal: shutdownController.signal });
-  const handleRequest = Handler.create(usageService);
+  const dashboardSessionSecret = Config.dashboardSessionSecret || await Session.resolveSecret(Config.dbPath);
+  const handleRequest = Handler.create(usageService, {
+    sessionConfig: {
+      passwordHash: Config.dashboardPasswordHash,
+      secret: dashboardSessionSecret,
+      ttlMs: Config.dashboardSessionTtlMs,
+    },
+    oauthConfig: {
+      authDir: Config.cliproxyAuthDir,
+      binaryPath: Config.cliproxyBinaryPath,
+      configPath: Config.cliproxyConfigPath,
+      timeoutMs: Config.oauthJobTimeoutMs,
+    },
+  });
 
   Correlator.start(usageService, { signal: shutdownController.signal });
   await usageService.startQuotaRefresh({ signal: shutdownController.signal });

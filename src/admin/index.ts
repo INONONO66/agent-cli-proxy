@@ -4,11 +4,32 @@ import { RequestRepo } from "../storage/repo";
 import { Plans } from "../plans";
 import { Logger } from "../util/logger";
 import { UpstreamClient } from "../upstream/client";
+import { Session } from "./session";
+import { OAuthAdmin } from "./oauth";
 
 const logger = Logger.fromConfig().child({ component: "admin" });
 
 export namespace Admin {
-  export function createRouter(usageService: UsageService.UsageService) {
+  export interface SessionConfig {
+    readonly passwordHash: string;
+    readonly secret: string;
+    readonly ttlMs: number;
+  }
+
+  export interface OAuthConfig {
+    readonly authDir: string;
+    readonly binaryPath: string;
+    readonly configPath: string;
+    readonly timeoutMs: number;
+  }
+
+  export function createRouter(
+    usageService: UsageService.UsageService,
+    sessionConfig: SessionConfig = { passwordHash: "", secret: "", ttlMs: 604800000 },
+    oauthConfig: OAuthConfig = { authDir: "", binaryPath: "", configPath: "", timeoutMs: 300000 },
+  ) {
+    const oauthRouter = OAuthAdmin.createRouter(oauthConfig);
+
     return async function handleAdminRequest(req: Request): Promise<Response | null> {
       const url = new URL(req.url);
       const path = url.pathname;
@@ -33,6 +54,21 @@ export namespace Admin {
           if (!snap) return json({ error: "Breaker not found" }, 404);
           return json(snap);
         }
+
+        if (path === "/admin/session/login" && req.method === "POST") {
+          return Session.handleLogin(req, sessionConfig);
+        }
+
+        if (path === "/admin/session/logout" && req.method === "POST") {
+          return Session.handleLogout();
+        }
+
+        if (path === "/admin/session" && req.method === "GET") {
+          return Session.handleCheck(req, sessionConfig);
+        }
+
+        const oauthResponse = await oauthRouter(req);
+        if (oauthResponse) return oauthResponse;
 
         if (req.method !== "GET") return null;
         if (path === "/admin/usage/today") {
