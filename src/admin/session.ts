@@ -1,0 +1,162 @@
+import { mkdir } from "node:fs/promises";
+import { dirname, join } from "node:path";
+import { Logger } from "../util/logger";
+
+const logger = Logger.fromConfig().child({ component: "admin.session" });
+const COOKIE_NAME = "__dashboard_session";
+const encoder = new TextEncoder();
+
+export namespace Session {
+  export interface LoginConfig {
+    readonly passwordHash: string;
+    readonly secret: string;
+    readonly ttlMs: number;
+  }
+
+  export interface CheckConfig {
+    readonly secret: string;
+    readonly ttlMs: number;
+  }
+
+  export async function resolveSecret(dbPath: string): Promise<string> {
+    const configured = process.env.DASHBOARD_SESSION_SECRET?.trim();
+    if (configured) return configured;
+
+    const secretPath = join(dirname(dbPath), ".dashboard-session-secret");
+    const existing = Bun.file(secretPath);
+    if (await existing.exists()) {
+      const value = (await existing.text()).trim();
+      if (value) return value;
+    }
+
+    const secret = randomHex(32);
+    await mkdir(dirname(secretPath), { recursive: true });
+    await Bun.write(secretPath, `${secret}\n`);
+    logger.info("dashboard session secret generated", { event: "dashboard.session_secret.generated" });
+    return secret;
+  }
+
+  export async function signSession(secret: string): Promise<string> {
+    const issuedAt = String(Date.now());
+    const signature = await sign(issuedAt, secret);
+    return `${issuedAt}.${signature}`;
+  }
+
+  export async function verifySession(token: string, secret: string, ttlMs: number): Promise<boolean> {
+    const [issuedAtRaw, signature, extra] = token.split(".");
+    if (!issuedAtRaw || !signature || extra !== undefined) return false;
+
+    const issuedAt = Number(issuedAtRaw);
+    if (!Number.isFinite(issuedAt) || issuedAt <= 0) return false;
+    if (Date.now() - issuedAt > ttlMs) return false;
+    if (issuedAt > Date.now() + 60_000) return false;
+
+    const expected = await sign(issuedAtRaw, secret);
+    return constantTimeEqual(signature, expected);
+  }
+
+  export async function handleLogin(req: Request, config: LoginConfig): Promise<Response> {
+    if (!config.passwordHash) return json({ error: "dashboard login not configured" }, 403);
+
+    const body = await readLoginBody(req);
+    if (!body) return json({ error: "invalid password" }, 401);
+
+    let ok = false;
+    try {
+      ok = await Bun.password.verify(body.password, config.passwordHash);
+    } catch (err) {
+      logger.warn("dashboard password verification failed", { event: "dashboard.login.verify_error", err });
+    }
+
+    if (!ok) return json({ error: "invalid password" }, 401);
+
+    const token = await signSession(config.secret);
+    return json({ ok: true }, 200, {
+      "set-cookie": buildCookie(token, Math.floor(config.ttlMs / 1000)),
+    });
+  }
+
+  export function handleLogout(): Response {
+    return json({ ok: true }, 200, {
+      "set-cookie": `${COOKIE_NAME}=; HttpOnly; SameSite=Strict; Path=/; Max-Age=0`,
+    });
+  }
+
+  export async function handleCheck(req: Request, config: CheckConfig): Promise<Response> {
+    return json({ authenticated: await extractSession(req, config.secret, config.ttlMs) });
+  }
+
+  export async function extractSession(req: Request, secret: string, ttlMs: number): Promise<boolean> {
+    const token = readCookie(req.headers.get("cookie"), COOKIE_NAME);
+    if (!token) return false;
+    return verifySession(token, secret, ttlMs);
+  }
+}
+
+interface LoginBody {
+  readonly password: string;
+}
+
+async function readLoginBody(req: Request): Promise<LoginBody | null> {
+  try {
+    const body: unknown = await req.json();
+    if (!body || typeof body !== "object") return null;
+    const password = (body as Record<string, unknown>).password;
+    return typeof password === "string" ? { password } : null;
+  } catch {
+    return null;
+  }
+}
+
+async function sign(value: string, secret: string): Promise<string> {
+  const key = await crypto.subtle.importKey(
+    "raw",
+    encoder.encode(secret),
+    { name: "HMAC", hash: "SHA-256" },
+    false,
+    ["sign"],
+  );
+  const signature = await crypto.subtle.sign("HMAC", key, encoder.encode(value));
+  return base64Url(new Uint8Array(signature));
+}
+
+function base64Url(bytes: Uint8Array): string {
+  return btoa(String.fromCharCode(...bytes)).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/g, "");
+}
+
+function constantTimeEqual(left: string, right: string): boolean {
+  const leftBytes = encoder.encode(left);
+  const rightBytes = encoder.encode(right);
+  let diff = leftBytes.length ^ rightBytes.length;
+  const length = Math.max(leftBytes.length, rightBytes.length);
+  for (let i = 0; i < length; i++) {
+    diff |= (leftBytes[i] ?? 0) ^ (rightBytes[i] ?? 0);
+  }
+  return diff === 0;
+}
+
+function randomHex(bytes: number): string {
+  const values = new Uint8Array(bytes);
+  crypto.getRandomValues(values);
+  return Array.from(values, (value) => value.toString(16).padStart(2, "0")).join("");
+}
+
+function readCookie(header: string | null, name: string): string | null {
+  if (!header) return null;
+  for (const part of header.split(";")) {
+    const [rawName, ...valueParts] = part.trim().split("=");
+    if (rawName === name) return valueParts.join("=");
+  }
+  return null;
+}
+
+function buildCookie(token: string, maxAgeSeconds: number): string {
+  return `${COOKIE_NAME}=${token}; HttpOnly; SameSite=Strict; Path=/; Max-Age=${maxAgeSeconds}`;
+}
+
+function json(data: unknown, status = 200, headers: Record<string, string> = {}): Response {
+  return new Response(JSON.stringify(data), {
+    status,
+    headers: { "content-type": "application/json", ...headers },
+  });
+}
