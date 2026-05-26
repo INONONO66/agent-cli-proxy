@@ -1,5 +1,12 @@
 import type { AuthAccount } from "../api";
 
+const PROVIDER_COLORS: Record<string, string> = {
+  claude: "purple",
+  codex: "green",
+  kimi: "blue",
+  xai: "gray",
+};
+
 function resolveProvider(account: AuthAccount): string {
   return account.type ?? account.provider ?? "unknown";
 }
@@ -30,14 +37,19 @@ function expiryStatus(account: AuthAccount): { label: string; className: string 
   return { label: "Active", className: "ok" };
 }
 
-function formatDate(iso: string | undefined): string {
+function formatRelativeTime(iso: string | undefined): string {
   if (!iso) return "—";
-  return new Date(iso).toLocaleDateString("en-US", {
-    month: "short",
-    day: "numeric",
-    hour: "2-digit",
-    minute: "2-digit",
-  });
+  const ms = Date.parse(iso);
+  if (!Number.isFinite(ms)) return "—";
+  const diff = Date.now() - ms;
+  const seconds = Math.floor(diff / 1000);
+  if (seconds < 60) return `${seconds}s ago`;
+  const minutes = Math.floor(seconds / 60);
+  if (minutes < 60) return `${minutes}m ago`;
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return `${hours}h ago`;
+  const days = Math.floor(hours / 24);
+  return `${days}d ago`;
 }
 
 interface AuthAccountListProps {
@@ -52,31 +64,70 @@ export function AuthAccountList({ accounts, onRefresh }: AuthAccountListProps) {
     );
   }
 
+  const grouped = new Map<string, AuthAccount[]>();
+  for (const account of accounts) {
+    const provider = resolveProvider(account);
+    const list = grouped.get(provider) ?? [];
+    list.push(account);
+    grouped.set(provider, list);
+  }
+
+  const providers = Array.from(grouped.keys()).sort();
+
   return (
-    <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-      {accounts.map((account, i) => {
-        const status = expiryStatus(account);
-        const provider = resolveProvider(account);
-        const email = account.email ?? "Unknown";
+    <div style={{ display: "flex", flexDirection: "column", gap: 24 }}>
+      {providers.map((provider) => {
+        const color = PROVIDER_COLORS[provider.toLowerCase()] ?? "default";
         return (
-          <div key={i} className="oauth-account">
-            <div className="info">
-              <div className={`provider-badge ${providerClass(provider)}`}>
+          <div key={provider}>
+            <div
+              style={{
+                display: "flex",
+                alignItems: "center",
+                gap: 8,
+                marginBottom: 12,
+                fontSize: 13,
+                fontWeight: 600,
+                color: "var(--text-primary)",
+                textTransform: "uppercase",
+                letterSpacing: "0.5px",
+              }}
+            >
+              <span
+                className={`provider-badge ${providerClass(provider)}`}
+                style={{ marginBottom: 0 }}
+              >
                 {provider}
-              </div>
-              <div className="email">{email}</div>
-              <div className="meta">
-                <span className={`status-badge ${status.className}`}>{status.label}</span>
-                {(account.last_refresh ?? account.refreshed_at) && (
-                  <span style={{ marginLeft: 8 }}>
-                    Refreshed: {formatDate(account.last_refresh ?? account.refreshed_at)}
-                  </span>
-                )}
-              </div>
+              </span>
+              <span style={{ color: "var(--text-muted)", fontSize: 11, fontWeight: 400 }}>
+                {grouped.get(provider)?.length} account(s)
+              </span>
             </div>
-            <button onClick={() => onRefresh(provider)}>
-              Refresh Login
-            </button>
+            <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+              {grouped.get(provider)?.map((account, i) => {
+                const status = expiryStatus(account);
+                const email = account.email ?? "Unknown";
+                const lastRefresh = account.last_refresh ?? account.refreshed_at;
+                return (
+                  <div key={i} className="oauth-account">
+                    <div className="info">
+                      <div className="email">{email}</div>
+                      <div className="meta">
+                        <span className={`status-badge ${status.className}`}>{status.label}</span>
+                        {lastRefresh && (
+                          <span style={{ marginLeft: 8 }}>
+                            Last Refreshed: {formatRelativeTime(lastRefresh)}
+                          </span>
+                        )}
+                      </div>
+                    </div>
+                    <button onClick={() => onRefresh(provider)}>
+                      Refresh Login
+                    </button>
+                  </div>
+                );
+              })}
+            </div>
           </div>
         );
       })}

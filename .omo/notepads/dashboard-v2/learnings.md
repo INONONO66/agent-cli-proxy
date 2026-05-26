@@ -45,6 +45,22 @@
 - Added `src/storage/migrations/008_api_keys.sql` with `api_keys` and `request_logs.proxy_api_key_id`.
 - Migration stays schema-only: no plaintext key storage, no indexes on `request_logs`.
 
+### 2026-05-26 — Quota retention cleanup
+- Added `QuotaRepo.deleteOlderThan30Days(db)` to delete `quota_snapshots` rows older than 30 days using SQLite `datetime('now', '-30 days')`.
+- Added a `quota-retention` supervisor loop helper with a 24h interval and `quota.retention_cleanup` info logging for deleted rows.
+
 ### 2026-05-26 — Recharts dependency
 - Installed `recharts@3.8.1` with `bun add recharts`.
 - Bun also added matching React packages and lockfile entries for the dashboard build.
+
+### 2026-05-26 — Usage trend endpoint
+- `GET /admin/usage/trend` aggregates `request_logs` into UTC buckets with `requests`, `tokens`, and `cost_usd` totals.
+- Bucket size auto-scales by requested window: 5m, 1h, 4h, then 1d.
+- Optional filters are applied directly in SQL for `provider`, `model`, and `tool`.
+
+### 2026-05-26 — OAuth dialog UX improvements
+- `AuthAccountList`: accounts now grouped by provider with provider heading + account count.
+- Provider badges use data-driven color mapping (`claude=purple`, `codex=green`, `kimi=blue`, `xai=gray`) via `PROVIDER_COLORS` const.
+- "Last Refreshed: X ago" uses `Date.now()` relative time (s/m/h/d).
+- `OAuthJobPanel`: added visual status step progression (Starting → Waiting for URL → Auth URL ready → SSH tunnel needed → Completed/Failed).
+- Copy-to-clipboard buttons for both OAuth URL and SSH tunnel command with `navigator.clipboard.writeText()` + "Copied!" feedback via `useState`.

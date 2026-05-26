@@ -649,6 +649,70 @@ code, .mono {
   word-break: break-all;
 }
 
+.oauth-job-panel .status-steps {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  margin-bottom: 12px;
+}
+
+.status-step {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+  color: var(--text-muted);
+  opacity: 0.5;
+}
+
+.status-step.active {
+  color: var(--accent-blue);
+  opacity: 1;
+  font-weight: 600;
+}
+
+.status-step.past {
+  color: var(--accent-green);
+  opacity: 1;
+}
+
+.status-step.failed {
+  color: var(--accent-red);
+  opacity: 1;
+}
+
+.status-step .step-dot {
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  border: 1px solid currentColor;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 10px;
+  flex-shrink: 0;
+}
+
+.status-step.active .step-dot {
+  border-color: var(--accent-blue);
+}
+
+.status-step.past .step-dot {
+  border-color: var(--accent-green);
+  background: rgba(63, 185, 80, 0.15);
+}
+
+.status-step.failed .step-dot {
+  border-color: var(--accent-red);
+  background: rgba(248, 81, 73, 0.15);
+}
+
+.status-step .step-dot .spinner {
+  width: 10px;
+  height: 10px;
+  border-width: 1.5px;
+}
+
 /* Skeleton */
 .skeleton {
   background: linear-gradient(90deg, var(--bg-tertiary) 25%, var(--bg-secondary) 50%, var(--bg-tertiary) 75%);

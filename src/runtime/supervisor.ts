@@ -1,3 +1,5 @@
+import { Database } from "bun:sqlite";
+import { QuotaRepo } from "../storage/repo";
 import { Logger } from "../util/logger";
 
 export namespace Supervisor {
@@ -102,6 +104,26 @@ export namespace Supervisor {
 
   export function list(): string[] {
     return Array.from(registry, (loopState) => loopState.name).sort();
+  }
+
+  export function startQuotaRetentionLoop(
+    db: Database,
+    options: { signal?: AbortSignal } = {},
+  ): Handle {
+    return run(
+      "quota-retention",
+      async () => {
+        const deletedCount = QuotaRepo.deleteOlderThan30Days(db);
+        logger.info("quota retention cleanup completed", {
+          event: "quota.retention_cleanup",
+          deleted_count: deletedCount,
+        });
+      },
+      {
+        intervalMs: 24 * 60 * 60 * 1000,
+        signal: options.signal,
+      },
+    );
   }
 
   export function __setLoggerForTests(testLogger: Logger.Logger | null): void {
