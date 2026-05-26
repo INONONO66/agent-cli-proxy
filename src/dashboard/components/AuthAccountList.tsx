@@ -14,13 +14,14 @@ function providerClass(provider: string): string {
 function expiryStatus(account: AuthAccount): { label: string; className: string } {
   if (account.is_expired) return { label: "Expired", className: "critical" };
 
-  const expiresAt =
-    account.expires_at ??
-    (account.expired ? new Date(account.expired * 1000).toISOString() : undefined);
+  const raw = account.expired ?? account.expires_at;
+  if (!raw) return { label: "Active", className: "ok" };
 
-  if (!expiresAt) return { label: "Active", className: "ok" };
+  const ms = Date.parse(String(raw));
+  if (!Number.isFinite(ms)) return { label: "Active", className: "ok" };
 
-  const diff = Date.parse(expiresAt) - Date.now();
+  const diff = ms - Date.now();
+  if (diff <= 0) return { label: "Expired", className: "critical" };
   if (diff < 3600000) return { label: "Expiring Soon", className: "warn" };
   return { label: "Active", className: "ok" };
 }
