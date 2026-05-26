@@ -52,14 +52,14 @@ export namespace RequestRepo {
 
     const stmt = db.prepare(`
       INSERT INTO request_logs (
-        request_id, provider, model, actual_model, tool, client_id, path,
+        request_id, provider, model, actual_model, proxy_api_key_id, tool, client_id, path,
         streamed, status, prompt_tokens, completion_tokens,
         cache_creation_tokens, cache_read_tokens, reasoning_tokens,
         total_tokens, cost_usd, incomplete, error_code, latency_ms,
         started_at, finished_at, meta_json, user_agent, source_ip,
         agent, source, msg_id, lifecycle_status, cost_status,
         subscription_code, finalized_at, error_message
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `);
 
     const result = stmt.run(
@@ -67,6 +67,7 @@ export namespace RequestRepo {
       log.provider,
       log.model,
       log.actual_model ?? null,
+      log.proxy_api_key_id ?? null,
       log.tool,
       log.client_id,
       log.path,
@@ -416,6 +417,7 @@ export namespace RequestRepo {
       provider?: string;
       model?: string;
       actual_model?: string;
+      proxy_api_key_id?: number;
       streamed?: number;
       status?: number;
       prompt_tokens?: number;
@@ -441,6 +443,7 @@ export namespace RequestRepo {
       SET provider = COALESCE(?, provider),
           model = COALESCE(?, model),
           actual_model = COALESCE(?, actual_model),
+          proxy_api_key_id = COALESCE(?, proxy_api_key_id),
           streamed = COALESCE(?, streamed),
           status = COALESCE(?, status),
           prompt_tokens = COALESCE(?, prompt_tokens),
@@ -465,6 +468,7 @@ export namespace RequestRepo {
       fields.provider ?? null,
       fields.model ?? null,
       fields.actual_model ?? null,
+      fields.proxy_api_key_id ?? null,
       fields.streamed ?? null,
       fields.status ?? null,
       fields.prompt_tokens ?? null,

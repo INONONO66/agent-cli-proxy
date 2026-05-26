@@ -2,6 +2,7 @@ import { Config } from "../config";
 import { RequestInspector, type RequestInfo } from "./request-inspector";
 import { ResponseParser, type ParsedResponse } from "./response-parser";
 import { UsageService } from "../storage/service";
+import { ApiKeyRepo } from "../storage/api-keys";
 import { AgentPlugins, type AgentPlugin } from "../agent-plugins";
 import { ProviderRegistry } from "../provider/registry";
 import { UpstreamClient } from "../upstream/client";
@@ -29,6 +30,7 @@ interface LifecycleContext {
   requestId: string;
   startTime: number;
   startedAt: string;
+  proxyApiKeyId?: number;
   provider: string;
   model: string;
   tool: string;
@@ -67,7 +69,8 @@ export namespace PassThroughProxy {
     return async function handle(req: Request, info: RequestInfo): Promise<Response> {
       const startTime = Date.now();
       const plugin = AgentPlugins.resolve(info);
-      const lifecycle = preLog(req, info, usageService, startTime);
+      const proxyApiKeyId = await resolveProxyApiKeyId(req.headers, usageService.db);
+      const lifecycle = preLog(req, info, usageService, startTime, proxyApiKeyId);
       const requestInfo: RequestInfo = { ...info, requestId: lifecycle?.requestId ?? info.requestId };
       const upstreamUrl = `${Config.cliProxyApiUrl}${requestInfo.path}`;
       const passthroughSignal = lifecycle ? composeSignals([req.signal, lifecycle.handle.signal]) : req.signal;
@@ -141,6 +144,7 @@ export namespace PassThroughProxy {
     info: RequestInfo,
     usageService: UsageService.UsageService,
     startTime: number,
+    proxyApiKeyId: number | null,
   ): LifecycleContext | null {
     const requestId = crypto.randomUUID();
     info.requestId = requestId;
@@ -181,6 +185,7 @@ export namespace PassThroughProxy {
         agent: info.agentName ?? undefined,
         source,
         msg_id: msgId,
+        proxy_api_key_id: proxyApiKeyId ?? undefined,
       });
     } catch (err) {
       logger.error("request pre-log failed", {
@@ -218,6 +223,7 @@ export namespace PassThroughProxy {
       agent: info.agentName ?? undefined,
       source,
       msgId,
+      proxyApiKeyId: proxyApiKeyId ?? undefined,
       finalized: false,
       finalizing: null,
       handle: registerLifecycleHandle(id, requestId),
@@ -279,6 +285,7 @@ export namespace PassThroughProxy {
   export function buildHeaders(headers: Headers, info: RequestInfo, plugin: AgentPlugin, bodyRewritten = false): Headers {
     const result = new Headers(headers);
     result.set("authorization", `Bearer ${Config.cliProxyApiKey}`);
+    result.delete("x-proxy-key");
     result.delete("host");
     result.delete("content-length");
     result.delete("content-encoding");
@@ -659,6 +666,7 @@ export namespace PassThroughProxy {
         provider: lifecycle.provider,
         model,
         actual_model: fields.parsed.actualModel ?? undefined,
+        proxy_api_key_id: lifecycle.proxyApiKeyId,
         tool: lifecycle.tool,
         client_id: lifecycle.clientId,
         path: lifecycle.path,
@@ -795,5 +803,22 @@ export namespace PassThroughProxy {
       return err.name === "AbortError" || err.message.includes("ECONNRESET") || err.message.toLowerCase().includes("aborted");
     }
     return false;
+  }
+
+  async function resolveProxyApiKeyId(headers: Headers, db: UsageService.UsageService["db"]): Promise<number | null> {
+    const proxyApiKey = headers.get("x-proxy-key");
+    if (!proxyApiKey) return null;
+
+    const keyHash = await sha256Hex(proxyApiKey);
+    const found = ApiKeyRepo.findByHash(db, keyHash);
+    if (!found) return null;
+
+    ApiKeyRepo.touchLastUsed(db, found.id);
+    return found.id;
+  }
+
+  async function sha256Hex(value: string): Promise<string> {
+    const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(value));
+    return Array.from(new Uint8Array(digest), (byte) => byte.toString(16).padStart(2, "0")).join("");
   }
 }

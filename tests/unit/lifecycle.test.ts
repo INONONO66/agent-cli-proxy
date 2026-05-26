@@ -14,6 +14,7 @@ const { PassThroughProxy } = await import("../../src/server/pass-through");
 const { Storage } = await import("../../src/storage/db");
 const { UsageService } = await import("../../src/storage/service");
 const { RequestRepo } = await import("../../src/storage/repo");
+const { ApiKeyRepo } = await import("../../src/storage/api-keys");
 const { Pricing } = await import("../../src/storage/pricing");
 
 const encoder = new TextEncoder();
@@ -255,6 +256,54 @@ test("Anthropic body rewrite strips stale transfer headers before upstream fetch
   expect(forwardedHeaders.get("content-encoding")).toBeNull();
   expect(forwardedHeaders.get("accept-encoding")).toBeNull();
   expect(forwardedHeaders.get("content-type")).toBe("application/json");
+});
+
+test("x-proxy-key identifies the request, updates last used, and stays off upstream headers", async () => {
+  const { db } = createHarness(async () => new Response(JSON.stringify({ ok: true }), {
+    status: 200,
+    headers: { "content-type": "application/json" },
+  }));
+  const apiKey = await ApiKeyRepo.create(db, "dashboard-key");
+  let forwardedHeaders = new Headers();
+  const handle = PassThroughProxy.create(UsageService.create(db), {
+    fetch: async (options) => {
+      forwardedHeaders = new Headers(options.headers);
+      return new Response(JSON.stringify({ model: "gpt-5.4-mini", usage: { prompt_tokens: 1, completion_tokens: 2, total_tokens: 3 } }), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      });
+    },
+  });
+
+  const req = request("/v1/chat/completions", { model: "gpt-5.4-mini", messages: [{ role: "user", content: "hi" }] }, {
+    "x-proxy-key": apiKey.key,
+  });
+  const res = await handle(req, await inspect(req));
+  await res.text();
+
+  expect(forwardedHeaders.get("x-proxy-key")).toBeNull();
+  expect(latest(db)).toMatchObject({
+    proxy_api_key_id: apiKey.id,
+    lifecycle_status: "completed",
+  });
+  expect(db.query("SELECT last_used_at FROM api_keys WHERE id = ?").get(apiKey.id)).toMatchObject({ last_used_at: expect.any(String) });
+});
+
+test("missing x-proxy-key still proxies and leaves proxy_api_key_id null", async () => {
+  const { db, handle } = createHarness(async () => new Response(JSON.stringify({ model: "gpt-5.4-mini", usage: { prompt_tokens: 1, completion_tokens: 2, total_tokens: 3 } }), {
+    status: 200,
+    headers: { "content-type": "application/json" },
+  }));
+
+  const req = request("/v1/chat/completions", { model: "gpt-5.4-mini", messages: [{ role: "user", content: "hi" }] });
+  const res = await handle(req, await inspect(req));
+  await res.text();
+
+  expect(res.status).toBe(200);
+  expect(latest(db)).toMatchObject({
+    lifecycle_status: "completed",
+    proxy_api_key_id: null,
+  });
 });
 
 test("stream flush forwards final SSE line without trailing newline and finalizes usage once", async () => {

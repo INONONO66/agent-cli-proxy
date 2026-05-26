@@ -14,12 +14,13 @@ export namespace Usage {
     incomplete: boolean;
   }
 
-  export interface RequestLog {
+    export interface RequestLog {
     id?: number;
     request_id?: string;
     provider: string;
     model: string;
     actual_model?: string;
+    proxy_api_key_id?: number;
     tool: string;
     client_id: string;
     path: string;

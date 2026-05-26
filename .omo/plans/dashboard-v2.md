@@ -527,7 +527,7 @@ Wave FINAL (After ALL tasks — 4 parallel reviews, then user okay):
   - Message: `feat(admin): add API key CRUD endpoints`
   - Files: `src/storage/api-keys.ts`, `src/admin/api-keys.ts`, `src/admin/index.ts`
 
-- [ ] 8. API key identification in pass-through
+- [x] 8. API key identification in pass-through
 
   **What to do**:
   - In `src/server/request-inspector.ts` or `src/server/pass-through.ts`, check for a dedicated `x-proxy-key` header (NOT `Authorization` or `x-api-key` — those are used by upstream CLIProxyAPI auth and admin auth respectively)

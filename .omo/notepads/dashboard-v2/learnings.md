@@ -82,3 +82,8 @@
 - `ApiKeyRepo.list()` exposes `keyPrefix` plus usage count from `request_logs.proxy_api_key_id`, never the full key or hash.
 - `/admin/api-keys` routes live in `src/admin/api-keys.ts`; POST and DELETE require `x-csrf: 1` even when bearer-token auth is used.
 - Per-key usage endpoint returns `{ id, requestCount, totalTokens, totalCostUsd }` from `request_logs` aggregates.
+
+### 2026-05-27 — Pass-through proxy key attribution
+- `x-proxy-key` is resolved only for identification: SHA-256 hash lookup via `ApiKeyRepo.findByHash(db, hash)` and `touchLastUsed(db, id)` on a hit.
+- The pass-through layer strips `x-proxy-key` before upstream forwarding so the header never escapes the proxy boundary.
+- When the header is absent or the key is unknown, request logging stays unchanged and `proxy_api_key_id` remains `NULL`.

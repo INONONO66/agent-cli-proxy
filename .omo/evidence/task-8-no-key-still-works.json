@@ -1,0 +1,9 @@
+{
+  "note": "requests without x-proxy-key proxied normally",
+  "scope": "no-key fallback",
+  "behavior": [
+    "missing x-proxy-key does not reject the request",
+    "proxy_api_key_id stays NULL when no key is provided",
+    "upstream forwarding continues unchanged aside from proxy auth headers"
+  ]
+}

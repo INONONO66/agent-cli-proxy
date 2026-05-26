@@ -1,0 +1,11 @@
+{
+  "note": "x-proxy-key header sets proxy_api_key_id on request log",
+  "scope": "pass-through identification only",
+  "behavior": [
+    "resolves x-proxy-key by SHA-256 hash",
+    "calls ApiKeyRepo.findByHash(db, hash)",
+    "calls ApiKeyRepo.touchLastUsed(db, id) on match",
+    "strips x-proxy-key before upstream forwarding",
+    "persists proxy_api_key_id on request_logs when matched"
+  ]
+}
