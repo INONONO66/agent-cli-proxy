@@ -17,6 +17,20 @@ export namespace RequestRepo {
     lifecycle_status: Usage.LifecycleStatus;
   }
 
+  export interface TrendBucket {
+    timestamp: string;
+    requests: number;
+    tokens: number;
+    cost_usd: number;
+  }
+
+  export interface TrendOptions {
+    hours: number;
+    provider?: string;
+    model?: string;
+    tool?: string;
+  }
+
   export function insert(db: Database, log: Omit<Usage.RequestLog, "id">): number {
     const lifecycleStatus =
       log.lifecycle_status ??
@@ -174,6 +188,57 @@ export namespace RequestRepo {
     });
   }
 
+  export function getTrend(db: Database, options: TrendOptions): TrendBucket[] {
+    const bucketSeconds = resolveTrendBucketSeconds(options.hours);
+    const sinceIso = new Date(Date.now() - options.hours * 60 * 60 * 1000).toISOString();
+
+    let sql = `
+      WITH bucketed AS (
+        SELECT
+          strftime('%Y-%m-%dT%H:%M:%SZ', datetime((CAST(strftime('%s', started_at) AS INTEGER) / ?) * ?, 'unixepoch')) AS timestamp,
+          total_tokens,
+          cost_usd
+        FROM request_logs
+        WHERE started_at >= ?
+    `;
+    const params: Array<string | number> = [bucketSeconds, bucketSeconds, sinceIso];
+
+    if (options.provider) {
+      sql += ` AND provider = ?`;
+      params.push(options.provider);
+    }
+    if (options.model) {
+      sql += ` AND model = ?`;
+      params.push(options.model);
+    }
+    if (options.tool) {
+      sql += ` AND tool = ?`;
+      params.push(options.tool);
+    }
+
+    sql += `
+      )
+      SELECT
+        timestamp,
+        COUNT(*) AS requests,
+        COALESCE(SUM(total_tokens), 0) AS tokens,
+        COALESCE(SUM(cost_usd), 0) AS cost_usd
+      FROM bucketed
+      GROUP BY timestamp
+      ORDER BY timestamp ASC
+    `;
+
+    return db.prepare(sql).all(...params).map((row) => {
+      const record = row as Record<string, unknown>;
+      return {
+        timestamp: String(record.timestamp),
+        requests: Number(record.requests ?? 0),
+        tokens: Number(record.tokens ?? 0),
+        cost_usd: Number(record.cost_usd ?? 0),
+      };
+    });
+  }
+
   export function getUncorrelated(
     db: Database,
     sinceMs: number,
@@ -189,6 +254,13 @@ export namespace RequestRepo {
       LIMIT ?
     `);
     return stmt.all(sinceIso, limit) as Usage.RequestLog[];
+  }
+
+  function resolveTrendBucketSeconds(hours: number): number {
+    if (hours <= 5) return 5 * 60;
+    if (hours <= 24) return 60 * 60;
+    if (hours <= 7 * 24) return 4 * 60 * 60;
+    return 24 * 60 * 60;
   }
 
   export function applyCorrelation(
@@ -546,6 +618,24 @@ export namespace UsageRepo {
 }
 
 export namespace QuotaRepo {
+  export interface HistoryQuery {
+    hours: number;
+    provider?: string;
+    account?: string;
+  }
+
+  export interface HistorySnapshot {
+    provider: string;
+    account: string;
+    quota_type: string;
+    used_pct: number | null;
+  }
+
+  export interface HistoryBucket {
+    timestamp: string;
+    snapshots: HistorySnapshot[];
+  }
+
   export function insertSnapshot(db: Database, snapshot: Usage.QuotaSnapshot): number {
     const stmt = db.prepare(`
       INSERT INTO quota_snapshots (
@@ -593,6 +683,91 @@ export namespace QuotaRepo {
     return stmt.all() as Usage.QuotaSnapshot[];
   }
 
+  export function getHistory(db: Database, query: HistoryQuery): HistoryBucket[] {
+    const bucketSeconds = getBucketSeconds(query.hours);
+    const now = Date.now();
+    const startIso = new Date(now - query.hours * 60 * 60 * 1000).toISOString();
+    const endIso = new Date(now).toISOString();
+
+    let sql = `
+      WITH bucketed AS (
+        SELECT
+          strftime('%Y-%m-%dT%H:%M:%SZ', (strftime('%s', timestamp) / ?) * ?, 'unixepoch') AS bucket_timestamp,
+          provider,
+          account,
+          quota_type,
+          used_pct,
+          timestamp,
+          id
+        FROM quota_snapshots
+        WHERE timestamp >= ?
+          AND timestamp < ?
+    `;
+    const params: (number | string)[] = [bucketSeconds, bucketSeconds, startIso, endIso];
+
+    if (query.provider) {
+      sql += `
+          AND provider = ?`;
+      params.push(query.provider);
+    }
+
+    if (query.account) {
+      sql += `
+          AND account = ?`;
+      params.push(query.account);
+    }
+
+    sql += `
+      ), ranked AS (
+        SELECT
+          bucket_timestamp,
+          provider,
+          account,
+          quota_type,
+          used_pct,
+          ROW_NUMBER() OVER (
+            PARTITION BY bucket_timestamp, provider, account, quota_type
+            ORDER BY timestamp DESC, id DESC
+          ) AS rn
+        FROM bucketed
+      )
+      SELECT bucket_timestamp, provider, account, quota_type, used_pct
+      FROM ranked
+      WHERE rn = 1
+      ORDER BY bucket_timestamp ASC, provider ASC, account ASC, quota_type ASC
+    `;
+
+    const rows = db.prepare(sql).all(...params) as Record<string, unknown>[];
+    const buckets = new Map<string, HistorySnapshot[]>();
+
+    for (const row of rows) {
+      const bucketTimestamp = String(row.bucket_timestamp);
+      const snapshots = buckets.get(bucketTimestamp) ?? [];
+      snapshots.push({
+        provider: String(row.provider),
+        account: String(row.account),
+        quota_type: String(row.quota_type),
+        used_pct: typeof row.used_pct === "number" ? row.used_pct : null,
+      });
+      buckets.set(bucketTimestamp, snapshots);
+    }
+
+    const bucketMs = bucketSeconds * 1000;
+    const startBucketMs = Math.floor((now - query.hours * 60 * 60 * 1000) / bucketMs) * bucketMs;
+    const endBucketMs = Math.floor(now / bucketMs) * bucketMs;
+    const history: HistoryBucket[] = [];
+
+    for (let current = startBucketMs; current <= endBucketMs; current += bucketMs) {
+      const timestamp = formatBucketTimestamp(current);
+      history.push({
+        timestamp,
+        snapshots: buckets.get(timestamp) ?? [],
+      });
+    }
+
+    return history;
+  }
+
   export function getLocalWindowUsage(
     db: Database,
     provider: string,
@@ -622,5 +797,16 @@ export namespace QuotaRepo {
       total_tokens: Number(row.total_tokens ?? 0),
       cost_usd: Number(row.cost_usd ?? 0),
     };
+  }
+
+  function getBucketSeconds(hours: number): number {
+    if (hours <= 5) return 5 * 60;
+    if (hours <= 24) return 60 * 60;
+    if (hours <= 168) return 4 * 60 * 60;
+    return 24 * 60 * 60;
+  }
+
+  function formatBucketTimestamp(epochMs: number): string {
+    return new Date(epochMs).toISOString().replace(".000Z", "Z");
   }
 }

@@ -1,6 +1,6 @@
 import { UsageService } from "../storage/service";
 import { AccountSubscriptionRepo } from "../storage/account-subscriptions";
-import { RequestRepo } from "../storage/repo";
+import { QuotaRepo, RequestRepo } from "../storage/repo";
 import { Plans } from "../plans";
 import { Logger } from "../util/logger";
 import { UpstreamClient } from "../upstream/client";
@@ -118,10 +118,40 @@ export namespace Admin {
           return json(usageService.getAccountSummary(from, to));
         }
 
+        if (path === "/admin/usage/trend") {
+          const hours = Number(url.searchParams.get("hours") ?? 24);
+          if (!Number.isFinite(hours) || hours <= 0) {
+            return json({ error: "Invalid hours parameter" }, 400);
+          }
+
+          return json({
+            buckets: RequestRepo.getTrend(usageService.db, {
+              hours,
+              provider: url.searchParams.get("provider") ?? undefined,
+              model: url.searchParams.get("model") ?? undefined,
+              tool: url.searchParams.get("tool") ?? undefined,
+            }),
+          });
+        }
+
         if (path === "/admin/quotas" || path === "/admin/quotas/refresh") {
           const refresh = path.endsWith("/refresh") || url.searchParams.get("refresh") === "true";
           if (refresh) return json(await usageService.refreshQuotas());
           return json({ snapshots: usageService.getLatestQuotas() });
+        }
+
+        if (path === "/admin/quotas/history") {
+          const hoursParam = url.searchParams.get("hours");
+          const hours = hoursParam === null ? 24 : Number(hoursParam);
+          if (!Number.isInteger(hours) || hours < 1) {
+            return json({ error: "Invalid hours parameter" }, 400);
+          }
+
+          const provider = url.searchParams.get("provider") ?? undefined;
+          const account = url.searchParams.get("account") ?? undefined;
+          return json({
+            buckets: QuotaRepo.getHistory(usageService.db, { hours, provider, account }),
+          });
         }
 
         if (path === "/admin/plans") {
