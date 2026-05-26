@@ -140,6 +140,13 @@ export namespace Handler {
           return new Response("Not Found", { status: 404 });
         }
 
+        if (!path.startsWith("/v1/") && !path.startsWith("/api/")) {
+          return new Response(JSON.stringify({ error: "not found" }), {
+            status: 404,
+            headers: { "Content-Type": "application/json" },
+          });
+        }
+
         // Body limit enforcement only for methods that carry a body
         const needsBodyLimit = method === "POST" || method === "PUT" || method === "PATCH";
         const bounded = needsBodyLimit ? enforceRequestBodyLimit(req, maxRequestBodyBytes) : req;
