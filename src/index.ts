@@ -47,6 +47,7 @@ async function main(): Promise<void> {
 
   Correlator.start(usageService, { signal: shutdownController.signal });
   await usageService.startQuotaRefresh({ signal: shutdownController.signal });
+  Supervisor.startQuotaRetentionLoop(db, { signal: shutdownController.signal });
 
   const server = Bun.serve({
     port: Config.port,
