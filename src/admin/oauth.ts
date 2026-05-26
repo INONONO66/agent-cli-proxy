@@ -1,4 +1,4 @@
-import { readdir } from "node:fs/promises";
+import { readdir, unlink } from "node:fs/promises";
 import { join } from "node:path";
 import { CLIProxyLogin } from "../cliproxy/login";
 import { Logger } from "../util/logger";
@@ -27,6 +27,10 @@ export namespace OAuthAdmin {
       if (startMatch && req.method === "POST") {
         const provider = decodeURIComponent(startMatch[1]);
         try {
+          const removed = await removeProviderAuthFiles(config.authDir, provider);
+          if (removed > 0) {
+            logger.info("removed stale auth files before login", { event: "admin.oauth.cleanup", provider, removed });
+          }
           const job = CLIProxyLogin.startJob(provider, config.binaryPath, config.configPath, config.timeoutMs);
           logger.info("oauth login job started", { event: "admin.oauth.start", provider, job_id: job.id });
           return json({ job_id: job.id, provider: job.provider, status: job.status });
@@ -58,6 +62,33 @@ export namespace OAuthAdmin {
       return null;
     };
   }
+}
+
+async function removeProviderAuthFiles(authDir: string, provider: string): Promise<number> {
+  if (!authDir) return 0;
+
+  let entries: string[];
+  try {
+    entries = await readdir(authDir);
+  } catch {
+    return 0;
+  }
+
+  let removed = 0;
+  for (const entry of entries) {
+    if (!entry.endsWith(".json")) continue;
+    const filePath = join(authDir, entry);
+    try {
+      const raw = await Bun.file(filePath).text();
+      const parsed = JSON.parse(raw) as Record<string, unknown>;
+      if (parsed.type !== provider) continue;
+      await unlink(filePath);
+      removed++;
+    } catch (err) {
+      logger.warn("failed to remove auth file", { event: "admin.oauth.cleanup_error", file: entry, err });
+    }
+  }
+  return removed;
 }
 
 async function readAccounts(authDir: string): Promise<unknown[]> {
