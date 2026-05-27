@@ -73,6 +73,10 @@ for (const file of [
   const cleaned = sql.replace(/ADD COLUMN IF NOT EXISTS/g, "ADD COLUMN");
   db.exec(cleaned);
 }
+db.exec("ALTER TABLE request_logs ADD COLUMN cliproxy_account TEXT");
+db.exec(
+  "ALTER TABLE request_logs ADD COLUMN lifecycle_status TEXT NOT NULL DEFAULT 'completed' CHECK(lifecycle_status IN ('pending', 'completed', 'error', 'aborted'))",
+);
 
 type PricingEntry = NativePricing & { matchedKey: string; source: string };
 const pricingCache = new Map<string, PricingEntry | null>();
@@ -197,6 +201,34 @@ function normalizeModelId(modelId: string): string {
   return modelId;
 }
 
+function resolveProvider(model: string, tokscaleProviderId: string): string {
+  if (model.startsWith("claude")) return "anthropic";
+  if (model.startsWith("grok")) return "xai";
+  if (model.startsWith("kimi") || model.startsWith("k2p") || model.startsWith("k2-")) return "kimi";
+  if (model.startsWith("glm")) return "zai";
+  if (model.startsWith("minimax")) return "minimax";
+  if (model.startsWith("gemini") || model.startsWith("antigravity")) return "google";
+  if (model.startsWith("gpt") || model.startsWith("big-pickle")) return "openai";
+  return tokscaleProviderId;
+}
+
+function resolveAccount(provider: string): string {
+  switch (provider) {
+    case "anthropic":
+      return "inonono66@gmail.com";
+    case "openai":
+      return "openai.hatbox581@passmail.net";
+    case "kimi":
+      return "1776673860411";
+    case "xai":
+      return "inonono66@gmail.com";
+    case "zai":
+      return "ca2cb548b3724c60b438d01219906397";
+    default:
+      return "inonono66@gmail.com";
+  }
+}
+
 async function getPricing(modelId: string, providerId: string): Promise<PricingEntry | null> {
   const key = `${providerId}::${modelId}`;
   if (pricingCache.has(key)) return pricingCache.get(key)!;
@@ -291,11 +323,11 @@ console.log(
 const insertStmt = db.prepare(`
   INSERT OR IGNORE INTO request_logs (
     provider, model, actual_model, tool, client_id, path, streamed, status,
-    prompt_tokens, completion_tokens, cache_creation_tokens, cache_read_tokens, total_tokens,
+    lifecycle_status, prompt_tokens, completion_tokens, cache_creation_tokens, cache_read_tokens, total_tokens,
     cost_usd, incomplete, error_code, latency_ms, started_at, finished_at,
-    meta_json, source_ip, user_agent,
+    meta_json, source_ip, user_agent, cliproxy_account,
     agent, source, msg_id
-  ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+  ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 `);
 
 const insertMany = db.transaction((rows: ParsedMessage[]) => {
@@ -319,8 +351,10 @@ const insertMany = db.transaction((rows: ParsedMessage[]) => {
     const msgId = `tokscale:${msg.source}:${msg.sessionId}:${msg.timestamp}:${msg.modelId}`;
     // Synthesized fields: path/user_agent/source — proxy didn't see real HTTP for imported data.
     const normalizedModel = normalizeModelId(msg.modelId);
+    const resolvedProvider = resolveProvider(normalizedModel, msg.providerId);
+    const cliproxyAccount = resolveAccount(resolvedProvider);
     const result = insertStmt.run(
-      msg.providerId,
+      resolvedProvider,
       normalizedModel,
       msg.modelId,
       msg.source,
@@ -328,6 +362,7 @@ const insertMany = db.transaction((rows: ParsedMessage[]) => {
       "/v1/messages",
       0,
       null,
+      "completed",
       msg.input,
       msg.output,
       msg.cacheWrite,
@@ -342,6 +377,7 @@ const insertMany = db.transaction((rows: ParsedMessage[]) => {
       meta,
       null,
       "tokscale-import",
+      cliproxyAccount,
       msg.agent ?? null,
       "tokscale",
       msgId,
