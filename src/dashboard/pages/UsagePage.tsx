@@ -1,9 +1,8 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
-  LineChart,
-  Line,
   BarChart,
   Bar,
+  Line,
   XAxis,
   YAxis,
   CartesianGrid,
@@ -19,7 +18,6 @@ import {
   getStats,
   getTodayUsage,
   getUsageRange,
-  fetchQuotaHistory,
   fetchUsageTrend,
 } from "../api";
 import { usePolling } from "../hooks/usePolling";
@@ -46,19 +44,6 @@ function formatAxisTime(hours: number, timestamp: string): string {
   return `${mo}-${da}`;
 }
 
-const LINE_COLORS = [
-  "#58a6ff",
-  "#3fb950",
-  "#d29922",
-  "#f85149",
-  "#e3b341",
-  "#a371f7",
-  "#56d364",
-  "#79c0ff",
-  "#ff7b72",
-  "#ffa657",
-];
-
 const CHART_AXIS_COLOR = "#6e7681";
 const CHART_GRID_COLOR = "#30363d";
 const CHART_TOOLTIP_BG = "#161b22";
@@ -74,36 +59,6 @@ const TIME_RANGES: readonly { value: TimeRange; label: string }[] = [
   { value: "all", label: "All" },
   { value: "custom", label: "Custom" },
 ] as const;
-
-interface QuotaChartPoint {
-  timestamp: string;
-  [key: string]: number | string;
-}
-
-function transformQuotaHistory(
-  buckets: { timestamp: string; snapshots: { provider: string; account: string; used_pct: number | null }[] }[],
-): { data: QuotaChartPoint[]; lines: string[] } {
-  const allKeys = new Set<string>();
-  for (const bucket of buckets) {
-    for (const snap of bucket.snapshots) {
-      allKeys.add(`${snap.provider} — ${snap.account}`);
-    }
-  }
-  const lines = Array.from(allKeys);
-  const data = buckets.map((bucket) => {
-    const point: QuotaChartPoint = { timestamp: bucket.timestamp };
-    for (const key of lines) {
-      point[key] = 0;
-    }
-    for (const snap of bucket.snapshots) {
-      const key = `${snap.provider} — ${snap.account}`;
-      const current = (point[key] as number) ?? 0;
-      point[key] = Math.max(current, snap.used_pct ?? 0);
-    }
-    return point;
-  });
-  return { data, lines };
-}
 
 export function UsagePage() {
   const [customFrom, setCustomFrom] = useState(todayIso());
@@ -140,17 +95,6 @@ export function UsagePage() {
     30000,
   );
 
-  const { data: quotaHistory, loading: quotaHistoryLoading, error: quotaHistoryError } = usePolling(
-    useCallback(
-      () => fetchQuotaHistory(
-        typeof timeRange === "number" ? timeRange : undefined,
-        typeof timeRange === "number" ? undefined : effectiveFrom,
-        typeof timeRange === "number" ? undefined : effectiveTo,
-      ),
-      [timeRange, effectiveFrom, effectiveTo],
-    ),
-    30000,
-  );
   const { data: usageTrend, loading: usageTrendLoading, error: usageTrendError } = usePolling(
     useCallback(
       () => fetchUsageTrend(
@@ -199,13 +143,6 @@ export function UsagePage() {
       { requests: 0, tokens: 0, cost: 0 },
     );
   }, [range]);
-
-  const quotaChart = useMemo(() => {
-    if (!quotaHistory || quotaHistory.buckets.length === 0) {
-      return { data: [], lines: [] };
-    }
-    return transformQuotaHistory(quotaHistory.buckets);
-  }, [quotaHistory]);
 
   const trendData = useMemo(() => {
     if (!usageTrend) return [];
@@ -276,13 +213,13 @@ export function UsagePage() {
           </div>
         )}
 
-        {(quotaHistoryError || usageTrendError) && (
+        {usageTrendError && (
           <div className="error-banner" style={{ marginTop: 12 }}>
-            {quotaHistoryError || usageTrendError}
+            {usageTrendError}
           </div>
         )}
 
-        {(quotaHistoryLoading || usageTrendLoading) && (!quotaHistory || !usageTrend) && (
+        {usageTrendLoading && !usageTrend && (
           <div style={{ display: "flex", justifyContent: "center", padding: 24 }}>
             <div
               style={{
@@ -294,44 +231,6 @@ export function UsagePage() {
                 animation: "spin 0.8s linear infinite",
               }}
             />
-          </div>
-        )}
-
-        {quotaChart.lines.length > 0 && (
-          <div className="card" style={{ marginTop: 12, marginBottom: 16 }}>
-            <div style={{ fontSize: 12, color: "var(--text-secondary)", marginBottom: 8, fontWeight: 600 }}>
-              Quota Usage (%)
-            </div>
-            <ResponsiveContainer width="100%" height={260}>
-              <LineChart data={quotaChart.data}>
-                <CartesianGrid stroke={CHART_GRID_COLOR} strokeDasharray="3 3" />
-                <XAxis
-                  dataKey="timestamp"
-                  tick={{ fill: CHART_AXIS_COLOR, fontSize: 11 }}
-                  tickFormatter={(v: string) => formatAxisTime(displayHours, v)}
-                  stroke={CHART_AXIS_COLOR}
-                />
-                <YAxis
-                  domain={[0, 100]}
-                  tick={{ fill: CHART_AXIS_COLOR, fontSize: 11 }}
-                  stroke={CHART_AXIS_COLOR}
-                  unit="%"
-                />
-                <Tooltip contentStyle={tooltipStyle} itemStyle={{ fontSize: 12 }} />
-                <Legend wrapperStyle={{ fontSize: 11, color: "var(--text-secondary)" }} />
-                {quotaChart.lines.map((line, i) => (
-                  <Line
-                    key={line}
-                    type="monotone"
-                    dataKey={line}
-                    stroke={LINE_COLORS[i % LINE_COLORS.length]}
-                    strokeWidth={2}
-                    dot={false}
-                    activeDot={{ r: 4 }}
-                  />
-                ))}
-              </LineChart>
-            </ResponsiveContainer>
           </div>
         )}
 

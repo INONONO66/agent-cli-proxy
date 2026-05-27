@@ -81,6 +81,16 @@
       "notes": "Conservative estimate — verify with vendor — last updated 2026-05"
     },
     {
+      "code": "xai_grok",
+      "provider": "xai",
+      "display_name": "xAI Grok",
+      "monthly_price_usd": 99,
+      "currency": "USD",
+      "billing_period_days": 30,
+      "vendor_url": "https://x.ai/",
+      "notes": "last updated 2026-05"
+    },
+    {
       "code": "local_byok",
       "provider": "local",
       "display_name": "Bring Your Own Key (BYOK / Self-hosted)",
