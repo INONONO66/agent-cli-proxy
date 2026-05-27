@@ -86,6 +86,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       .finally(() => setLoading(false));
   }, []);
 
+  useEffect(() => {
+    const onExpired = () => setAuthenticated(false);
+    window.addEventListener("auth:expired", onExpired);
+    return () => window.removeEventListener("auth:expired", onExpired);
+  }, []);
+
   return (
     <AuthContext.Provider value={{ authenticated, setAuthenticated, loading }}>
       {children}

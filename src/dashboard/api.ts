@@ -156,6 +156,13 @@ export interface ApiKeyListResponse {
 
 const BASE = "";
 
+export class AuthError extends Error {
+  constructor() {
+    super("unauthorized");
+    this.name = "AuthError";
+  }
+}
+
 export async function api<T>(path: string, options?: RequestInit): Promise<T> {
   const headers: Record<string, string> = {
     "content-type": "application/json",
@@ -171,9 +178,8 @@ export async function api<T>(path: string, options?: RequestInit): Promise<T> {
       ...(options?.headers as Record<string, string> | undefined),
     },
   });
-  if (res.status === 403) {
-    window.location.hash = "#/login";
-    throw new Error("unauthorized");
+  if (res.status === 401 || res.status === 403) {
+    throw new AuthError();
   }
   if (!res.ok) throw new Error(`API error: ${res.status}`);
   return res.json();

@@ -1,4 +1,5 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useContext, useEffect, useRef, useState } from "react";
+import { AuthError } from "../api";
 
 interface PollingState<T> {
   data: T | null;
@@ -21,8 +22,18 @@ export function usePolling<T>(
   });
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const mountedRef = useRef(true);
+  const stoppedRef = useRef(false);
+
+  const stopPolling = useCallback(() => {
+    stoppedRef.current = true;
+    if (intervalRef.current) {
+      clearInterval(intervalRef.current);
+      intervalRef.current = null;
+    }
+  }, []);
 
   const fetchData = useCallback(async () => {
+    if (stoppedRef.current) return;
     setState((prev) => ({ ...prev, loading: prev.data === null, error: null }));
     try {
       const data = await fetchFn();
@@ -30,10 +41,16 @@ export function usePolling<T>(
       setState({ data, loading: false, error: null });
     } catch (err) {
       if (!mountedRef.current) return;
+      if (err instanceof AuthError) {
+        stopPolling();
+        setState((prev) => ({ ...prev, loading: false, error: "unauthorized" }));
+        window.dispatchEvent(new CustomEvent("auth:expired"));
+        return;
+      }
       const message = err instanceof Error ? err.message : String(err);
       setState((prev) => ({ ...prev, loading: false, error: message }));
     }
-  }, [fetchFn]);
+  }, [fetchFn, stopPolling]);
 
   const refresh = useCallback(() => {
     void fetchData();
@@ -41,6 +58,7 @@ export function usePolling<T>(
 
   useEffect(() => {
     mountedRef.current = true;
+    stoppedRef.current = false;
     void fetchData();
     intervalRef.current = setInterval(() => {
       void fetchData();
