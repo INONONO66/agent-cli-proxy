@@ -12,7 +12,7 @@ rm -rf "${PACKAGE_DIR}"
 mkdir -p "${PACKAGE_DIR}"
 
 cp dist/index.js "${PACKAGE_DIR}/index.js"
-cp dist/index-* "${PACKAGE_DIR}/"
+cp dist/index-* "${PACKAGE_DIR}/" 2>/dev/null || true
 cp -R dist/dashboard "${PACKAGE_DIR}/dashboard"
 cp -R dist/migrations "${PACKAGE_DIR}/migrations"
 cp agent-cli-proxy.runtime.user.service "${PACKAGE_DIR}/agent-cli-proxy.service"
