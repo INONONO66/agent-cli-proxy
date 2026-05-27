@@ -797,9 +797,19 @@ export namespace PassThroughProxy {
     return lifecycle?.requestId ?? info.requestId;
   }
 
+  const MODEL_PROVIDER_OVERRIDES: readonly [string, string][] = [
+    ["claude", "anthropic"],
+  ];
+
   function providerForPath(path: string, model?: string | null): string {
     const resolved = ProviderRegistry.resolve({ path, model });
-    return resolved?.id ?? "generic";
+    const id = resolved?.id ?? "generic";
+    if (model) {
+      for (const [prefix, provider] of MODEL_PROVIDER_OVERRIDES) {
+        if (model.startsWith(prefix)) return provider;
+      }
+    }
+    return id;
   }
 
   function upstreamErrorMessage(status: number, body: string): string {

@@ -123,7 +123,7 @@ export namespace ProviderRegistry {
         auth: "preserve",
       },
       {
-        id: "zhipu",
+        id: "zai",
         type: "openai-compatible",
         paths: ["/v1/chat/completions"],
         upstreamBaseUrl: Config.cliProxyApiUrl,
