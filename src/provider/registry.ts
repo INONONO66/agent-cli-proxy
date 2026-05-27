@@ -105,6 +105,15 @@ export namespace ProviderRegistry {
         auth: "preserve",
       },
       {
+        id: "xai",
+        type: "openai-compatible",
+        paths: ["/v1/chat/completions"],
+        upstreamBaseUrl: Config.cliProxyApiUrl,
+        upstreamPath: "/v1/chat/completions",
+        models: ["grok"],
+        auth: "preserve",
+      },
+      {
         id: "openai",
         type: "openai-compatible",
         paths: ["/v1/chat/completions"],
