@@ -1,40 +1,37 @@
 import type { AuthAccount } from "../api";
-
-const PROVIDER_COLORS: Record<string, string> = {
-  claude: "purple",
-  codex: "green",
-  kimi: "blue",
-  xai: "gray",
-};
+import { cn } from "@/lib/utils";
+import { Card, CardContent } from "@/components/ui/card";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 
 function resolveProvider(account: AuthAccount): string {
   return account.type ?? account.provider ?? "unknown";
 }
 
-function providerClass(provider: string): string {
+function providerBadgeClass(provider: string): string {
   const p = provider.toLowerCase();
-  if (p.includes("claude")) return "claude";
-  if (p.includes("codex")) return "codex";
-  if (p.includes("kimi")) return "kimi";
-  if (p.includes("xai")) return "xai";
-  if (p.includes("google")) return "google";
-  if (p.includes("antigravity")) return "antigravity";
-  return "default";
+  if (p.includes("claude")) return "border-orange-500/50 text-orange-400";
+  if (p.includes("codex")) return "border-emerald-500/50 text-emerald-400";
+  if (p.includes("kimi")) return "border-blue-500/50 text-blue-400";
+  if (p.includes("xai")) return "border-red-500/50 text-red-400";
+  if (p.includes("google")) return "border-amber-500/50 text-amber-400";
+  if (p.includes("antigravity")) return "border-yellow-500/50 text-yellow-400";
+  return "border-muted-foreground/50 text-muted-foreground";
 }
 
-function expiryStatus(account: AuthAccount): { label: string; className: string } {
-  if (account.is_expired) return { label: "Expired", className: "critical" };
+function expiryStatus(account: AuthAccount): { label: string; variant: "default" | "secondary" | "destructive" } {
+  if (account.is_expired) return { label: "Expired", variant: "destructive" };
 
   const raw = account.expired ?? account.expires_at;
-  if (!raw) return { label: "Active", className: "ok" };
+  if (!raw) return { label: "Active", variant: "default" };
 
   const ms = Date.parse(String(raw));
-  if (!Number.isFinite(ms)) return { label: "Active", className: "ok" };
+  if (!Number.isFinite(ms)) return { label: "Active", variant: "default" };
 
   const diff = ms - Date.now();
-  if (diff <= 0) return { label: "Expired", className: "critical" };
-  if (diff < 3600000) return { label: "Expiring Soon", className: "warn" };
-  return { label: "Active", className: "ok" };
+  if (diff <= 0) return { label: "Expired", variant: "destructive" };
+  if (diff < 3600000) return { label: "Expiring Soon", variant: "secondary" };
+  return { label: "Active", variant: "default" };
 }
 
 function formatRelativeTime(iso: string | undefined): string {
@@ -60,7 +57,7 @@ interface AuthAccountListProps {
 export function AuthAccountList({ accounts, onRefresh }: AuthAccountListProps) {
   if (accounts.length === 0) {
     return (
-      <div className="empty-state">No OAuth accounts configured.</div>
+      <div className="text-center text-muted-foreground py-12">No OAuth accounts configured.</div>
     );
   }
 
@@ -75,62 +72,44 @@ export function AuthAccountList({ accounts, onRefresh }: AuthAccountListProps) {
   const providers = Array.from(grouped.keys()).sort();
 
   return (
-    <div style={{ display: "flex", flexDirection: "column", gap: 24 }}>
-      {providers.map((provider) => {
-        const color = PROVIDER_COLORS[provider.toLowerCase()] ?? "default";
-        return (
-          <div key={provider}>
-            <div
-              style={{
-                display: "flex",
-                alignItems: "center",
-                gap: 8,
-                marginBottom: 12,
-                fontSize: 13,
-                fontWeight: 600,
-                color: "var(--text-primary)",
-                textTransform: "uppercase",
-                letterSpacing: "0.5px",
-              }}
-            >
-              <span
-                className={`provider-badge ${providerClass(provider)}`}
-                style={{ marginBottom: 0 }}
-              >
-                {provider}
-              </span>
-              <span style={{ color: "var(--text-muted)", fontSize: 11, fontWeight: 400 }}>
-                {grouped.get(provider)?.length} account(s)
-              </span>
-            </div>
-            <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-              {grouped.get(provider)?.map((account, i) => {
-                const status = expiryStatus(account);
-                const email = account.email ?? "Unknown";
-                const lastRefresh = account.last_refresh ?? account.refreshed_at;
-                return (
-                  <div key={i} className="oauth-account">
-                    <div className="info">
-                      <div className="email">{email}</div>
-                      <div className="meta">
-                        <span className={`status-badge ${status.className}`}>{status.label}</span>
+    <div className="flex flex-col gap-6">
+      {providers.map((provider) => (
+        <div key={provider}>
+          <div className="flex items-center gap-2 mb-3 text-sm font-semibold uppercase tracking-wide">
+            <Badge variant="outline" className={cn("text-[11px]", providerBadgeClass(provider))}>
+              {provider}
+            </Badge>
+            <span className="text-muted-foreground text-xs font-normal">
+              {grouped.get(provider)?.length} account(s)
+            </span>
+          </div>
+          <div className="flex flex-col gap-3">
+            {grouped.get(provider)?.map((account, i) => {
+              const st = expiryStatus(account);
+              const email = account.email ?? "Unknown";
+              const lastRefresh = account.last_refresh ?? account.refreshed_at;
+              return (
+                <Card key={i}>
+                  <CardContent className="flex items-center justify-between gap-3 flex-wrap p-4">
+                    <div className="flex-1 min-w-0">
+                      <div className="text-sm font-medium">{email}</div>
+                      <div className="flex items-center gap-2 mt-1 text-xs text-muted-foreground">
+                        <Badge variant={st.variant} className="text-[10px] px-1.5 py-0">{st.label}</Badge>
                         {lastRefresh && (
-                          <span style={{ marginLeft: 8 }}>
-                            Last Refreshed: {formatRelativeTime(lastRefresh)}
-                          </span>
+                          <span>Last Refreshed: {formatRelativeTime(lastRefresh)}</span>
                         )}
                       </div>
                     </div>
-                    <button onClick={() => onRefresh(provider)}>
+                    <Button variant="outline" size="sm" onClick={() => onRefresh(provider)}>
                       Refresh Login
-                    </button>
-                  </div>
-                );
-              })}
-            </div>
+                    </Button>
+                  </CardContent>
+                </Card>
+              );
+            })}
           </div>
-        );
-      })}
+        </div>
+      ))}
     </div>
   );
 }

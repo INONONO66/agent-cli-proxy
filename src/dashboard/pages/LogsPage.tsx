@@ -3,6 +3,8 @@ import type { Usage } from "../../usage";
 import { getLogs } from "../api";
 import { usePolling } from "../hooks/usePolling";
 import { LogTable } from "../components/LogTable";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 
 const PROVIDERS = ["anthropic", "openai", "kimi", "xai"];
 
@@ -159,51 +161,55 @@ export function LogsPage() {
     return Array.from(set).sort();
   }, [logs]);
 
+  const selectClass = "h-8 rounded-md border border-input bg-transparent px-2 text-xs min-w-[140px]";
+
   return (
     <div>
-      <div className="content-header">
-        <h2>Request Logs</h2>
+      <div className="flex items-center justify-between gap-3 flex-wrap mb-5">
+        <h2 className="text-lg font-semibold">Request Logs</h2>
       </div>
 
-      {error && <div className="error-banner">{error}</div>}
+      {error && <div className="rounded-lg border border-destructive/50 bg-destructive/10 text-destructive p-3 text-sm mb-4">{error}</div>}
 
-      <div className="logs-filter">
-        <select value={tool} onChange={(e) => setTool(e.target.value)}>
+      <div className="flex gap-2 items-center flex-wrap mb-4">
+        <select className={selectClass} value={tool} onChange={(e) => setTool(e.target.value)}>
           <option value="">All tools</option>
           {tools.map((t) => (
             <option key={t} value={t}>{t}</option>
           ))}
         </select>
-        <input
+        <Input
           type="text"
           placeholder="Client ID"
+          className="h-8 text-xs min-w-[140px] max-w-[180px]"
           value={clientId}
           onChange={(e) => setClientId(e.target.value)}
         />
-        <input
+        <Input
           type="text"
           placeholder="Model"
+          className="h-8 text-xs min-w-[140px] max-w-[180px]"
           value={model}
           onChange={(e) => setModel(e.target.value)}
         />
-        <select value={provider} onChange={(e) => setProvider(e.target.value)}>
+        <select className={selectClass} value={provider} onChange={(e) => setProvider(e.target.value)}>
           <option value="">All providers</option>
           {PROVIDERS.map((p) => (
             <option key={p} value={p}>{p}</option>
           ))}
         </select>
-        <select value={status} onChange={(e) => setStatus(e.target.value)}>
+        <select className={selectClass} value={status} onChange={(e) => setStatus(e.target.value)}>
           {STATUS_OPTIONS.map((o) => (
             <option key={o.value} value={o.value}>{o.label}</option>
           ))}
         </select>
-        <select value={lifecycle} onChange={(e) => setLifecycle(e.target.value as Usage.LifecycleStatus | "")}>
+        <select className={selectClass} value={lifecycle} onChange={(e) => setLifecycle(e.target.value as Usage.LifecycleStatus | "")}>
           {LIFECYCLE_OPTIONS.map((o) => (
             <option key={o.value} value={o.value}>{o.label}</option>
           ))}
         </select>
-        <button onClick={applyFilters}>Apply</button>
-        <button onClick={clearFilters}>Clear Filters</button>
+        <Button variant="default" size="sm" onClick={applyFilters}>Apply</Button>
+        <Button variant="outline" size="sm" onClick={clearFilters}>Clear Filters</Button>
       </div>
 
       <LogTable

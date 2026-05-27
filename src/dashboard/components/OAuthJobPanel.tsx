@@ -2,6 +2,9 @@ import { useCallback, useState } from "react";
 import { useSSE } from "../hooks/useSSE";
 import { cancelOAuthJob } from "../api";
 import type { OAuthStartResponse } from "../api";
+import { cn } from "@/lib/utils";
+import { Card, CardContent } from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
 
 interface OAuthJobPanelProps {
   job: OAuthStartResponse;
@@ -52,7 +55,6 @@ export function OAuthJobPanel({ job, onDone }: OAuthJobPanelProps) {
 
   const isTerminal = !!doneEvent || !!errorEvent || !!cancelledEvent;
   const currentStep = stepIndex(latest?.type);
-  const hasSshTunnel = !!urlEvent?.sshTunnel;
 
   const [sshCopied, copySsh] = useCopyFeedback();
   const [urlCopied, copyUrl] = useCopyFeedback();
@@ -63,87 +65,94 @@ export function OAuthJobPanel({ job, onDone }: OAuthJobPanelProps) {
   }, [job.job_id, onDone]);
 
   return (
-    <div className="oauth-job-panel">
-      <div className="status-steps">
-        {STEPS.map((step, idx) => {
-          const isActive = idx === currentStep;
-          const isPast = idx < currentStep;
-          const isFailed = isTerminal && !doneEvent && idx === 4;
-          return (
-            <div
-              key={step.key}
-              className={`status-step ${isActive ? "active" : ""} ${isPast ? "past" : ""} ${isFailed ? "failed" : ""}`}
-            >
-              <div className="step-dot">
-                {isPast ? "✓" : isFailed ? "✕" : isActive && !isTerminal ? <div className="spinner" /> : idx + 1}
+    <Card className="mb-5">
+      <CardContent className="p-5">
+        <div className="flex items-center gap-1 mb-3">
+          {STEPS.map((step, idx) => {
+            const isActive = idx === currentStep;
+            const isPast = idx < currentStep;
+            const isFailed = isTerminal && !doneEvent && idx === 4;
+            return (
+              <div
+                key={step.key}
+                className={cn(
+                  "flex items-center gap-1.5 text-[11px]",
+                  isActive ? "text-primary font-semibold" : "",
+                  isPast ? "text-emerald-500" : "",
+                  isFailed ? "text-destructive" : "",
+                  !isActive && !isPast && !isFailed ? "text-muted-foreground opacity-50" : "",
+                )}
+              >
+                <div className={cn(
+                  "w-5 h-5 rounded-full border flex items-center justify-center text-[10px] shrink-0",
+                  isPast && "border-emerald-500 bg-emerald-500/15",
+                  isFailed && "border-destructive bg-destructive/15",
+                  isActive && "border-primary",
+                )}>
+                  {isPast ? "✓" : isFailed ? "✕" : isActive && !isTerminal ? <div className="w-2.5 h-2.5 border-[1.5px] border-border border-t-primary rounded-full animate-spin" /> : idx + 1}
+                </div>
+                <span>{step.label}</span>
               </div>
-              <div className="step-label">{step.label}</div>
+            );
+          })}
+        </div>
+
+        <div className="flex items-center gap-2 mb-3 mt-3">
+          {!isTerminal && <div className="w-4 h-4 border-2 border-border border-t-primary rounded-full animate-spin" />}
+          {doneEvent && <span className="text-emerald-500">✓</span>}
+          {errorEvent && <span className="text-destructive">✕</span>}
+          {cancelledEvent && <span className="text-muted-foreground">⊘</span>}
+          <span className="text-sm">
+            {latest?.type === "started" && "Waiting for OAuth URL..."}
+            {latest?.type === "url" && "Open the URL to authenticate"}
+            {latest?.type === "done" && (latest.success ? "Login complete" : "Login failed")}
+            {latest?.type === "error" && (latest.message || "Error")}
+            {latest?.type === "cancelled" && "Cancelled"}
+            {!latest && (connected ? "Connecting..." : "Reconnecting...")}
+          </span>
+        </div>
+
+        {urlEvent?.url && (
+          <div>
+            <div className="flex items-center justify-between text-xs text-muted-foreground mb-1">
+              <span>OAuth URL</span>
+              <Button variant="ghost" size="xs" onClick={() => copyUrl(urlEvent.url ?? "")}>
+                {urlCopied ? "Copied!" : "Copy"}
+              </Button>
             </div>
-          );
-        })}
-      </div>
-
-      <div className="status-line" style={{ marginTop: 12 }}>
-        {!isTerminal && <div className="spinner" />}
-        {doneEvent && <span style={{ color: "var(--accent-green)" }}>✓</span>}
-        {errorEvent && <span style={{ color: "var(--accent-red)" }}>✕</span>}
-        {cancelledEvent && <span style={{ color: "var(--text-muted)" }}>⊘</span>}
-        <span>
-          {latest?.type === "started" && "Waiting for OAuth URL..."}
-          {latest?.type === "url" && "Open the URL to authenticate"}
-          {latest?.type === "done" && (latest.success ? "Login complete" : "Login failed")}
-          {latest?.type === "error" && (latest.message || "Error")}
-          {latest?.type === "cancelled" && "Cancelled"}
-          {!latest && (connected ? "Connecting..." : "Reconnecting...")}
-        </span>
-      </div>
-
-      {urlEvent?.url && (
-        <div>
-          <div style={{ fontSize: 12, color: "var(--text-secondary)", marginBottom: 4, display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-            <span>OAuth URL</span>
-            <button
-              onClick={() => copyUrl(urlEvent.url ?? "")}
-              style={{ fontSize: 11, padding: "2px 8px" }}
-            >
-              {urlCopied ? "Copied!" : "Copy"}
-            </button>
+            <div className="rounded-md border bg-muted/50 p-3 my-2 break-all text-sm">
+              <a href={urlEvent.url} target="_blank" rel="noreferrer" className="text-primary hover:underline">
+                {urlEvent.url}
+              </a>
+            </div>
           </div>
-          <div className="url-box">
-            <a href={urlEvent.url} target="_blank" rel="noreferrer">
-              {urlEvent.url}
-            </a>
-          </div>
-        </div>
-      )}
-
-      {urlEvent?.sshTunnel && (
-        <div>
-          <div style={{ fontSize: 12, color: "var(--text-secondary)", marginBottom: 4, display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-            <span>SSH Tunnel</span>
-            <button
-              onClick={() => copySsh(urlEvent.sshTunnel ?? "")}
-              style={{ fontSize: 11, padding: "2px 8px" }}
-            >
-              {sshCopied ? "Copied!" : "Copy"}
-            </button>
-          </div>
-          <div className="ssh-box">
-            <code>{urlEvent.sshTunnel}</code>
-          </div>
-        </div>
-      )}
-
-      <div style={{ display: "flex", gap: 8, marginTop: 12 }}>
-        {!isTerminal && (
-          <button className="danger" onClick={handleCancel}>
-            Cancel
-          </button>
         )}
-        {isTerminal && (
-          <button onClick={onDone}>Dismiss</button>
+
+        {urlEvent?.sshTunnel && (
+          <div>
+            <div className="flex items-center justify-between text-xs text-muted-foreground mb-1">
+              <span>SSH Tunnel</span>
+              <Button variant="ghost" size="xs" onClick={() => copySsh(urlEvent.sshTunnel ?? "")}>
+                {sshCopied ? "Copied!" : "Copy"}
+              </Button>
+            </div>
+            <div className="rounded-md border bg-muted/50 p-3 my-2 font-mono text-xs flex items-center justify-between gap-2">
+              <code className="break-all">{urlEvent.sshTunnel}</code>
+            </div>
+          </div>
         )}
-      </div>
-    </div>
+
+        <div className="flex gap-2 mt-3">
+          {!isTerminal && (
+            <Button variant="destructive" size="sm" onClick={handleCancel}>
+              Cancel
+            </Button>
+          )}
+          {isTerminal && (
+            <Button variant="outline" size="sm" onClick={onDone}>Dismiss</Button>
+          )}
+        </div>
+      </CardContent>
+    </Card>
   );
 }

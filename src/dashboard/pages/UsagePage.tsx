@@ -23,6 +23,10 @@ import {
 import { usePolling } from "../hooks/usePolling";
 import { UsageSummary } from "../components/UsageSummary";
 import { Num, formatCompact, formatCostCompact } from "../utils/numbers";
+import { Card, CardContent } from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 
 function todayIso(): string {
   return new Date().toISOString().slice(0, 10);
@@ -44,10 +48,8 @@ function formatAxisTime(hours: number, timestamp: string): string {
   return `${mo}-${da}`;
 }
 
-const CHART_AXIS_COLOR = "#6e7681";
-const CHART_GRID_COLOR = "#30363d";
-const CHART_TOOLTIP_BG = "#161b22";
-const CHART_TOOLTIP_BORDER = "#30363d";
+const CHART_AXIS_COLOR = "hsl(var(--muted-foreground))";
+const CHART_GRID_COLOR = "hsl(var(--border))";
 
 type TimeRange = 5 | 24 | 168 | 720 | "all" | "custom";
 
@@ -59,6 +61,27 @@ const TIME_RANGES: readonly { value: TimeRange; label: string }[] = [
   { value: "all", label: "All" },
   { value: "custom", label: "Custom" },
 ] as const;
+
+function StatBox({ label, children }: { label: string; children: React.ReactNode }) {
+  return (
+    <Card>
+      <CardContent className="p-4">
+        <div className="text-[11px] uppercase tracking-wider text-muted-foreground mb-1.5">{label}</div>
+        <div className="font-mono text-xl font-semibold">{children}</div>
+      </CardContent>
+    </Card>
+  );
+}
+
+function BarTrack({ pct }: { pct: number }) {
+  return (
+    <div className="flex items-center gap-2">
+      <div className="flex-1 h-1.5 bg-secondary rounded-full overflow-hidden max-w-[120px]">
+        <div className="h-full bg-primary rounded-full transition-all duration-300" style={{ width: `${pct}%` }} />
+      </div>
+    </div>
+  );
+}
 
 export function UsagePage() {
   const [customFrom, setCustomFrom] = useState(todayIso());
@@ -155,330 +178,277 @@ export function UsagePage() {
   }, [usageTrend]);
 
   const tooltipStyle = {
-    backgroundColor: CHART_TOOLTIP_BG,
-    border: `1px solid ${CHART_TOOLTIP_BORDER}`,
-    borderRadius: 4,
-    color: "#e6edf3",
+    backgroundColor: "hsl(var(--popover))",
+    border: "1px solid hsl(var(--border))",
+    borderRadius: 6,
+    color: "hsl(var(--popover-foreground))",
     fontSize: 12,
   };
 
   return (
     <div>
-      <div className="content-header">
-        <h2>Usage &amp; Cost</h2>
+      <div className="flex items-center justify-between gap-3 flex-wrap mb-5">
+        <h2 className="text-lg font-semibold">Usage &amp; Cost</h2>
       </div>
 
       {today && <UsageSummary summary={today} />}
 
-      <div className="section">
-        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: 12 }}>
-          <h3>Trends</h3>
-          <div style={{ display: "flex", gap: 6 }}>
+      <div className="mb-6">
+        <div className="flex items-center justify-between flex-wrap gap-3">
+          <h3 className="text-sm font-semibold">Trends</h3>
+          <div className="flex gap-1.5">
             {TIME_RANGES.map(({ value, label }) => (
-              <button
+              <Button
                 key={String(value)}
-                className={timeRange === value ? "primary" : undefined}
+                variant={timeRange === value ? "default" : "outline"}
+                size="xs"
                 onClick={() => setTimeRange(value)}
-                style={{ padding: "4px 10px", fontSize: 12 }}
               >
                 {label}
-              </button>
+              </Button>
             ))}
           </div>
         </div>
 
         {timeRange === "custom" && (
-          <div style={{ display: "flex", gap: 12, alignItems: "center", marginTop: 8 }}>
-            <label style={{ fontSize: 12, color: "var(--text-secondary)" }}>From</label>
-            <input type="date" value={customFrom} onChange={(e) => setCustomFrom(e.target.value)} />
-            <label style={{ fontSize: 12, color: "var(--text-secondary)" }}>To</label>
-            <input type="date" value={customTo} onChange={(e) => setCustomTo(e.target.value)} />
+          <div className="flex gap-3 items-center mt-2">
+            <label className="text-xs text-muted-foreground">From</label>
+            <Input type="date" className="h-8 text-xs w-auto" value={customFrom} onChange={(e) => setCustomFrom(e.target.value)} />
+            <label className="text-xs text-muted-foreground">To</label>
+            <Input type="date" className="h-8 text-xs w-auto" value={customTo} onChange={(e) => setCustomTo(e.target.value)} />
           </div>
         )}
 
         {totalSummary && (
-          <div className="stats-row" style={{ marginTop: 12 }}>
-            <div className="stat-box">
-              <div className="label">Requests</div>
-              <div className="value"><Num value={totalSummary.requests} /></div>
-            </div>
-            <div className="stat-box">
-              <div className="label">Tokens</div>
-              <div className="value"><Num value={totalSummary.tokens} /></div>
-            </div>
-            <div className="stat-box">
-              <div className="label">Cost</div>
-              <div className="value"><Num value={totalSummary.cost} format="cost" /></div>
-            </div>
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mt-3 mb-6">
+            <StatBox label="Requests"><Num value={totalSummary.requests} /></StatBox>
+            <StatBox label="Tokens"><Num value={totalSummary.tokens} /></StatBox>
+            <StatBox label="Cost"><Num value={totalSummary.cost} format="cost" /></StatBox>
           </div>
         )}
 
         {usageTrendError && (
-          <div className="error-banner" style={{ marginTop: 12 }}>
+          <div className="rounded-lg border border-destructive/50 bg-destructive/10 text-destructive p-3 text-sm mt-3">
             {usageTrendError}
           </div>
         )}
 
         {usageTrendLoading && !usageTrend && (
-          <div style={{ display: "flex", justifyContent: "center", padding: 24 }}>
-            <div
-              style={{
-                width: 20,
-                height: 20,
-                border: "2px solid var(--border)",
-                borderTopColor: "var(--accent-blue)",
-                borderRadius: "50%",
-                animation: "spin 0.8s linear infinite",
-              }}
-            />
+          <div className="flex justify-center py-6">
+            <div className="w-5 h-5 border-2 border-border border-t-primary rounded-full animate-spin" />
           </div>
         )}
 
         {trendData.length > 0 && (
-          <div className="card">
-            <div style={{ fontSize: 12, color: "var(--text-secondary)", marginBottom: 8, fontWeight: 600 }}>
-              Requests &amp; Cost
-            </div>
-            <ResponsiveContainer width="100%" height={260}>
-              <BarChart data={trendData}>
-                <CartesianGrid stroke={CHART_GRID_COLOR} strokeDasharray="3 3" />
-                <XAxis
-                  dataKey="timestamp"
-                  tick={{ fill: CHART_AXIS_COLOR, fontSize: 11 }}
-                  tickFormatter={(v: string) => formatAxisTime(displayHours, v)}
-                  stroke={CHART_AXIS_COLOR}
-                />
-                <YAxis
-                  yAxisId="left"
-                  tick={{ fill: CHART_AXIS_COLOR, fontSize: 11 }}
-                  stroke={CHART_AXIS_COLOR}
-                  tickFormatter={(v: number) => formatCompact(v)}
-                />
-                <YAxis
-                  yAxisId="right"
-                  orientation="right"
-                  tick={{ fill: CHART_AXIS_COLOR, fontSize: 11 }}
-                  stroke={CHART_AXIS_COLOR}
-                  tickFormatter={(v: number) => formatCostCompact(v)}
-                />
-                <Tooltip contentStyle={tooltipStyle} itemStyle={{ fontSize: 12 }} />
-                <Legend wrapperStyle={{ fontSize: 11, color: "var(--text-secondary)" }} />
-                <Bar yAxisId="left" dataKey="requests" fill="rgba(88, 166, 255, 0.6)" radius={[2, 2, 0, 0]} />
-                <Line
-                  yAxisId="right"
-                  type="monotone"
-                  dataKey="cost_usd"
-                  stroke="#3fb950"
-                  strokeWidth={2}
-                  dot={false}
-                  activeDot={{ r: 4 }}
-                />
-              </BarChart>
-            </ResponsiveContainer>
-          </div>
+          <Card>
+            <CardContent className="p-4">
+              <div className="text-xs text-muted-foreground mb-2 font-semibold">Requests &amp; Cost</div>
+              <ResponsiveContainer width="100%" height={260}>
+                <BarChart data={trendData}>
+                  <CartesianGrid stroke={CHART_GRID_COLOR} strokeDasharray="3 3" />
+                  <XAxis
+                    dataKey="timestamp"
+                    tick={{ fill: CHART_AXIS_COLOR, fontSize: 11 }}
+                    tickFormatter={(v: string) => formatAxisTime(displayHours, v)}
+                    stroke={CHART_AXIS_COLOR}
+                  />
+                  <YAxis
+                    yAxisId="left"
+                    tick={{ fill: CHART_AXIS_COLOR, fontSize: 11 }}
+                    stroke={CHART_AXIS_COLOR}
+                    tickFormatter={(v: number) => formatCompact(v)}
+                  />
+                  <YAxis
+                    yAxisId="right"
+                    orientation="right"
+                    tick={{ fill: CHART_AXIS_COLOR, fontSize: 11 }}
+                    stroke={CHART_AXIS_COLOR}
+                    tickFormatter={(v: number) => formatCostCompact(v)}
+                  />
+                  <Tooltip contentStyle={tooltipStyle} itemStyle={{ fontSize: 12 }} />
+                  <Legend wrapperStyle={{ fontSize: 11 }} />
+                  <Bar yAxisId="left" dataKey="requests" fill="hsl(var(--chart-1))" radius={[2, 2, 0, 0]} />
+                  <Line
+                    yAxisId="right"
+                    type="monotone"
+                    dataKey="cost_usd"
+                    stroke="hsl(var(--chart-2))"
+                    strokeWidth={2}
+                    dot={false}
+                    activeDot={{ r: 4 }}
+                  />
+                </BarChart>
+              </ResponsiveContainer>
+            </CardContent>
+          </Card>
         )}
       </div>
 
       {range && range.length > 0 && (
-        <div className="section">
-          <h3>Daily Overview</h3>
-          <div className="card">
-            <table>
-              <thead>
-                <tr>
-                  <th>Date</th>
-                  <th style={{ textAlign: "right" }}>Requests</th>
-                  <th style={{ textAlign: "right" }}>Tokens</th>
-                  <th style={{ textAlign: "right" }}>Cost</th>
-                </tr>
-              </thead>
-              <tbody>
-                {range.slice().reverse().map((day) => (
-                  <tr key={day.date}>
-                    <td>{day.date}</td>
-                    <td style={{ textAlign: "right" }}><Num value={day.requests} /></td>
-                    <td style={{ textAlign: "right" }}><Num value={day.total_tokens} /></td>
-                    <td style={{ textAlign: "right" }}><Num value={day.cost_usd} format="cost" /></td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+        <div className="mb-6">
+          <h3 className="text-sm font-semibold mb-3">Daily Overview</h3>
+          <Card>
+            <CardContent className="p-0">
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Date</TableHead>
+                    <TableHead className="text-right">Requests</TableHead>
+                    <TableHead className="text-right">Tokens</TableHead>
+                    <TableHead className="text-right">Cost</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {range.slice().reverse().map((day) => (
+                    <TableRow key={day.date}>
+                      <TableCell>{day.date}</TableCell>
+                      <TableCell className="text-right"><Num value={day.requests} /></TableCell>
+                      <TableCell className="text-right"><Num value={day.total_tokens} /></TableCell>
+                      <TableCell className="text-right"><Num value={day.cost_usd} format="cost" /></TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            </CardContent>
+          </Card>
         </div>
       )}
 
       {modelBreakdown && modelBreakdown.length > 0 && (
-        <div className="section">
-          <h3>Model Breakdown{effectiveFrom !== effectiveTo ? ` (${effectiveFrom} ~ ${effectiveTo})` : ` (${effectiveFrom})`}</h3>
-          <div className="card">
-            <table>
-              <thead>
-                <tr>
-                  <th>Model</th>
-                  <th>Provider</th>
-                  <th style={{ textAlign: "right" }}>Requests</th>
-                  <th style={{ textAlign: "right" }}>Tokens</th>
-                  <th style={{ textAlign: "right" }}>Cost</th>
-                  <th style={{ width: 140 }}></th>
-                </tr>
-              </thead>
-              <tbody>
-                {modelBreakdown.map((row) => (
-                  <tr key={`${row.provider}-${row.model}`}>
-                    <td><span className="mono">{row.model}</span></td>
-                    <td>{row.provider}</td>
-                    <td style={{ textAlign: "right" }}><Num value={row.request_count} /></td>
-                    <td style={{ textAlign: "right" }}><Num value={row.total_tokens} /></td>
-                    <td style={{ textAlign: "right" }}><Num value={row.cost_usd} format="cost" /></td>
-                    <td>
-                      <div className="bar-cell">
-                        <div className="bar-track">
-                          <div
-                            className="bar-fill"
-                            style={{ width: `${(row.total_tokens / maxModelTokens) * 100}%` }}
-                          />
-                        </div>
-                      </div>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+        <div className="mb-6">
+          <h3 className="text-sm font-semibold mb-3">Model Breakdown{effectiveFrom !== effectiveTo ? ` (${effectiveFrom} ~ ${effectiveTo})` : ` (${effectiveFrom})`}</h3>
+          <Card>
+            <CardContent className="p-0">
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Model</TableHead>
+                    <TableHead>Provider</TableHead>
+                    <TableHead className="text-right">Requests</TableHead>
+                    <TableHead className="text-right">Tokens</TableHead>
+                    <TableHead className="text-right">Cost</TableHead>
+                    <TableHead className="w-[140px]"></TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {modelBreakdown.map((row) => (
+                    <TableRow key={`${row.provider}-${row.model}`}>
+                      <TableCell><span className="font-mono text-xs">{row.model}</span></TableCell>
+                      <TableCell>{row.provider}</TableCell>
+                      <TableCell className="text-right"><Num value={row.request_count} /></TableCell>
+                      <TableCell className="text-right"><Num value={row.total_tokens} /></TableCell>
+                      <TableCell className="text-right"><Num value={row.cost_usd} format="cost" /></TableCell>
+                      <TableCell><BarTrack pct={(row.total_tokens / maxModelTokens) * 100} /></TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            </CardContent>
+          </Card>
         </div>
       )}
 
       {providerBreakdown && providerBreakdown.length > 0 && (
-        <div className="section">
-          <h3>Provider Breakdown{effectiveFrom !== effectiveTo ? ` (${effectiveFrom} ~ ${effectiveTo})` : ` (${effectiveFrom})`}</h3>
-          <div className="card">
-            <table>
-              <thead>
-                <tr>
-                  <th>Provider</th>
-                  <th style={{ textAlign: "right" }}>Requests</th>
-                  <th style={{ textAlign: "right" }}>Tokens</th>
-                  <th style={{ textAlign: "right" }}>Cost</th>
-                  <th style={{ width: 140 }}></th>
-                </tr>
-              </thead>
-              <tbody>
-                {providerBreakdown.map((row) => (
-                  <tr key={row.provider}>
-                    <td>{row.provider}</td>
-                    <td style={{ textAlign: "right" }}><Num value={row.request_count} /></td>
-                    <td style={{ textAlign: "right" }}><Num value={row.total_tokens} /></td>
-                    <td style={{ textAlign: "right" }}><Num value={row.cost_usd} format="cost" /></td>
-                    <td>
-                      <div className="bar-cell">
-                        <div className="bar-track">
-                          <div
-                            className="bar-fill"
-                            style={{ width: `${(row.total_tokens / maxProviderTokens) * 100}%` }}
-                          />
-                        </div>
-                      </div>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+        <div className="mb-6">
+          <h3 className="text-sm font-semibold mb-3">Provider Breakdown{effectiveFrom !== effectiveTo ? ` (${effectiveFrom} ~ ${effectiveTo})` : ` (${effectiveFrom})`}</h3>
+          <Card>
+            <CardContent className="p-0">
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Provider</TableHead>
+                    <TableHead className="text-right">Requests</TableHead>
+                    <TableHead className="text-right">Tokens</TableHead>
+                    <TableHead className="text-right">Cost</TableHead>
+                    <TableHead className="w-[140px]"></TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {providerBreakdown.map((row) => (
+                    <TableRow key={row.provider}>
+                      <TableCell>{row.provider}</TableCell>
+                      <TableCell className="text-right"><Num value={row.request_count} /></TableCell>
+                      <TableCell className="text-right"><Num value={row.total_tokens} /></TableCell>
+                      <TableCell className="text-right"><Num value={row.cost_usd} format="cost" /></TableCell>
+                      <TableCell><BarTrack pct={(row.total_tokens / maxProviderTokens) * 100} /></TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            </CardContent>
+          </Card>
         </div>
       )}
 
-      <div className="section">
-        <h3>Monthly Cost Summary</h3>
-        <div className="date-range">
-          <label>Month</label>
-          <input
-            type="month"
-            value={month}
-            onChange={(e) => setMonth(e.target.value)}
-          />
+      <div className="mb-6">
+        <h3 className="text-sm font-semibold mb-3">Monthly Cost Summary</h3>
+        <div className="flex gap-2 items-center flex-wrap">
+          <label className="text-xs text-muted-foreground">Month</label>
+          <Input type="month" className="h-8 text-xs w-auto" value={month} onChange={(e) => setMonth(e.target.value)} />
         </div>
       </div>
 
       {costSummary && (
-        <div className="section">
-          <div className="stats-row">
-            <div className="stat-box">
-              <div className="label">Accounts</div>
-              <div className="value"><Num value={costSummary.totals.accounts} /></div>
-            </div>
-            <div className="stat-box">
-              <div className="label">Requests</div>
-              <div className="value"><Num value={costSummary.totals.total_requests} /></div>
-            </div>
-            <div className="stat-box">
-              <div className="label">Total Cost</div>
-              <div className="value"><Num value={costSummary.totals.total_cost_usd} format="cost" /></div>
-            </div>
-            <div className="stat-box">
-              <div className="label">Overage</div>
-              <div className="value" style={{ color: costSummary.totals.total_overage_usd > 0 ? "var(--accent-red)" : undefined }}>
-                <Num value={costSummary.totals.total_overage_usd} format="cost" />
-              </div>
-            </div>
+        <div className="mb-6">
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-4">
+            <StatBox label="Accounts"><Num value={costSummary.totals.accounts} /></StatBox>
+            <StatBox label="Requests"><Num value={costSummary.totals.total_requests} /></StatBox>
+            <StatBox label="Total Cost"><Num value={costSummary.totals.total_cost_usd} format="cost" /></StatBox>
+            <Card>
+              <CardContent className="p-4">
+                <div className="text-[11px] uppercase tracking-wider text-muted-foreground mb-1.5">Overage</div>
+                <div className={`font-mono text-xl font-semibold ${costSummary.totals.total_overage_usd > 0 ? "text-destructive" : ""}`}>
+                  <Num value={costSummary.totals.total_overage_usd} format="cost" />
+                </div>
+              </CardContent>
+            </Card>
           </div>
 
           {costSummary.rows.length > 0 && (
-            <div className="card">
-              <table>
-                <thead>
-                  <tr>
-                    <th>Account</th>
-                    <th>Plan</th>
-                    <th style={{ textAlign: "right" }}>Monthly Price</th>
-                    <th style={{ textAlign: "right" }}>Requests</th>
-                    <th style={{ textAlign: "right" }}>Cost</th>
-                    <th style={{ textAlign: "right" }}>Overage</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {costSummary.rows.map((row) => (
-                    <tr key={row.cliproxy_account}>
-                    <td>{row.cliproxy_account}</td>
-                    <td>{row.subscription_code ?? "—"}</td>
-                    <td style={{ textAlign: "right" }}><Num value={row.monthly_price_usd} format="cost" /></td>
-                    <td style={{ textAlign: "right" }}><Num value={row.total_requests} /></td>
-                    <td style={{ textAlign: "right" }}><Num value={row.total_cost_usd} format="cost" /></td>
-                    <td
-                      style={{
-                        textAlign: "right",
-                        color: row.computed_overage_usd > 0 ? "var(--accent-red)" : undefined,
-                      }}
-                    >
-                      <Num value={row.computed_overage_usd} format="cost" />
-                    </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
+            <Card>
+              <CardContent className="p-0">
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Account</TableHead>
+                      <TableHead>Plan</TableHead>
+                      <TableHead className="text-right">Monthly Price</TableHead>
+                      <TableHead className="text-right">Requests</TableHead>
+                      <TableHead className="text-right">Cost</TableHead>
+                      <TableHead className="text-right">Overage</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {costSummary.rows.map((row) => (
+                      <TableRow key={row.cliproxy_account}>
+                        <TableCell>{row.cliproxy_account}</TableCell>
+                        <TableCell>{row.subscription_code ?? "—"}</TableCell>
+                        <TableCell className="text-right"><Num value={row.monthly_price_usd} format="cost" /></TableCell>
+                        <TableCell className="text-right"><Num value={row.total_requests} /></TableCell>
+                        <TableCell className="text-right"><Num value={row.total_cost_usd} format="cost" /></TableCell>
+                        <TableCell className={`text-right ${row.computed_overage_usd > 0 ? "text-destructive" : ""}`}>
+                          <Num value={row.computed_overage_usd} format="cost" />
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              </CardContent>
+            </Card>
           )}
         </div>
       )}
 
       {stats && (
-        <div className="section">
-          <h3>All-Time Statistics</h3>
-          <div className="stats-row">
-            <div className="stat-box">
-              <div className="label">Total Requests</div>
-              <div className="value"><Num value={stats.total_requests} /></div>
-            </div>
-            <div className="stat-box">
-              <div className="label">Total Tokens</div>
-              <div className="value"><Num value={stats.total_tokens} /></div>
-            </div>
-            <div className="stat-box">
-              <div className="label">Total Cost</div>
-              <div className="value"><Num value={stats.total_cost_usd} format="cost" /></div>
-            </div>
+        <div className="mb-6">
+          <h3 className="text-sm font-semibold mb-3">All-Time Statistics</h3>
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+            <StatBox label="Total Requests"><Num value={stats.total_requests} /></StatBox>
+            <StatBox label="Total Tokens"><Num value={stats.total_tokens} /></StatBox>
+            <StatBox label="Total Cost"><Num value={stats.total_cost_usd} format="cost" /></StatBox>
           </div>
           {stats.first_request_at && (
-            <div style={{ fontSize: 12, color: "var(--text-muted)", marginTop: 8 }}>
+            <div className="text-xs text-muted-foreground mt-2">
               First request: {new Date(stats.first_request_at).toLocaleDateString()} · Last request:{" "}
               {stats.last_request_at ? new Date(stats.last_request_at).toLocaleDateString() : "—"}
             </div>

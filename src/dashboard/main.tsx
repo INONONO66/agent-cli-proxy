@@ -7,6 +7,8 @@ import { LogsPage } from "./pages/LogsPage";
 import { UsagePage } from "./pages/UsagePage";
 import { OAuthPage } from "./pages/OAuthPage";
 import { ApiKeysPage } from "./pages/ApiKeysPage";
+import { Skeleton } from "@/components/ui/skeleton";
+import { Card } from "@/components/ui/card";
 import "./styles.css";
 
 function useRoute(): string {
@@ -29,11 +31,11 @@ function Router() {
 
   if (loading) {
     return (
-      <div className="login-page">
-        <div className="login-card">
-          <div className="skeleton skeleton-title" />
-          <div className="skeleton skeleton-text" />
-        </div>
+      <div className="flex items-center justify-center h-screen">
+        <Card className="w-full max-w-sm p-6">
+          <Skeleton className="h-4 w-3/5 mb-3" />
+          <Skeleton className="h-3 w-full" />
+        </Card>
       </div>
     );
   }

@@ -1,5 +1,9 @@
 import { Fragment, useCallback, useState } from "react";
 import type { Usage } from "../../usage";
+import { cn } from "@/lib/utils";
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { Button } from "@/components/ui/button";
+import { Skeleton } from "@/components/ui/skeleton";
 
 function formatDate(iso: string): string {
   const d = new Date(iso);
@@ -18,6 +22,13 @@ function formatTokens(n: number): string {
 function formatCost(n: number): string {
   return `$${n.toFixed(4)}`;
 }
+
+const DOT_COLORS: Record<string, string> = {
+  ok: "bg-emerald-500",
+  warn: "bg-amber-500",
+  error: "bg-red-500",
+  pending: "bg-muted-foreground",
+};
 
 function statusDot(status?: number, lifecycle?: string): string {
   if (lifecycle === "error" || lifecycle === "aborted") return "error";
@@ -43,95 +54,95 @@ export function LogTable({ logs, loading, limit, offset, onLimitChange, onOffset
     setExpandedId((prev) => (prev === id ? null : id));
   }, []);
 
-  const total = logs.length >= limit ? offset + logs.length + 1 : offset + logs.length;
   const hasPrev = offset > 0;
   const hasNext = logs.length >= limit;
 
   return (
     <div>
-      <div className="log-table-wrap">
-        <table>
-          <thead>
-            <tr>
-              <th>Time</th>
-              <th>Tool</th>
-              <th>Client</th>
-              <th>Model</th>
-              <th>Provider</th>
-              <th style={{ textAlign: "right" }}>Tokens In</th>
-              <th style={{ textAlign: "right" }}>Tokens Out</th>
-              <th style={{ textAlign: "right" }}>Cost</th>
-              <th style={{ textAlign: "right" }}>Latency</th>
-              <th>Status</th>
-            </tr>
-          </thead>
-          <tbody>
+      <div className="rounded-lg border">
+        <Table>
+          <TableHeader>
+            <TableRow>
+              <TableHead>Time</TableHead>
+              <TableHead>Tool</TableHead>
+              <TableHead>Client</TableHead>
+              <TableHead>Model</TableHead>
+              <TableHead>Provider</TableHead>
+              <TableHead className="text-right">Tokens In</TableHead>
+              <TableHead className="text-right">Tokens Out</TableHead>
+              <TableHead className="text-right">Cost</TableHead>
+              <TableHead className="text-right">Latency</TableHead>
+              <TableHead>Status</TableHead>
+            </TableRow>
+          </TableHeader>
+          <TableBody>
             {loading && logs.length === 0 && (
               <>
                 {Array.from({ length: 5 }).map((_, i) => (
-                  <tr key={`skel-${i}`}>
+                  <TableRow key={`skel-${i}`}>
                     {Array.from({ length: 10 }).map((__, j) => (
-                      <td key={j}><div className="skeleton skeleton-text" style={{ width: `${60 + Math.random() * 40}%` }} /></td>
+                      <TableCell key={j}><Skeleton className="h-3" style={{ width: `${60 + Math.random() * 40}%` }} /></TableCell>
                     ))}
-                  </tr>
+                  </TableRow>
                 ))}
               </>
             )}
             {logs.map((log) => (
               <Fragment key={log.id}>
-                <tr
-                  className={`log-row ${expandedId === log.id ? "expanded" : ""}`}
+                <TableRow
+                  className={cn("cursor-pointer", expandedId === log.id && "bg-accent/50")}
                   onClick={() => toggleExpand(log.id ?? 0)}
                 >
-                  <td>{formatDate(log.started_at)}</td>
-                  <td>{log.tool}</td>
-                  <td><span className="mono">{log.client_id}</span></td>
-                  <td><span className="mono">{log.model}</span></td>
-                  <td>{log.provider}</td>
-                  <td style={{ textAlign: "right" }}><span className="mono">{formatTokens(log.prompt_tokens)}</span></td>
-                  <td style={{ textAlign: "right" }}><span className="mono">{formatTokens(log.completion_tokens)}</span></td>
-                  <td style={{ textAlign: "right" }}><span className="mono">{formatCost(log.cost_usd)}</span></td>
-                  <td style={{ textAlign: "right" }}><span className="mono">{log.latency_ms ? `${log.latency_ms}ms` : "—"}</span></td>
-                  <td>
-                    <span className={`status-dot ${statusDot(log.status, log.lifecycle_status)}`} />
+                  <TableCell>{formatDate(log.started_at)}</TableCell>
+                  <TableCell>{log.tool}</TableCell>
+                  <TableCell><span className="font-mono text-xs">{log.client_id}</span></TableCell>
+                  <TableCell><span className="font-mono text-xs">{log.model}</span></TableCell>
+                  <TableCell>{log.provider}</TableCell>
+                  <TableCell className="text-right"><span className="font-mono">{formatTokens(log.prompt_tokens)}</span></TableCell>
+                  <TableCell className="text-right"><span className="font-mono">{formatTokens(log.completion_tokens)}</span></TableCell>
+                  <TableCell className="text-right"><span className="font-mono">{formatCost(log.cost_usd)}</span></TableCell>
+                  <TableCell className="text-right"><span className="font-mono">{log.latency_ms ? `${log.latency_ms}ms` : "—"}</span></TableCell>
+                  <TableCell>
+                    <span className={cn("inline-block w-2 h-2 rounded-full mr-1.5", DOT_COLORS[statusDot(log.status, log.lifecycle_status)])} />
                     {log.status ?? log.lifecycle_status ?? "—"}
-                  </td>
-                </tr>
+                  </TableCell>
+                </TableRow>
                 {expandedId === log.id && (
-                  <tr>
-                    <td colSpan={10}>
-                      <div className="log-detail">
-                        <pre>{JSON.stringify(log, null, 2)}</pre>
+                  <TableRow>
+                    <TableCell colSpan={10} className="p-0">
+                      <div className="bg-muted/50 p-4 border-t">
+                        <pre className="font-mono text-xs text-muted-foreground whitespace-pre-wrap break-all leading-relaxed">{JSON.stringify(log, null, 2)}</pre>
                       </div>
-                    </td>
-                  </tr>
+                    </TableCell>
+                  </TableRow>
                 )}
               </Fragment>
             ))}
             {!loading && logs.length === 0 && (
-              <tr>
-                <td colSpan={10}>
-                  <div className="empty-state">No logs found.</div>
-                </td>
-              </tr>
+              <TableRow>
+                <TableCell colSpan={10}>
+                  <div className="text-center text-muted-foreground py-12">No logs found.</div>
+                </TableCell>
+              </TableRow>
             )}
-          </tbody>
-        </table>
+          </TableBody>
+        </Table>
       </div>
 
-      <div className="pagination">
-        <div className="controls">
-          <button disabled={!hasPrev} onClick={() => onOffsetChange(Math.max(0, offset - limit))}>
+      <div className="flex items-center justify-between mt-4 gap-3 flex-wrap">
+        <div className="flex gap-2 items-center">
+          <Button variant="outline" size="sm" disabled={!hasPrev} onClick={() => onOffsetChange(Math.max(0, offset - limit))}>
             Previous
-          </button>
-          <button disabled={!hasNext} onClick={() => onOffsetChange(offset + limit)}>
+          </Button>
+          <Button variant="outline" size="sm" disabled={!hasNext} onClick={() => onOffsetChange(offset + limit)}>
             Next
-          </button>
+          </Button>
         </div>
-        <div className="info">
+        <div className="text-xs text-muted-foreground">
           Page {Math.floor(offset / limit) + 1} · {limit} per page
         </div>
         <select
+          className="h-8 rounded-md border border-input bg-transparent px-2 text-xs"
           value={limit}
           onChange={(e) => onLimitChange(Number(e.target.value))}
         >

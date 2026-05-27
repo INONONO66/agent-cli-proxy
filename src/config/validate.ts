@@ -46,6 +46,9 @@ export interface ValidatedConfig {
   breakerHalfOpenAfterMs: number;
   breakerEvictAfterMs: number;
   rateLimitMaxRetries: number;
+  proxyRequireApiKey: boolean;
+  loginRateLimitWindowMs: number;
+  loginRateLimitMaxAttempts: number;
 }
 
 export interface ConfigIssue {
@@ -136,6 +139,9 @@ export namespace Config {
       breakerHalfOpenAfterMs: readPositiveNumber(env, "UPSTREAM_CIRCUIT_BREAKER_HALF_OPEN_AFTER_MS", 30_000, issues),
       breakerEvictAfterMs: readPositiveNumber(env, "UPSTREAM_CIRCUIT_BREAKER_EVICT_AFTER_MS", 300_000, issues),
       rateLimitMaxRetries: readPositiveInteger(env, "RATE_LIMIT_MAX_RETRIES", 3, 20, issues),
+      proxyRequireApiKey: readBoolean(env, "PROXY_REQUIRE_API_KEY", !isLoopbackHost(host)),
+      loginRateLimitWindowMs: readPositiveNumber(env, "LOGIN_RATE_LIMIT_WINDOW_MS", 60_000, issues),
+      loginRateLimitMaxAttempts: readPositiveInteger(env, "LOGIN_RATE_LIMIT_MAX_ATTEMPTS", 5, 100, issues),
     };
 
     if (!isLoopbackHost(config.host) && !config.adminApiKey) {
@@ -159,6 +165,13 @@ const LOOPBACK_HOSTS = new Set(["127.0.0.1", "localhost", "::1"]);
 function readString(env: EnvLike, key: string, fallback: string): string {
   const value = env[key];
   return value === undefined ? fallback : value;
+}
+
+function readBoolean(env: EnvLike, key: string, fallback: boolean): boolean {
+  const value = env[key];
+  if (value === undefined) return fallback;
+  const lower = value.trim().toLowerCase();
+  return lower === "1" || lower === "true" || lower === "yes";
 }
 
 function readPort(env: EnvLike, issues: ConfigIssue[]): number {

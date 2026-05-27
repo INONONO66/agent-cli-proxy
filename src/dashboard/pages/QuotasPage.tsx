@@ -3,6 +3,9 @@ import type { Usage } from "../../usage";
 import { getQuotas } from "../api";
 import { usePolling } from "../hooks/usePolling";
 import { AccountQuotaCard } from "../components/AccountQuotaCard";
+import { Button } from "@/components/ui/button";
+import { Skeleton } from "@/components/ui/skeleton";
+import { Card, CardContent } from "@/components/ui/card";
 
 export function QuotasPage() {
   const { data, loading, error, refresh } = usePolling(
@@ -44,31 +47,33 @@ export function QuotasPage() {
 
   return (
     <div>
-      <div className="content-header">
-        <h2>Quotas</h2>
-        <button onClick={handleRefresh}>Refresh</button>
+      <div className="flex items-center justify-between gap-3 flex-wrap mb-5">
+        <h2 className="text-lg font-semibold">Quotas</h2>
+        <Button variant="outline" size="sm" onClick={handleRefresh}>Refresh</Button>
       </div>
 
-      {error && <div className="error-banner">{error}</div>}
+      {error && <div className="rounded-lg border border-destructive/50 bg-destructive/10 text-destructive p-3 text-sm mb-4">{error}</div>}
 
       {loading && !data && (
-        <div className="card-grid">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
           {Array.from({ length: 4 }).map((_, i) => (
-            <div key={i} className="card">
-              <div className="skeleton skeleton-title" />
-              <div className="skeleton skeleton-text" />
-              <div className="skeleton skeleton-text" style={{ width: "80%" }} />
-            </div>
+            <Card key={i}>
+              <CardContent className="p-4">
+                <Skeleton className="h-4 w-3/5 mb-3" />
+                <Skeleton className="h-3 w-full mb-2" />
+                <Skeleton className="h-3 w-4/5" />
+              </CardContent>
+            </Card>
           ))}
         </div>
       )}
 
       {data && groups.length === 0 && (
-        <div className="empty-state">No quota snapshots available.</div>
+        <div className="text-center text-muted-foreground py-12">No quota snapshots available.</div>
       )}
 
       {data && groups.length > 0 && (
-        <div className="card-grid">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
           {groups.map((group) => (
             <AccountQuotaCard
               key={`${group.provider}\u2014${group.account}`}

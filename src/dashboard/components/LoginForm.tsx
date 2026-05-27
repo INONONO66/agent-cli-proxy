@@ -1,6 +1,15 @@
 import { useCallback, useContext, useState } from "react";
 import { login } from "../api";
 import { AuthContext } from "./Layout";
+import {
+  Card,
+  CardHeader,
+  CardTitle,
+  CardDescription,
+  CardContent,
+} from "@/components/ui/card";
+import { Input } from "@/components/ui/input";
+import { Button } from "@/components/ui/button";
 
 export function LoginForm() {
   const { setAuthenticated } = useContext(AuthContext);
@@ -31,22 +40,32 @@ export function LoginForm() {
   );
 
   return (
-    <div className="login-page">
-      <form className="login-card" onSubmit={handleSubmit}>
-        <h2>Dashboard Login</h2>
-        <p>Enter your admin password to continue.</p>
-        {error && <div className="error">{error}</div>}
-        <input
-          type="password"
-          placeholder="Password"
-          value={password}
-          onChange={(e) => setPassword(e.target.value)}
-          autoFocus
-        />
-        <button type="submit" className="primary" disabled={submitting || !password}>
-          {submitting ? "Signing in..." : "Sign in"}
-        </button>
-      </form>
+    <div className="flex items-center justify-center h-screen p-6">
+      <Card className="w-full max-w-sm">
+        <CardHeader>
+          <CardTitle>Dashboard Login</CardTitle>
+          <CardDescription>Enter your admin password</CardDescription>
+        </CardHeader>
+        <CardContent>
+          <form onSubmit={handleSubmit} className="space-y-4">
+            {error && <p className="text-sm text-destructive">{error}</p>}
+            <Input
+              type="password"
+              placeholder="Password"
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              autoFocus
+            />
+            <Button
+              disabled={submitting || !password}
+              className="w-full"
+              type="submit"
+            >
+              {submitting ? "Signing in..." : "Sign in"}
+            </Button>
+          </form>
+        </CardContent>
+      </Card>
     </div>
   );
 }

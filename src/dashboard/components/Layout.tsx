@@ -1,4 +1,7 @@
-import { useCallback, useContext, useEffect, useState } from "react";
+import React, { useCallback, useContext, useEffect, useState } from "react";
+import { getSession, logout } from "../api";
+import { cn } from "@/lib/utils";
+import { Button } from "@/components/ui/button";
 
 interface AuthContextValue {
   authenticated: boolean;
@@ -11,9 +14,6 @@ export const AuthContext = React.createContext<AuthContextValue>({
   setAuthenticated: () => {},
   loading: true,
 });
-
-import React from "react";
-import { getSession, logout } from "../api";
 
 const NAV = [
   { path: "#/quotas", label: "Quotas" },
@@ -42,28 +42,35 @@ export function Layout({ children }: { children: React.ReactNode }) {
   }, [setAuthenticated]);
 
   return (
-    <div className="dashboard-layout">
-      <aside className="sidebar">
-        <div className="sidebar-header">
-          <h1>agent-cli-proxy</h1>
-          <div className="version">dashboard</div>
+    <div className="flex h-screen overflow-hidden">
+      <aside className="w-52 shrink-0 bg-sidebar border-r border-sidebar-border flex flex-col">
+        <div className="px-4 py-4 border-b border-sidebar-border">
+          <h1 className="text-lg font-semibold">agent-cli-proxy</h1>
+          <div className="text-xs text-muted-foreground">dashboard</div>
         </div>
-        <nav className="sidebar-nav">
+        <nav className="flex-1 px-3 py-3 space-y-1">
           {NAV.map((item) => (
             <a
               key={item.path}
               href={item.path}
-              className={hash === item.path || hash.startsWith(item.path + "/") ? "active" : ""}
+              className={cn(
+                "block px-3 py-2 rounded-md text-sm transition-colors",
+                hash === item.path || hash.startsWith(item.path + "/")
+                  ? "bg-sidebar-accent text-sidebar-accent-foreground font-medium"
+                  : "text-sidebar-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground",
+              )}
             >
               {item.label}
             </a>
           ))}
         </nav>
-        <div className="sidebar-footer">
-          <button onClick={handleLogout}>Logout</button>
+        <div className="px-3 py-3 border-t border-sidebar-border">
+          <Button variant="outline" className="w-full" onClick={handleLogout}>
+            Logout
+          </Button>
         </div>
       </aside>
-      <main className="content">{children}</main>
+      <main className="flex-1 overflow-y-auto p-6 min-w-0">{children}</main>
     </div>
   );
 }

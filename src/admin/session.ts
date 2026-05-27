@@ -1,10 +1,13 @@
 import { mkdir } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { Logger } from "../util/logger";
+import { Config } from "../config";
 
 const logger = Logger.fromConfig().child({ component: "admin.session" });
 const COOKIE_NAME = "__dashboard_session";
 const encoder = new TextEncoder();
+
+const loginAttempts = new Map<string, { count: number; resetAt: number }>();
 
 export namespace Session {
   export interface LoginConfig {
@@ -58,6 +61,12 @@ export namespace Session {
   export async function handleLogin(req: Request, config: LoginConfig): Promise<Response> {
     if (!config.passwordHash) return json({ error: "dashboard login not configured" }, 403);
 
+    const clientIp = req.headers.get("x-forwarded-for")?.split(",")[0]?.trim() ?? "unknown";
+    if (isLoginRateLimited(clientIp)) {
+      logger.warn("login rate limited", { event: "dashboard.login.rate_limited", ip: clientIp });
+      return json({ error: "too many login attempts, try again later" }, 429);
+    }
+
     const body = await readLoginBody(req);
     if (!body) return json({ error: "invalid password" }, 401);
 
@@ -68,8 +77,12 @@ export namespace Session {
       logger.warn("dashboard password verification failed", { event: "dashboard.login.verify_error", err });
     }
 
-    if (!ok) return json({ error: "invalid password" }, 401);
+    if (!ok) {
+      recordLoginAttempt(clientIp);
+      return json({ error: "invalid password" }, 401);
+    }
 
+    clearLoginAttempts(clientIp);
     const token = await signSession(config.secret);
     return json({ ok: true }, 200, {
       "set-cookie": buildCookie(token, Math.floor(config.ttlMs / 1000)),
@@ -150,8 +163,38 @@ function readCookie(header: string | null, name: string): string | null {
   return null;
 }
 
+function isSecureContext(): boolean {
+  const host = Config.host;
+  return host !== "127.0.0.1" && host !== "localhost" && host !== "::1";
+}
+
 function buildCookie(token: string, maxAgeSeconds: number): string {
-  return `${COOKIE_NAME}=${token}; HttpOnly; SameSite=Strict; Path=/; Max-Age=${maxAgeSeconds}`;
+  const secure = isSecureContext() ? "; Secure" : "";
+  return `${COOKIE_NAME}=${token}; HttpOnly; SameSite=Strict; Path=/; Max-Age=${maxAgeSeconds}${secure}`;
+}
+
+function isLoginRateLimited(ip: string): boolean {
+  const entry = loginAttempts.get(ip);
+  if (!entry) return false;
+  if (Date.now() > entry.resetAt) {
+    loginAttempts.delete(ip);
+    return false;
+  }
+  return entry.count >= Config.loginRateLimitMaxAttempts;
+}
+
+function recordLoginAttempt(ip: string): void {
+  const now = Date.now();
+  const entry = loginAttempts.get(ip);
+  if (!entry || now > entry.resetAt) {
+    loginAttempts.set(ip, { count: 1, resetAt: now + Config.loginRateLimitWindowMs });
+  } else {
+    entry.count++;
+  }
+}
+
+function clearLoginAttempts(ip: string): void {
+  loginAttempts.delete(ip);
 }
 
 function json(data: unknown, status = 200, headers: Record<string, string> = {}): Response {

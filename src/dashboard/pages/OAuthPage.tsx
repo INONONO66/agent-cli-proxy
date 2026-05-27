@@ -4,6 +4,8 @@ import { usePolling } from "../hooks/usePolling";
 import { AuthAccountList } from "../components/AuthAccountList";
 import { OAuthJobPanel } from "../components/OAuthJobPanel";
 import type { OAuthStartResponse } from "../api";
+import { Card, CardContent } from "@/components/ui/card";
+import { Skeleton } from "@/components/ui/skeleton";
 
 export function OAuthPage() {
   const { data, loading, error, refresh } = usePolling(getOAuthAccounts, 30000);
@@ -28,23 +30,25 @@ export function OAuthPage() {
 
   return (
     <div>
-      <div className="content-header">
-        <h2>OAuth Accounts</h2>
+      <div className="flex items-center justify-between gap-3 flex-wrap mb-5">
+        <h2 className="text-lg font-semibold">OAuth Accounts</h2>
       </div>
 
-      {error && <div className="error-banner">{error}</div>}
+      {error && <div className="rounded-lg border border-destructive/50 bg-destructive/10 text-destructive p-3 text-sm mb-4">{error}</div>}
 
       {activeJob && (
         <OAuthJobPanel job={activeJob} onDone={handleJobDone} />
       )}
 
       {loading && !data && (
-        <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+        <div className="flex flex-col gap-3">
           {Array.from({ length: 3 }).map((_, i) => (
-            <div key={i} className="card">
-              <div className="skeleton skeleton-title" />
-              <div className="skeleton skeleton-text" style={{ width: "60%" }} />
-            </div>
+            <Card key={i}>
+              <CardContent className="p-4">
+                <Skeleton className="h-4 w-3/5 mb-3" />
+                <Skeleton className="h-3 w-2/5" />
+              </CardContent>
+            </Card>
           ))}
         </div>
       )}

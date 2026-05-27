@@ -1,11 +1,16 @@
 import type { Usage } from "../../usage";
 import { Num } from "../utils/numbers";
+import { Card, CardContent } from "@/components/ui/card";
+import { Badge } from "@/components/ui/badge";
+import { Progress } from "@/components/ui/progress";
+import { cn } from "@/lib/utils";
 
-const PROVIDER_COLORS: Record<string, { bg: string; color: string }> = {
-  claude: { bg: "rgba(208,126,60,0.15)", color: "#d07e3c" },
-  codex: { bg: "rgba(63,185,80,0.15)", color: "#3fb950" },
-  kimi: { bg: "rgba(88,166,255,0.15)", color: "#58a6ff" },
-  xai: { bg: "rgba(248,81,73,0.15)", color: "#f85149" },
+const PROVIDER_BADGE_CLASSES: Record<string, string> = {
+  claude: "border-orange-500/50 text-orange-400",
+  codex: "border-emerald-500/50 text-emerald-400",
+  kimi: "border-blue-500/50 text-blue-400",
+  xai: "border-red-500/50 text-red-400",
+  default: "border-muted-foreground/50 text-muted-foreground",
 };
 
 function providerKey(provider: string): string {
@@ -17,27 +22,22 @@ function providerKey(provider: string): string {
   return "default";
 }
 
-function providerColor(provider: string) {
-  return PROVIDER_COLORS[providerKey(provider)] ?? {
-    bg: "rgba(110,118,129,0.15)",
-    color: "#6e7681",
-  };
+function providerBadgeClass(provider: string): string {
+  return PROVIDER_BADGE_CLASSES[providerKey(provider)] ?? PROVIDER_BADGE_CLASSES.default;
 }
 
-function thresholdColor(usedPct: number | null | undefined): string {
-  if (usedPct == null) return "var(--text-muted)";
-  if (usedPct > 90) return "var(--accent-red)";
-  if (usedPct > 75) return "var(--accent-orange)";
-  if (usedPct >= 50) return "var(--accent-yellow)";
-  return "var(--accent-green)";
+function thresholdClass(usedPct: number | null | undefined): string {
+  if (usedPct == null) return "text-muted-foreground";
+  if (usedPct > 90) return "text-red-500";
+  if (usedPct > 75) return "text-orange-400";
+  if (usedPct >= 50) return "text-amber-500";
+  return "text-emerald-500";
 }
 
 function formatPct(n: number | null | undefined): string {
   if (n == null) return "—";
   return `${n.toFixed(1)}%`;
 }
-
-
 
 function timeUntil(iso: string | null | undefined): string {
   if (!iso) return "—";
@@ -112,117 +112,60 @@ interface AccountQuotaCardProps {
 }
 
 export function AccountQuotaCard({ provider, account, snapshots }: AccountQuotaCardProps) {
-  const pColor = providerColor(provider);
   const sorted = sortSnapshots(snapshots);
 
   return (
-    <div className="quota-card" style={{ display: "flex", flexDirection: "column", gap: 16 }}>
-      <div className="header" style={{ marginBottom: 0 }}>
-        <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-          <span
-            style={{
-              display: "inline-block",
-              padding: "2px 8px",
-              borderRadius: "var(--radius)",
-              fontSize: 11,
-              fontWeight: 600,
-              textTransform: "uppercase",
-              letterSpacing: "0.3px",
-              background: pColor.bg,
-              color: pColor.color,
-            }}
-          >
+    <Card>
+      <CardContent className="flex flex-col gap-4">
+        <div className="flex items-center gap-2.5">
+          <Badge variant="outline" className={cn("text-[11px] font-semibold uppercase tracking-wide", providerBadgeClass(provider))}>
             {provider}
-          </span>
-          <span style={{ fontSize: 13, fontWeight: 500, color: "var(--text-primary)" }}>
-            {account}
-          </span>
+          </Badge>
+          <span className="text-sm font-medium">{account}</span>
         </div>
-      </div>
 
-      <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
-        {sorted.map((snap) => {
-          const expired = isExpired(snap);
-          const color = thresholdColor(snap.used_pct);
-          const pace = computePace(snap);
-          const pct = Math.min(snap.used_pct ?? 0, 100);
+        <div className="flex flex-col gap-3.5">
+          {sorted.map((snap) => {
+            const expired = isExpired(snap);
+            const colorClass = thresholdClass(snap.used_pct);
+            const pace = computePace(snap);
+            const pct = Math.min(snap.used_pct ?? 0, 100);
 
-          return (
-            <div
-              key={snap.quota_type}
-              style={{ display: "flex", flexDirection: "column", gap: 6 }}
-            >
-              <div
-                style={{
-                  display: "flex",
-                  alignItems: "center",
-                  justifyContent: "space-between",
-                }}
-              >
-                <span
-                  style={{
-                    fontSize: 12,
-                    fontWeight: 600,
-                    color: "var(--text-secondary)",
-                    textTransform: "capitalize",
-                  }}
-                >
-                  {snap.quota_type.replace(/_/g, " ")}
-                </span>
-                <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                  {expired && (
-                    <span
-                      className="status-badge critical"
-                      style={{ fontSize: 10, padding: "1px 6px" }}
-                    >
-                      Expired
-                    </span>
-                  )}
-                  <span style={{ fontSize: 12, fontWeight: 600, color }}>
-                    {formatPct(snap.used_pct)}
+            return (
+              <div key={snap.quota_type} className="flex flex-col gap-1.5">
+                <div className="flex items-center justify-between">
+                  <span className="text-xs font-semibold text-muted-foreground capitalize">
+                    {snap.quota_type.replace(/_/g, " ")}
                   </span>
+                  <div className="flex items-center gap-2">
+                    {expired && (
+                      <Badge variant="destructive" className="text-[10px] px-1.5 py-0">
+                        Expired
+                      </Badge>
+                    )}
+                    <span className={cn("text-xs font-semibold", colorClass)}>
+                      {formatPct(snap.used_pct)}
+                    </span>
+                  </div>
                 </div>
-              </div>
 
-              <div className="quota-bar-bg" style={{ marginBottom: 0 }}>
-                <div
-                  style={{
-                    height: "100%",
-                    borderRadius: 3,
-                    transition: "width 0.3s ease",
-                    width: `${pct}%`,
-                    background: color,
-                  }}
-                />
-              </div>
+                <Progress value={pct} />
 
-              <div
-                style={{
-                  display: "flex",
-                  justifyContent: "space-between",
-                  fontSize: 11,
-                  color: "var(--text-secondary)",
-                }}
-              >
-                <span>Remaining: {snap.remaining != null ? <Num value={snap.remaining} /> : "—"}</span>
-                <span>Resets in: {timeUntil(snap.resets_at)}</span>
-              </div>
-
-              {pace && (
-                <div
-                  style={{
-                    fontSize: 11,
-                    color: "var(--text-muted)",
-                    fontStyle: "italic",
-                  }}
-                >
-                  {pace}
+                <div className="flex justify-between text-xs text-muted-foreground">
+                  <span>Remaining: {snap.remaining != null ? <Num value={snap.remaining} /> : "—"}</span>
+                  <span>Resets in: {timeUntil(snap.resets_at)}</span>
                 </div>
-              )}
-            </div>
-          );
-        })}
-      </div>
-    </div>
+
+                {pace && (
+                  <div className="text-xs text-muted-foreground italic">
+                    {pace}
+                  </div>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      </CardContent>
+    </Card>
   );
 }

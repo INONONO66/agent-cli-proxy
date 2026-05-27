@@ -41,8 +41,9 @@
   ],
   "scripts": {
     "dev": "bun run --watch src/index.ts",
-    "build": "bun build src/index.ts src/cli.ts --target=bun --outdir=./dist && rm -rf dist/dashboard && bun build src/dashboard/index.html --target=browser --outdir=./dist/dashboard && rm -rf dist/migrations && cp -R src/storage/migrations dist/migrations && mkdir -p dist/data && cp data/plans.default.json dist/data/plans.default.json && bun run scripts/post-build.ts",
-    "build:dashboard": "bun build src/dashboard/index.html --target=browser --outdir=./dist/dashboard",
+    "build": "bun build src/index.ts src/cli.ts --target=bun --outdir=./dist && rm -rf dist/dashboard && bunx vite build --config src/dashboard/vite.config.ts && rm -rf dist/migrations && cp -R src/storage/migrations dist/migrations && mkdir -p dist/data && cp data/plans.default.json dist/data/plans.default.json && bun run scripts/post-build.ts",
+    "build:dashboard": "bunx vite build --config src/dashboard/vite.config.ts",
+    "dev:dashboard": "bunx vite --config src/dashboard/vite.config.ts",
     "typecheck": "bunx tsc --noEmit",
     "test": "bun test",
     "release-check": "bun run typecheck && bun run test && bun run build && (bunx publint dist || bun run scripts/release-fallback-check.ts)",
@@ -59,17 +60,27 @@
     "release:dry-run": "bun run scripts/release.ts --dry-run"
   },
   "devDependencies": {
+    "@tailwindcss/vite": "^4.3.0",
     "@tokscale/core": "^1.4.3",
     "@types/bun": "latest",
+    "@types/node": "^25.9.1",
     "@types/react": "^19.2.15",
-    "@types/react-dom": "^19.2.3"
+    "@types/react-dom": "^19.2.3",
+    "@vitejs/plugin-react": "^6.0.2",
+    "tailwindcss": "^4.3.0",
+    "vite": "^8.0.14"
   },
   "peerDependencies": {
     "typescript": "^5"
   },
   "dependencies": {
+    "class-variance-authority": "^0.7.1",
+    "clsx": "^2.1.1",
+    "lucide-react": "^1.16.0",
+    "radix-ui": "^1.4.3",
     "react": "^19.2.6",
     "react-dom": "^19.2.6",
-    "recharts": "^3.8.1"
+    "recharts": "^3.8.1",
+    "tailwind-merge": "^3.6.0"
   }
 }

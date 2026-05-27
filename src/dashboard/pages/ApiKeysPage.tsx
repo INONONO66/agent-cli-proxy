@@ -10,6 +10,20 @@ import {
 import { usePolling } from "../hooks/usePolling";
 import type { ApiKey, ApiKeyUsageResponse } from "../api";
 import { Num } from "../utils/numbers";
+import { Card, CardContent } from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Badge } from "@/components/ui/badge";
+import { Skeleton } from "@/components/ui/skeleton";
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 
 const knownProviders = ["anthropic", "openai", "kimi", "xai"];
 const fallbackAccounts = ["ino@timetreeapp.com", "openai.hatbox581@passmail.net"];
@@ -157,178 +171,168 @@ export function ApiKeysPage() {
 
   return (
     <div>
-      <div className="content-header">
-        <h2>API Keys</h2>
+      <div className="flex items-center justify-between gap-3 flex-wrap mb-5">
+        <h2 className="text-lg font-semibold">API Keys</h2>
       </div>
 
-      {error && <div className="error-banner">{error}</div>}
+      {error && <div className="rounded-lg border border-destructive/50 bg-destructive/10 text-destructive p-3 text-sm mb-4">{error}</div>}
 
-      <div className="card" style={{ marginBottom: 20 }}>
-        <form onSubmit={handleCreate} style={{ display: "flex", gap: 12, alignItems: "flex-start", flexWrap: "wrap" }}>
-          <input
-            type="text"
-            placeholder="Key name"
-            value={newName}
-            onChange={(e) => setNewName(e.target.value)}
-            disabled={creating}
-            style={{ minWidth: 200, flex: 1 }}
-          />
-          <RestrictionEditor
-            accounts={newAccounts}
-            providers={newProviders}
-            accountOptions={accountOptions}
-            providerOptions={providerOptions}
-            disabled={creating}
-            onAccountsChange={setNewAccounts}
-            onProvidersChange={setNewProviders}
-          />
-          <button type="submit" className="primary" disabled={creating || !newName.trim()}>
-            {creating ? "Creating..." : "Create Key"}
-          </button>
-        </form>
-      </div>
+      <Card className="mb-5">
+        <CardContent className="p-4">
+          <form onSubmit={handleCreate} className="flex gap-3 items-start flex-wrap">
+            <Input
+              type="text"
+              placeholder="Key name"
+              value={newName}
+              onChange={(e) => setNewName(e.target.value)}
+              disabled={creating}
+              className="min-w-[200px] flex-1"
+            />
+            <RestrictionEditor
+              accounts={newAccounts}
+              providers={newProviders}
+              accountOptions={accountOptions}
+              providerOptions={providerOptions}
+              disabled={creating}
+              onAccountsChange={setNewAccounts}
+              onProvidersChange={setNewProviders}
+            />
+            <Button type="submit" disabled={creating || !newName.trim()}>
+              {creating ? "Creating..." : "Create Key"}
+            </Button>
+          </form>
+        </CardContent>
+      </Card>
 
       {loading && !data && (
-        <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+        <div className="flex flex-col gap-3">
           {Array.from({ length: 3 }).map((_, i) => (
-            <div key={i} className="card">
-              <div className="skeleton skeleton-title" />
-              <div className="skeleton skeleton-text" style={{ width: "60%" }} />
-            </div>
+            <Card key={i}>
+              <CardContent className="p-4">
+                <Skeleton className="h-4 w-3/5 mb-3" />
+                <Skeleton className="h-3 w-2/5" />
+              </CardContent>
+            </Card>
           ))}
         </div>
       )}
 
       {keys.length === 0 && !loading && (
-        <div className="empty-state">No API keys yet.</div>
+        <div className="text-center text-muted-foreground py-12">No API keys yet.</div>
       )}
 
       {keys.length > 0 && (
-        <div className="log-table-wrap">
-          <table>
-            <thead>
-              <tr>
-                <th>Name</th>
-                <th>Key Prefix</th>
-                <th>Created</th>
-                <th>Last Used</th>
-                <th>Requests</th>
-                <th>Allowed Accounts</th>
-                <th>Allowed Providers</th>
-                <th>Actions</th>
-              </tr>
-            </thead>
-            <tbody>
+        <div className="rounded-lg border">
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead>Name</TableHead>
+                <TableHead>Key Prefix</TableHead>
+                <TableHead>Created</TableHead>
+                <TableHead>Last Used</TableHead>
+                <TableHead>Requests</TableHead>
+                <TableHead>Allowed Accounts</TableHead>
+                <TableHead>Allowed Providers</TableHead>
+                <TableHead>Actions</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
               {keys.map((key) => (
                 <React.Fragment key={key.id}>
-                  <tr className={key.revokedAt ? "disabled" : undefined} style={key.revokedAt ? { opacity: 0.5 } : undefined}>
-                    <td>
-                      <span style={{ fontWeight: 600 }}>{key.name}</span>
+                  <TableRow className={key.revokedAt ? "opacity-50" : undefined}>
+                    <TableCell>
+                      <span className="font-semibold">{key.name}</span>
                       {key.revokedAt && (
-                        <span
-                          className="status-badge disabled"
-                          style={{ marginLeft: 8, fontSize: 10, verticalAlign: "middle" }}
-                        >
-                          Revoked
-                        </span>
+                        <Badge variant="secondary" className="ml-2 text-[10px]">Revoked</Badge>
                       )}
-                    </td>
-                    <td className="mono">{key.keyPrefix}***</td>
-                    <td>{formatDate(key.createdAt)}</td>
-                    <td>{key.lastUsedAt ? formatDate(key.lastUsedAt) : "—"}</td>
-                    <td><Num value={key.requestCount} /></td>
-                    <td>{formatRestriction(key.allowedAccounts)}</td>
-                    <td>{formatRestriction(key.allowedProviders)}</td>
-                    <td>
-                      <div style={{ display: "flex", gap: 6 }}>
-                        <button onClick={() => toggleUsage(key.id)} disabled={!!key.revokedAt}>
+                    </TableCell>
+                    <TableCell className="font-mono text-xs">{key.keyPrefix}***</TableCell>
+                    <TableCell>{formatDate(key.createdAt)}</TableCell>
+                    <TableCell>{key.lastUsedAt ? formatDate(key.lastUsedAt) : "—"}</TableCell>
+                    <TableCell><Num value={key.requestCount} /></TableCell>
+                    <TableCell>{formatRestriction(key.allowedAccounts)}</TableCell>
+                    <TableCell>{formatRestriction(key.allowedProviders)}</TableCell>
+                    <TableCell>
+                      <div className="flex gap-1.5">
+                        <Button variant="outline" size="xs" onClick={() => toggleUsage(key.id)} disabled={!!key.revokedAt}>
                           {expandedId === key.id ? "Hide" : "Usage"}
-                        </button>
+                        </Button>
                         {!key.revokedAt && (
                           <>
-                            <button onClick={() => openEdit(key)}>Edit</button>
-                            <button className="danger" onClick={() => handleRevoke(key.id, key.name)}>
+                            <Button variant="outline" size="xs" onClick={() => openEdit(key)}>Edit</Button>
+                            <Button variant="destructive" size="xs" onClick={() => handleRevoke(key.id, key.name)}>
                               Revoke
-                            </button>
+                            </Button>
                           </>
                         )}
                       </div>
-                    </td>
-                  </tr>
+                    </TableCell>
+                  </TableRow>
                   {expandedId === key.id && (
-                    <tr>
-                      <td colSpan={8} style={{ padding: 0 }}>
-                        <div className="log-detail">
+                    <TableRow>
+                      <TableCell colSpan={8} className="p-0">
+                        <div className="bg-muted/50 p-4 border-t">
                           {usageLoading[key.id] ? (
-                            <div className="skeleton skeleton-text" style={{ width: "40%" }} />
+                            <Skeleton className="h-3 w-2/5" />
                           ) : (
-                            <div style={{ display: "flex", gap: 24, flexWrap: "wrap" }}>
+                            <div className="flex gap-6 flex-wrap">
                               <UsageMetric label="Requests" value={<Num value={usageById[key.id]?.requestCount ?? 0} />} />
                               <UsageMetric label="Tokens" value={<Num value={usageById[key.id]?.totalTokens ?? 0} />} />
                               <UsageMetric label="Cost" value={<Num value={usageById[key.id]?.totalCostUsd ?? 0} format="cost" />} />
                             </div>
                           )}
                         </div>
-                      </td>
-                    </tr>
+                      </TableCell>
+                    </TableRow>
                   )}
                 </React.Fragment>
               ))}
-            </tbody>
-          </table>
+            </TableBody>
+          </Table>
         </div>
       )}
 
-      {createdKey && (
-        <ApiKeyCreatedModal
-          createdKey={createdKey}
-          copied={copied}
-          onClose={closeModal}
-          onCopy={handleCopy}
-        />
-      )}
-
-      {editingKey && (
-        <div
-          style={{
-            position: "fixed",
-            inset: 0,
-            background: "rgba(0,0,0,0.6)",
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "center",
-            zIndex: 100,
-            padding: 24,
-          }}
-          onClick={closeEdit}
-        >
-          <div
-            className="card"
-            style={{ maxWidth: 560, width: "100%" }}
-            onClick={(e) => e.stopPropagation()}
-          >
-            <h3 style={{ marginBottom: 12, fontSize: 16 }}>Edit API Key Restrictions</h3>
-            <p style={{ color: "var(--text-secondary)", fontSize: 12, marginBottom: 12 }}>
-              Empty accounts or providers means unrestricted.
-            </p>
-            <RestrictionEditor
-              accounts={editAccounts}
-              providers={editProviders}
-              accountOptions={accountOptions}
-              providerOptions={providerOptions}
-              disabled={savingEdit}
-              onAccountsChange={setEditAccounts}
-              onProvidersChange={setEditProviders}
-            />
-            <div style={{ display: "flex", gap: 8, justifyContent: "flex-end", marginTop: 16 }}>
-              <button onClick={closeEdit} disabled={savingEdit}>Cancel</button>
-              <button className="primary" onClick={handleSaveEdit} disabled={savingEdit}>
-                {savingEdit ? "Saving..." : "Save"}
-              </button>
-            </div>
+      <Dialog open={!!createdKey} onOpenChange={() => closeModal()}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>API Key Created</DialogTitle>
+            <DialogDescription>Copy this key now. It will not be shown again.</DialogDescription>
+          </DialogHeader>
+          <div className="rounded-md border bg-muted/50 p-3 font-mono text-xs break-all">
+            {createdKey}
           </div>
-        </div>
-      )}
+          <DialogFooter>
+            <Button variant="outline" onClick={handleCopy} disabled={copied}>
+              {copied ? "Copied!" : "Copy to Clipboard"}
+            </Button>
+            <Button onClick={closeModal}>Done</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={!!editingKey} onOpenChange={() => closeEdit()}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Edit API Key Restrictions</DialogTitle>
+            <DialogDescription>Empty accounts or providers means unrestricted.</DialogDescription>
+          </DialogHeader>
+          <RestrictionEditor
+            accounts={editAccounts}
+            providers={editProviders}
+            accountOptions={accountOptions}
+            providerOptions={providerOptions}
+            disabled={savingEdit}
+            onAccountsChange={setEditAccounts}
+            onProvidersChange={setEditProviders}
+          />
+          <DialogFooter>
+            <Button variant="outline" onClick={closeEdit} disabled={savingEdit}>Cancel</Button>
+            <Button onClick={handleSaveEdit} disabled={savingEdit}>
+              {savingEdit ? "Saving..." : "Save"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
@@ -345,8 +349,8 @@ interface RestrictionEditorProps {
 
 function RestrictionEditor(props: RestrictionEditorProps) {
   return (
-    <div style={{ display: "flex", flexDirection: "column", gap: 8, minWidth: 280 }}>
-      <input
+    <div className="flex flex-col gap-2 min-w-[280px]">
+      <Input
         type="text"
         placeholder="Allowed accounts (comma-separated)"
         value={props.accounts}
@@ -359,11 +363,12 @@ function RestrictionEditor(props: RestrictionEditorProps) {
           <option key={account} value={account} />
         ))}
       </datalist>
-      <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+      <div className="flex gap-2 flex-wrap">
         {props.providerOptions.map((provider) => (
-          <label key={provider} style={{ display: "flex", alignItems: "center", gap: 4, fontSize: 12 }}>
+          <label key={provider} className="flex items-center gap-1 text-xs cursor-pointer">
             <input
               type="checkbox"
+              className="rounded border-input"
               checked={props.providers.includes(provider)}
               disabled={props.disabled}
               onChange={() => props.onProvidersChange(toggleSelection(props.providers, provider))}
@@ -384,70 +389,8 @@ interface UsageMetricProps {
 function UsageMetric(props: UsageMetricProps) {
   return (
     <div>
-      <div className="label" style={{ fontSize: 11, color: "var(--text-muted)", textTransform: "uppercase", letterSpacing: 0.5 }}>
-        {props.label}
-      </div>
-      <div className="value" style={{ fontFamily: "var(--font-mono)", fontSize: 18, fontWeight: 600 }}>
-        {props.value}
-      </div>
-    </div>
-  );
-}
-
-interface ApiKeyCreatedModalProps {
-  readonly createdKey: string;
-  readonly copied: boolean;
-  readonly onClose: () => void;
-  readonly onCopy: () => void;
-}
-
-function ApiKeyCreatedModal(props: ApiKeyCreatedModalProps) {
-  return (
-    <div
-      style={{
-        position: "fixed",
-        inset: 0,
-        background: "rgba(0,0,0,0.6)",
-        display: "flex",
-        alignItems: "center",
-        justifyContent: "center",
-        zIndex: 100,
-        padding: 24,
-      }}
-      onClick={props.onClose}
-    >
-      <div
-        className="card"
-        style={{ maxWidth: 520, width: "100%" }}
-        onClick={(e) => e.stopPropagation()}
-      >
-        <h3 style={{ marginBottom: 12, fontSize: 16 }}>API Key Created</h3>
-        <p style={{ color: "var(--text-secondary)", fontSize: 12, marginBottom: 12 }}>
-          Copy this key now. It will not be shown again.
-        </p>
-        <div
-          style={{
-            background: "var(--bg-primary)",
-            border: "1px solid var(--border)",
-            borderRadius: "var(--radius)",
-            padding: "10px 12px",
-            fontFamily: "var(--font-mono)",
-            fontSize: 12,
-            wordBreak: "break-all",
-            marginBottom: 12,
-          }}
-        >
-          {props.createdKey}
-        </div>
-        <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
-          <button onClick={props.onCopy} disabled={props.copied}>
-            {props.copied ? "Copied!" : "Copy to Clipboard"}
-          </button>
-          <button className="primary" onClick={props.onClose}>
-            Done
-          </button>
-        </div>
-      </div>
+      <div className="text-[11px] uppercase tracking-wider text-muted-foreground">{props.label}</div>
+      <div className="font-mono text-lg font-semibold">{props.value}</div>
     </div>
   );
 }

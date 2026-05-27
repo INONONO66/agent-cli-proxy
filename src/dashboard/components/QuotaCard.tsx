@@ -1,5 +1,9 @@
 import type { Usage } from "../../usage";
 import { Num } from "../utils/numbers";
+import { Card, CardContent } from "@/components/ui/card";
+import { Badge } from "@/components/ui/badge";
+import { Progress } from "@/components/ui/progress";
+import { cn } from "@/lib/utils";
 
 function formatPct(n: number | null | undefined): string {
   if (n == null) return "—";
@@ -32,38 +36,43 @@ export function QuotaCard({ snapshot }: QuotaCardProps) {
   const pct = snapshot.used_pct ?? 0;
 
   return (
-    <div className="quota-card">
-      <div className="header">
-        <div>
-          <div className="provider">{snapshot.provider}</div>
-          <div className="account">{snapshot.account}</div>
+    <Card>
+      <CardContent>
+        <div className="flex items-start justify-between mb-3">
+          <div>
+            <div className="text-sm font-semibold">{snapshot.provider}</div>
+            <div className="text-xs text-muted-foreground">{snapshot.account}</div>
+          </div>
+          <Badge
+            variant="outline"
+            className={cn(
+              status === "ok" && "border-emerald-500/50 text-emerald-500",
+              status === "warn" && "border-amber-500/50 text-amber-500",
+              status === "critical" && "border-red-500/50 text-red-500",
+              status === "disabled" && "border-muted-foreground/50 text-muted-foreground",
+            )}
+          >
+            {status === "ok" && "Healthy"}
+            {status === "warn" && "Warning"}
+            {status === "critical" && "Critical"}
+            {status === "disabled" && "Unavailable"}
+          </Badge>
         </div>
-        <span className={`status-badge ${status}`}>
-          {status === "ok" && "Healthy"}
-          {status === "warn" && "Warning"}
-          {status === "critical" && "Critical"}
-          {status === "disabled" && "Unavailable"}
-        </span>
-      </div>
 
-      <div className="quota-bar-bg">
-        <div
-          className={`quota-bar-fill ${status}`}
-          style={{ width: `${Math.min(pct, 100)}%` }}
-        />
-      </div>
+        <Progress value={Math.min(pct, 100)} className="mb-3" />
 
-      <div className="quota-meta">
-        <span>Used: {formatPct(snapshot.used_pct)}</span>
-        <span>Remaining: {snapshot.remaining != null ? <Num value={snapshot.remaining} /> : "—"}</span>
-      </div>
-
-      {snapshot.resets_at && (
-        <div className="quota-meta" style={{ marginTop: 4 }}>
-          <span>Type: {snapshot.quota_type}</span>
-          <span>Resets in: {timeUntil(snapshot.resets_at)}</span>
+        <div className="flex justify-between text-xs text-muted-foreground">
+          <span>Used: {formatPct(snapshot.used_pct)}</span>
+          <span>Remaining: {snapshot.remaining != null ? <Num value={snapshot.remaining} /> : "—"}</span>
         </div>
-      )}
-    </div>
+
+        {snapshot.resets_at && (
+          <div className="flex justify-between text-xs text-muted-foreground mt-1">
+            <span>Type: {snapshot.quota_type}</span>
+            <span>Resets in: {timeUntil(snapshot.resets_at)}</span>
+          </div>
+        )}
+      </CardContent>
+    </Card>
   );
 }
