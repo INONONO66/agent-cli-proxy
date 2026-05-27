@@ -247,6 +247,7 @@ export namespace Storage {
           END
       WHERE lifecycle_status = 'pending'
         AND started_at < ?
+        AND source = 'proxy'
     `);
     const result = stmt.run(now, now, threshold);
     const recovered = result.changes;
