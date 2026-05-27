@@ -73,14 +73,14 @@ const CHART_TOOLTIP_BORDER = "#30363d";
 
 type TimeRange = 5 | 24 | 168 | 720 | "all" | "custom";
 
-const TIME_RANGE_LABELS: Record<TimeRange, string> = {
-  5: "5h",
-  24: "24h",
-  168: "7d",
-  720: "30d",
-  all: "All",
-  custom: "Custom",
-};
+const TIME_RANGES: readonly { value: TimeRange; label: string }[] = [
+  { value: 5, label: "5h" },
+  { value: 24, label: "24h" },
+  { value: 168, label: "7d" },
+  { value: 720, label: "30d" },
+  { value: "all", label: "All" },
+  { value: "custom", label: "Custom" },
+] as const;
 
 interface QuotaChartPoint {
   timestamp: string;
@@ -120,7 +120,13 @@ export function UsagePage() {
 
   const [effectiveFrom, setEffectiveFrom] = useState(todayIso());
   const [effectiveTo, setEffectiveTo] = useState(todayIso());
-  const apiHours = typeof timeRange === "number" ? timeRange : 720;
+
+  const displayHours = useMemo(() => {
+    if (typeof timeRange === "number") return timeRange;
+    const from = new Date(effectiveFrom);
+    const to = new Date(effectiveTo);
+    return Math.max(1, (to.getTime() - from.getTime()) / (1000 * 60 * 60));
+  }, [timeRange, effectiveFrom, effectiveTo]);
 
   const { data: today } = usePolling(getTodayUsage, 30000);
   const { data: range } = usePolling(
@@ -141,12 +147,26 @@ export function UsagePage() {
     30000,
   );
 
-  const { data: quotaHistory } = usePolling(
-    useCallback(() => fetchQuotaHistory(apiHours, effectiveFrom, effectiveTo), [apiHours, effectiveFrom, effectiveTo]),
+  const { data: quotaHistory, loading: quotaHistoryLoading, error: quotaHistoryError } = usePolling(
+    useCallback(
+      () => fetchQuotaHistory(
+        typeof timeRange === "number" ? timeRange : undefined,
+        typeof timeRange === "number" ? undefined : effectiveFrom,
+        typeof timeRange === "number" ? undefined : effectiveTo,
+      ),
+      [timeRange, effectiveFrom, effectiveTo],
+    ),
     30000,
   );
-  const { data: usageTrend } = usePolling(
-    useCallback(() => fetchUsageTrend(apiHours, effectiveFrom, effectiveTo), [apiHours, effectiveFrom, effectiveTo]),
+  const { data: usageTrend, loading: usageTrendLoading, error: usageTrendError } = usePolling(
+    useCallback(
+      () => fetchUsageTrend(
+        typeof timeRange === "number" ? timeRange : undefined,
+        typeof timeRange === "number" ? undefined : effectiveFrom,
+        typeof timeRange === "number" ? undefined : effectiveTo,
+      ),
+      [timeRange, effectiveFrom, effectiveTo],
+    ),
     30000,
   );
 
@@ -180,8 +200,8 @@ export function UsagePage() {
     return range.reduce(
       (acc, day) => ({
         requests: acc.requests + day.requests,
-        tokens: acc.total_tokens + day.total_tokens,
-        cost: acc.cost_usd + day.cost_usd,
+        tokens: acc.tokens + day.total_tokens,
+        cost: acc.cost + day.cost_usd,
       }),
       { requests: 0, tokens: 0, cost: 0 },
     );
@@ -199,6 +219,7 @@ export function UsagePage() {
     return usageTrend.buckets.map((b) => ({
       timestamp: b.timestamp,
       requests: b.requests,
+      tokens: b.tokens,
       cost_usd: b.cost_usd,
     }));
   }, [usageTrend]);
@@ -223,14 +244,14 @@ export function UsagePage() {
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: 12 }}>
           <h3>Trends</h3>
           <div style={{ display: "flex", gap: 6 }}>
-            {(Object.keys(TIME_RANGE_LABELS) as unknown as TimeRange[]).map((h) => (
+            {TIME_RANGES.map(({ value, label }) => (
               <button
-                key={h}
-                className={timeRange === h ? "primary" : undefined}
-                onClick={() => setTimeRange(h)}
+                key={String(value)}
+                className={timeRange === value ? "primary" : undefined}
+                onClick={() => setTimeRange(value)}
                 style={{ padding: "4px 10px", fontSize: 12 }}
               >
-                {TIME_RANGE_LABELS[h]}
+                {label}
               </button>
             ))}
           </div>
@@ -262,6 +283,27 @@ export function UsagePage() {
           </div>
         )}
 
+        {(quotaHistoryError || usageTrendError) && (
+          <div className="error-banner" style={{ marginTop: 12 }}>
+            {quotaHistoryError || usageTrendError}
+          </div>
+        )}
+
+        {(quotaHistoryLoading || usageTrendLoading) && (!quotaHistory || !usageTrend) && (
+          <div style={{ display: "flex", justifyContent: "center", padding: 24 }}>
+            <div
+              style={{
+                width: 20,
+                height: 20,
+                border: "2px solid var(--border)",
+                borderTopColor: "var(--accent-blue)",
+                borderRadius: "50%",
+                animation: "spin 0.8s linear infinite",
+              }}
+            />
+          </div>
+        )}
+
         {quotaChart.lines.length > 0 && (
           <div className="card" style={{ marginTop: 12, marginBottom: 16 }}>
             <div style={{ fontSize: 12, color: "var(--text-secondary)", marginBottom: 8, fontWeight: 600 }}>
@@ -273,7 +315,7 @@ export function UsagePage() {
                 <XAxis
                   dataKey="timestamp"
                   tick={{ fill: CHART_AXIS_COLOR, fontSize: 11 }}
-                  tickFormatter={(v: string) => formatAxisTime(apiHours, v)}
+                  tickFormatter={(v: string) => formatAxisTime(displayHours, v)}
                   stroke={CHART_AXIS_COLOR}
                 />
                 <YAxis
@@ -311,7 +353,7 @@ export function UsagePage() {
                 <XAxis
                   dataKey="timestamp"
                   tick={{ fill: CHART_AXIS_COLOR, fontSize: 11 }}
-                  tickFormatter={(v: string) => formatAxisTime(apiHours, v)}
+                  tickFormatter={(v: string) => formatAxisTime(displayHours, v)}
                   stroke={CHART_AXIS_COLOR}
                 />
                 <YAxis
@@ -358,7 +400,7 @@ export function UsagePage() {
                 </tr>
               </thead>
               <tbody>
-                {range.map((day) => (
+                {range.slice().reverse().map((day) => (
                   <tr key={day.date}>
                     <td>{day.date}</td>
                     <td style={{ textAlign: "right" }}><span className="mono">{formatNumber(day.requests)}</span></td>

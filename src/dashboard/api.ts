@@ -327,24 +327,24 @@ function toIsoEnd(date: string): string {
 }
 
 export function fetchQuotaHistory(
-  hours: number,
+  hours?: number,
   from?: string,
   to?: string,
 ): Promise<QuotaHistoryResponse> {
   const params = new URLSearchParams();
-  params.set("hours", String(hours));
+  if (hours !== undefined) params.set("hours", String(hours));
   if (from) params.set("from", toIsoStart(from));
   if (to) params.set("to", toIsoEnd(to));
   return api<QuotaHistoryResponse>(`/admin/quotas/history?${params.toString()}`);
 }
 
 export function fetchUsageTrend(
-  hours: number,
+  hours?: number,
   from?: string,
   to?: string,
 ): Promise<UsageTrendResponse> {
   const params = new URLSearchParams();
-  params.set("hours", String(hours));
+  if (hours !== undefined) params.set("hours", String(hours));
   if (from) params.set("from", toIsoStart(from));
   if (to) params.set("to", toIsoEnd(to));
   return api<UsageTrendResponse>(`/admin/usage/trend?${params.toString()}`);
