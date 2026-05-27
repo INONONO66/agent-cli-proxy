@@ -738,7 +738,7 @@ export namespace QuotaRepo {
   export function deleteOlderThan30Days(db: Database): number {
     const result = db.prepare(`
       DELETE FROM quota_snapshots
-      WHERE created_at < datetime('now', '-30 days')
+      WHERE timestamp < datetime('now', '-30 days')
     `).run();
     return result.changes;
   }
