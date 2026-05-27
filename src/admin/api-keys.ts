@@ -20,7 +20,10 @@ export namespace ApiKeysAdmin {
         const name = body.name.trim();
         if (!name) return json({ error: "name is required" }, 400);
 
-        return json(await ApiKeyRepo.create(db, name), 201);
+        return json(await ApiKeyRepo.create(db, name, {
+          allowedAccounts: body.allowed_accounts,
+          allowedProviders: body.allowed_providers,
+        }), 201);
       }
 
       const usageMatch = path.match(/^\/admin\/api-keys\/(\d+)\/usage$/);
@@ -29,6 +32,21 @@ export namespace ApiKeysAdmin {
       }
 
       const keyMatch = path.match(/^\/admin\/api-keys\/(\d+)$/);
+      if (keyMatch && req.method === "PATCH") {
+        const csrf = requireCsrf(req);
+        if (csrf) return csrf;
+
+        const body = await readUpdateBody(req);
+        if (!body) return json({ error: "Invalid request body" }, 400);
+
+        const id = Number(keyMatch[1]);
+        if (!ApiKeyRepo.update(db, id, {
+          allowedAccounts: body.allowed_accounts,
+          allowedProviders: body.allowed_providers,
+        })) return json({ error: "Not found" }, 404);
+        return json({ ok: true });
+      }
+
       if (keyMatch && req.method === "DELETE") {
         const csrf = requireCsrf(req);
         if (csrf) return csrf;
@@ -44,6 +62,13 @@ export namespace ApiKeysAdmin {
 
   interface CreateBody {
     readonly name: string;
+    readonly allowed_accounts?: string[] | null;
+    readonly allowed_providers?: string[] | null;
+  }
+
+  interface UpdateBody {
+    readonly allowed_accounts?: string[] | null;
+    readonly allowed_providers?: string[] | null;
   }
 
   interface UsageRow {
@@ -76,10 +101,51 @@ export namespace ApiKeysAdmin {
       return null;
     }
 
-    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return null;
-    const name = (parsed as Record<string, unknown>).name;
+    const record = parseObject(parsed);
+    if (!record) return null;
+    const name = record.name;
     if (typeof name !== "string") return null;
-    return { name };
+    const allowedAccounts = parseOptionalStringArray(record.allowed_accounts);
+    const allowedProviders = parseOptionalStringArray(record.allowed_providers);
+    if (allowedAccounts === false || allowedProviders === false) return null;
+    return {
+      name,
+      ...(allowedAccounts !== undefined ? { allowed_accounts: allowedAccounts } : {}),
+      ...(allowedProviders !== undefined ? { allowed_providers: allowedProviders } : {}),
+    };
+  }
+
+  async function readUpdateBody(req: Request): Promise<UpdateBody | null> {
+    let parsed: unknown;
+    try {
+      parsed = await req.json();
+    } catch {
+      return null;
+    }
+
+    const record = parseObject(parsed);
+    if (!record) return null;
+    const allowedAccounts = parseOptionalStringArray(record.allowed_accounts);
+    const allowedProviders = parseOptionalStringArray(record.allowed_providers);
+    if (allowedAccounts === false || allowedProviders === false) return null;
+    if (allowedAccounts === undefined && allowedProviders === undefined) return null;
+    return {
+      ...(allowedAccounts !== undefined ? { allowed_accounts: allowedAccounts } : {}),
+      ...(allowedProviders !== undefined ? { allowed_providers: allowedProviders } : {}),
+    };
+  }
+
+  function parseObject(value: unknown): Record<string, unknown> | null {
+    if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+    return value as Record<string, unknown>;
+  }
+
+  function parseOptionalStringArray(value: unknown): string[] | null | undefined | false {
+    if (value === undefined) return undefined;
+    if (value === null) return null;
+    if (!Array.isArray(value)) return false;
+    if (!value.every((item) => typeof item === "string")) return false;
+    return value;
   }
 
   function getUsage(db: Database, id: number): UsageResponse {

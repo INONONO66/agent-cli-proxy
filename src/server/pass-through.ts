@@ -50,6 +50,11 @@ interface LifecycleHandle extends Shutdown.ActiveLifecycleHandle {
   finish(): void;
 }
 
+interface ResolvedProxyApiKey {
+  readonly id: number;
+  readonly allowedProviders: string[] | null;
+}
+
 export namespace PassThroughProxy {
   const activeLifecycleHandles = new Set<LifecycleHandle>();
 
@@ -69,21 +74,37 @@ export namespace PassThroughProxy {
     return async function handle(req: Request, info: RequestInfo): Promise<Response> {
       const startTime = Date.now();
       const plugin = AgentPlugins.resolve(info);
-      const proxyApiKeyId = await resolveProxyApiKeyId(req.headers, usageService.db);
-      const lifecycle = preLog(req, info, usageService, startTime, proxyApiKeyId);
+      const proxyApiKey = await resolveProxyApiKey(req.headers, usageService.db);
+      const lifecycle = preLog(req, info, usageService, startTime, proxyApiKey?.id ?? null);
       const requestInfo: RequestInfo = { ...info, requestId: lifecycle?.requestId ?? info.requestId };
       const upstreamUrl = `${Config.cliProxyApiUrl}${requestInfo.path}`;
       const passthroughSignal = lifecycle ? composeSignals([req.signal, lifecycle.handle.signal]) : req.signal;
       let streamHandedOff = false;
 
       try {
+        const providerId = lifecycle?.provider ?? providerForPath(requestInfo.path, requestInfo.model);
+        if (!isProviderAllowed(providerId, proxyApiKey?.allowedProviders ?? null)) {
+          await finalizeOnce(usageService, lifecycle, {
+            parsed: { actualModel: null, usage: null },
+            status: 403,
+            isStreaming: false,
+            lifecycleStatus: "error",
+            errorMessage: "provider not allowed for this API key",
+            errorCode: "provider_not_allowed",
+          });
+          return new Response(
+            JSON.stringify({ error: "provider not allowed for this API key" }),
+            { status: 403, headers: { "content-type": "application/json" } },
+          );
+        }
+
         const { body, rewritten } = await buildBody(req, requestInfo, plugin);
         const upstreamResponse = await fetchUpstream({
           method: req.method,
           url: upstreamUrl,
           headers: buildHeaders(req.headers, requestInfo, plugin, rewritten),
           body,
-          providerId: lifecycle?.provider ?? providerForPath(requestInfo.path, requestInfo.model),
+          providerId,
           idempotent: isIdempotentMethod(req.method),
           signal: passthroughSignal,
         });
@@ -805,7 +826,12 @@ export namespace PassThroughProxy {
     return false;
   }
 
-  async function resolveProxyApiKeyId(headers: Headers, db: UsageService.UsageService["db"]): Promise<number | null> {
+  function isProviderAllowed(providerId: string, allowedProviders: readonly string[] | null): boolean {
+    if (!allowedProviders || allowedProviders.length === 0) return true;
+    return allowedProviders.includes(providerId);
+  }
+
+  async function resolveProxyApiKey(headers: Headers, db: UsageService.UsageService["db"]): Promise<ResolvedProxyApiKey | null> {
     const proxyApiKey = headers.get("x-proxy-key");
     if (!proxyApiKey) return null;
 
@@ -814,7 +840,7 @@ export namespace PassThroughProxy {
     if (!found) return null;
 
     ApiKeyRepo.touchLastUsed(db, found.id);
-    return found.id;
+    return { id: found.id, allowedProviders: found.allowedProviders };
   }
 
   async function sha256Hex(value: string): Promise<string> {
