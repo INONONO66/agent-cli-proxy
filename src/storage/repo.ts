@@ -26,6 +26,8 @@ export namespace RequestRepo {
 
   export interface TrendOptions {
     hours: number;
+    from?: string;
+    to?: string;
     provider?: string;
     model?: string;
     tool?: string;
@@ -264,8 +266,15 @@ export namespace RequestRepo {
   }
 
   export function getTrend(db: Database, options: TrendOptions): TrendBucket[] {
-    const bucketSeconds = resolveTrendBucketSeconds(options.hours);
-    const sinceIso = new Date(Date.now() - options.hours * 60 * 60 * 1000).toISOString();
+    const hasRange = options.from && options.to;
+    const fromIso = hasRange
+      ? options.from!
+      : new Date(Date.now() - options.hours * 60 * 60 * 1000).toISOString();
+    const toIso = hasRange ? options.to! : new Date().toISOString();
+    const spanHours = hasRange
+      ? Math.max(1, (new Date(toIso).getTime() - new Date(fromIso).getTime()) / (1000 * 60 * 60))
+      : options.hours;
+    const bucketSeconds = resolveTrendBucketSeconds(spanHours);
 
     let sql = `
       WITH bucketed AS (
@@ -274,9 +283,9 @@ export namespace RequestRepo {
           total_tokens,
           cost_usd
         FROM request_logs
-        WHERE started_at >= ?
+        WHERE started_at >= ? AND started_at < ?
     `;
-    const params: Array<string | number> = [bucketSeconds, bucketSeconds, sinceIso];
+    const params: Array<string | number> = [bucketSeconds, bucketSeconds, fromIso, toIso];
 
     if (options.provider) {
       sql += ` AND provider = ?`;
@@ -698,6 +707,8 @@ export namespace UsageRepo {
 export namespace QuotaRepo {
   export interface HistoryQuery {
     hours: number;
+    from?: string;
+    to?: string;
     provider?: string;
     account?: string;
   }
@@ -762,10 +773,13 @@ export namespace QuotaRepo {
   }
 
   export function getHistory(db: Database, query: HistoryQuery): HistoryBucket[] {
-    const bucketSeconds = getBucketSeconds(query.hours);
-    const now = Date.now();
-    const startIso = new Date(now - query.hours * 60 * 60 * 1000).toISOString();
-    const endIso = new Date(now).toISOString();
+    const hasRange = query.from && query.to;
+    const startIso = hasRange ? query.from! : new Date(Date.now() - query.hours * 60 * 60 * 1000).toISOString();
+    const endIso = hasRange ? query.to! : new Date().toISOString();
+    const spanHours = hasRange
+      ? Math.max(1, (new Date(endIso).getTime() - new Date(startIso).getTime()) / (1000 * 60 * 60))
+      : query.hours;
+    const bucketSeconds = getBucketSeconds(spanHours);
 
     let sql = `
       WITH bucketed AS (
@@ -831,8 +845,10 @@ export namespace QuotaRepo {
     }
 
     const bucketMs = bucketSeconds * 1000;
-    const startBucketMs = Math.floor((now - query.hours * 60 * 60 * 1000) / bucketMs) * bucketMs;
-    const endBucketMs = Math.floor(now / bucketMs) * bucketMs;
+    const startMs = new Date(startIso).getTime();
+    const endMs = new Date(endIso).getTime();
+    const startBucketMs = Math.floor(startMs / bucketMs) * bucketMs;
+    const endBucketMs = Math.floor(endMs / bucketMs) * bucketMs;
     const history: HistoryBucket[] = [];
 
     for (let current = startBucketMs; current <= endBucketMs; current += bucketMs) {

@@ -96,12 +96,22 @@ export namespace Admin {
         }
 
         if (path === "/admin/usage/models") {
+          const from = url.searchParams.get("from") ?? undefined;
+          const to = url.searchParams.get("to") ?? undefined;
+          if (from && to) {
+            return json(usageService.getModelBreakdown(from, to));
+          }
           const day =
             url.searchParams.get("day") ?? new Date().toISOString().slice(0, 10);
           return json(usageService.getModelBreakdown(day));
         }
 
         if (path === "/admin/usage/providers") {
+          const from = url.searchParams.get("from") ?? undefined;
+          const to = url.searchParams.get("to") ?? undefined;
+          if (from && to) {
+            return json(usageService.getProviderBreakdown(from, to));
+          }
           const day =
             url.searchParams.get("day") ?? new Date().toISOString().slice(0, 10);
           return json(usageService.getProviderBreakdown(day));
@@ -132,13 +142,20 @@ export namespace Admin {
 
         if (path === "/admin/usage/trend") {
           const hours = Number(url.searchParams.get("hours") ?? 24);
+          const from = url.searchParams.get("from") ?? undefined;
+          const to = url.searchParams.get("to") ?? undefined;
           if (!Number.isFinite(hours) || hours <= 0) {
             return json({ error: "Invalid hours parameter" }, 400);
+          }
+          if ((from && !to) || (!from && to)) {
+            return json({ error: "Both from and to are required when using date range" }, 400);
           }
 
           return json({
             buckets: RequestRepo.getTrend(usageService.db, {
               hours,
+              from,
+              to,
               provider: url.searchParams.get("provider") ?? undefined,
               model: url.searchParams.get("model") ?? undefined,
               tool: url.searchParams.get("tool") ?? undefined,
@@ -158,11 +175,16 @@ export namespace Admin {
           if (!Number.isInteger(hours) || hours < 1) {
             return json({ error: "Invalid hours parameter" }, 400);
           }
+          const from = url.searchParams.get("from") ?? undefined;
+          const to = url.searchParams.get("to") ?? undefined;
+          if ((from && !to) || (!from && to)) {
+            return json({ error: "Both from and to are required when using date range" }, 400);
+          }
 
           const provider = url.searchParams.get("provider") ?? undefined;
           const account = url.searchParams.get("account") ?? undefined;
           return json({
-            buckets: QuotaRepo.getHistory(usageService.db, { hours, provider, account }),
+            buckets: QuotaRepo.getHistory(usageService.db, { hours, from, to, provider, account }),
           });
         }
 

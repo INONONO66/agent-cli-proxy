@@ -200,17 +200,33 @@ export function getUsageRange(
   );
 }
 
-export function getModelBreakdown(day: string): Promise<Usage.DailyUsage[]> {
+export function getModelBreakdown(
+  day?: string,
+  from?: string,
+  to?: string,
+): Promise<Usage.DailyUsage[]> {
+  const params = new URLSearchParams();
+  if (day) params.set("day", day);
+  if (from) params.set("from", from);
+  if (to) params.set("to", to);
+  const qs = params.toString();
   return api<Usage.DailyUsage[]>(
-    `/admin/usage/models?day=${encodeURIComponent(day)}`,
+    `/admin/usage/models${qs ? `?${qs}` : ""}`,
   );
 }
 
 export function getProviderBreakdown(
-  day: string,
+  day?: string,
+  from?: string,
+  to?: string,
 ): Promise<Usage.ProviderSummary[]> {
+  const params = new URLSearchParams();
+  if (day) params.set("day", day);
+  if (from) params.set("from", from);
+  if (to) params.set("to", to);
+  const qs = params.toString();
   return api<Usage.ProviderSummary[]>(
-    `/admin/usage/providers?day=${encodeURIComponent(day)}`,
+    `/admin/usage/providers${qs ? `?${qs}` : ""}`,
   );
 }
 
@@ -294,12 +310,35 @@ export function cancelOAuthJob(jobId: string): Promise<{ ok: boolean }> {
   });
 }
 
-export function fetchQuotaHistory(hours: number): Promise<QuotaHistoryResponse> {
-  return api<QuotaHistoryResponse>(`/admin/quotas/history?hours=${encodeURIComponent(hours)}`);
+function toIsoStart(date: string): string {
+  return `${date}T00:00:00.000Z`;
+}
+function toIsoEnd(date: string): string {
+  return `${date}T23:59:59.999Z`;
 }
 
-export function fetchUsageTrend(hours: number): Promise<UsageTrendResponse> {
-  return api<UsageTrendResponse>(`/admin/usage/trend?hours=${encodeURIComponent(hours)}`);
+export function fetchQuotaHistory(
+  hours: number,
+  from?: string,
+  to?: string,
+): Promise<QuotaHistoryResponse> {
+  const params = new URLSearchParams();
+  params.set("hours", String(hours));
+  if (from) params.set("from", toIsoStart(from));
+  if (to) params.set("to", toIsoEnd(to));
+  return api<QuotaHistoryResponse>(`/admin/quotas/history?${params.toString()}`);
+}
+
+export function fetchUsageTrend(
+  hours: number,
+  from?: string,
+  to?: string,
+): Promise<UsageTrendResponse> {
+  const params = new URLSearchParams();
+  params.set("hours", String(hours));
+  if (from) params.set("from", toIsoStart(from));
+  if (to) params.set("to", toIsoEnd(to));
+  return api<UsageTrendResponse>(`/admin/usage/trend?${params.toString()}`);
 }
 
 export function fetchApiKeys(): Promise<ApiKeyListResponse> {

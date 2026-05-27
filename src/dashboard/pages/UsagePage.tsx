@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   LineChart,
   Line,
@@ -71,13 +71,15 @@ const CHART_GRID_COLOR = "#30363d";
 const CHART_TOOLTIP_BG = "#161b22";
 const CHART_TOOLTIP_BORDER = "#30363d";
 
-type TimeRange = 5 | 24 | 168 | 720;
+type TimeRange = 5 | 24 | 168 | 720 | "all" | "custom";
 
 const TIME_RANGE_LABELS: Record<TimeRange, string> = {
   5: "5h",
   24: "24h",
   168: "7d",
   720: "30d",
+  all: "All",
+  custom: "Custom",
 };
 
 interface QuotaChartPoint {
@@ -111,22 +113,26 @@ function transformQuotaHistory(
 }
 
 export function UsagePage() {
-  const [from, setFrom] = useState(todayIso());
-  const [to, setTo] = useState(todayIso());
+  const [customFrom, setCustomFrom] = useState(todayIso());
+  const [customTo, setCustomTo] = useState(todayIso());
   const [month, setMonth] = useState(currentMonth());
-  const [hours, setHours] = useState<TimeRange>(24);
+  const [timeRange, setTimeRange] = useState<TimeRange>(24);
+
+  const [effectiveFrom, setEffectiveFrom] = useState(todayIso());
+  const [effectiveTo, setEffectiveTo] = useState(todayIso());
+  const apiHours = typeof timeRange === "number" ? timeRange : 720;
 
   const { data: today } = usePolling(getTodayUsage, 30000);
   const { data: range } = usePolling(
-    useCallback(() => getUsageRange(from, to), [from, to]),
+    useCallback(() => getUsageRange(effectiveFrom, effectiveTo), [effectiveFrom, effectiveTo]),
     30000,
   );
   const { data: modelBreakdown } = usePolling(
-    useCallback(() => getModelBreakdown(from), [from]),
+    useCallback(() => getModelBreakdown(undefined, effectiveFrom, effectiveTo), [effectiveFrom, effectiveTo]),
     30000,
   );
   const { data: providerBreakdown } = usePolling(
-    useCallback(() => getProviderBreakdown(from), [from]),
+    useCallback(() => getProviderBreakdown(undefined, effectiveFrom, effectiveTo), [effectiveFrom, effectiveTo]),
     30000,
   );
   const { data: stats } = usePolling(getStats, 30000);
@@ -136,11 +142,11 @@ export function UsagePage() {
   );
 
   const { data: quotaHistory } = usePolling(
-    useCallback(() => fetchQuotaHistory(hours), [hours]),
+    useCallback(() => fetchQuotaHistory(apiHours, effectiveFrom, effectiveTo), [apiHours, effectiveFrom, effectiveTo]),
     30000,
   );
   const { data: usageTrend } = usePolling(
-    useCallback(() => fetchUsageTrend(hours), [hours]),
+    useCallback(() => fetchUsageTrend(apiHours, effectiveFrom, effectiveTo), [apiHours, effectiveFrom, effectiveTo]),
     30000,
   );
 
@@ -152,6 +158,34 @@ export function UsagePage() {
     () => Math.max(1, ...(providerBreakdown ?? []).map((p) => p.total_tokens)),
     [providerBreakdown],
   );
+
+  useEffect(() => {
+    if (timeRange === "custom") {
+      setEffectiveFrom(customFrom);
+      setEffectiveTo(customTo);
+    } else if (timeRange === "all") {
+      const from = stats?.first_request_at?.slice(0, 10) ?? todayIso();
+      setEffectiveFrom(from);
+      setEffectiveTo(todayIso());
+    } else {
+      const to = todayIso();
+      const from = new Date(Date.now() - timeRange * 60 * 60 * 1000).toISOString().slice(0, 10);
+      setEffectiveFrom(from);
+      setEffectiveTo(to);
+    }
+  }, [timeRange, customFrom, customTo, stats]);
+
+  const totalSummary = useMemo(() => {
+    if (!range) return null;
+    return range.reduce(
+      (acc, day) => ({
+        requests: acc.requests + day.requests,
+        tokens: acc.total_tokens + day.total_tokens,
+        cost: acc.cost_usd + day.cost_usd,
+      }),
+      { requests: 0, tokens: 0, cost: 0 },
+    );
+  }, [range]);
 
   const quotaChart = useMemo(() => {
     if (!quotaHistory || quotaHistory.buckets.length === 0) {
@@ -192,8 +226,8 @@ export function UsagePage() {
             {(Object.keys(TIME_RANGE_LABELS) as unknown as TimeRange[]).map((h) => (
               <button
                 key={h}
-                className={hours === h ? "primary" : undefined}
-                onClick={() => setHours(h)}
+                className={timeRange === h ? "primary" : undefined}
+                onClick={() => setTimeRange(h)}
                 style={{ padding: "4px 10px", fontSize: 12 }}
               >
                 {TIME_RANGE_LABELS[h]}
@@ -201,6 +235,32 @@ export function UsagePage() {
             ))}
           </div>
         </div>
+
+        {timeRange === "custom" && (
+          <div style={{ display: "flex", gap: 12, alignItems: "center", marginTop: 8 }}>
+            <label style={{ fontSize: 12, color: "var(--text-secondary)" }}>From</label>
+            <input type="date" value={customFrom} onChange={(e) => setCustomFrom(e.target.value)} />
+            <label style={{ fontSize: 12, color: "var(--text-secondary)" }}>To</label>
+            <input type="date" value={customTo} onChange={(e) => setCustomTo(e.target.value)} />
+          </div>
+        )}
+
+        {totalSummary && (
+          <div className="stats-row" style={{ marginTop: 12 }}>
+            <div className="stat-box">
+              <div className="label">Requests</div>
+              <div className="value">{formatNumber(totalSummary.requests)}</div>
+            </div>
+            <div className="stat-box">
+              <div className="label">Tokens</div>
+              <div className="value">{formatNumber(totalSummary.tokens)}</div>
+            </div>
+            <div className="stat-box">
+              <div className="label">Cost</div>
+              <div className="value">{formatCost(totalSummary.cost)}</div>
+            </div>
+          </div>
+        )}
 
         {quotaChart.lines.length > 0 && (
           <div className="card" style={{ marginTop: 12, marginBottom: 16 }}>
@@ -213,7 +273,7 @@ export function UsagePage() {
                 <XAxis
                   dataKey="timestamp"
                   tick={{ fill: CHART_AXIS_COLOR, fontSize: 11 }}
-                  tickFormatter={(v: string) => formatAxisTime(hours, v)}
+                  tickFormatter={(v: string) => formatAxisTime(apiHours, v)}
                   stroke={CHART_AXIS_COLOR}
                 />
                 <YAxis
@@ -251,7 +311,7 @@ export function UsagePage() {
                 <XAxis
                   dataKey="timestamp"
                   tick={{ fill: CHART_AXIS_COLOR, fontSize: 11 }}
-                  tickFormatter={(v: string) => formatAxisTime(hours, v)}
+                  tickFormatter={(v: string) => formatAxisTime(apiHours, v)}
                   stroke={CHART_AXIS_COLOR}
                 />
                 <YAxis
@@ -284,16 +344,6 @@ export function UsagePage() {
         )}
       </div>
 
-      <div className="section">
-        <h3>Date Range</h3>
-        <div className="date-range">
-          <label>From</label>
-          <input type="date" value={from} onChange={(e) => setFrom(e.target.value)} />
-          <label>To</label>
-          <input type="date" value={to} onChange={(e) => setTo(e.target.value)} />
-        </div>
-      </div>
-
       {range && range.length > 0 && (
         <div className="section">
           <h3>Daily Overview</h3>
@@ -324,7 +374,7 @@ export function UsagePage() {
 
       {modelBreakdown && modelBreakdown.length > 0 && (
         <div className="section">
-          <h3>Model Breakdown ({from})</h3>
+          <h3>Model Breakdown{effectiveFrom !== effectiveTo ? ` (${effectiveFrom} ~ ${effectiveTo})` : ` (${effectiveFrom})`}</h3>
           <div className="card">
             <table>
               <thead>
@@ -365,7 +415,7 @@ export function UsagePage() {
 
       {providerBreakdown && providerBreakdown.length > 0 && (
         <div className="section">
-          <h3>Provider Breakdown ({from})</h3>
+          <h3>Provider Breakdown{effectiveFrom !== effectiveTo ? ` (${effectiveFrom} ~ ${effectiveTo})` : ` (${effectiveFrom})`}</h3>
           <div className="card">
             <table>
               <thead>

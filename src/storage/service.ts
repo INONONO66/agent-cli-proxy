@@ -331,12 +331,43 @@ export namespace UsageService {
       });
     }
 
-    function getModelBreakdown(day: string): Usage.DailyUsage[] {
-      return UsageRepo.getDaily(db, day);
+    function getModelBreakdown(day: string): Usage.DailyUsage[];
+    function getModelBreakdown(from: string, to: string): Usage.DailyUsage[];
+    function getModelBreakdown(dayOrFrom: string, to?: string): Usage.DailyUsage[] {
+      const rows = to ? UsageRepo.getRange(db, dayOrFrom, to) : UsageRepo.getDaily(db, dayOrFrom);
+      if (!to) return rows;
+
+      const map = new Map<string, Usage.DailyUsage>();
+      for (const row of rows) {
+        const key = `${row.provider}|${row.model}`;
+        const existing = map.get(key) ?? {
+          day: dayOrFrom,
+          provider: row.provider,
+          model: row.model,
+          request_count: 0,
+          prompt_tokens: 0,
+          completion_tokens: 0,
+          cache_creation_tokens: 0,
+          cache_read_tokens: 0,
+          total_tokens: 0,
+          cost_usd: 0,
+        };
+        existing.request_count += row.request_count;
+        existing.prompt_tokens += row.prompt_tokens;
+        existing.completion_tokens += row.completion_tokens;
+        existing.cache_creation_tokens += row.cache_creation_tokens;
+        existing.cache_read_tokens += row.cache_read_tokens;
+        existing.total_tokens += row.total_tokens;
+        existing.cost_usd += row.cost_usd;
+        map.set(key, existing);
+      }
+      return Array.from(map.values());
     }
 
-    function getProviderBreakdown(day: string): Usage.ProviderSummary[] {
-      const rows = UsageRepo.getDaily(db, day);
+    function getProviderBreakdown(day: string): Usage.ProviderSummary[];
+    function getProviderBreakdown(from: string, to: string): Usage.ProviderSummary[];
+    function getProviderBreakdown(dayOrFrom: string, to?: string): Usage.ProviderSummary[] {
+      const rows = to ? UsageRepo.getRange(db, dayOrFrom, to) : UsageRepo.getDaily(db, dayOrFrom);
       const byProvider = new Map<string, Usage.ProviderSummary>();
       for (const row of rows) {
         const existing = byProvider.get(row.provider) ?? {
