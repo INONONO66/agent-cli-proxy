@@ -24,6 +24,7 @@ import {
 } from "../api";
 import { usePolling } from "../hooks/usePolling";
 import { UsageSummary } from "../components/UsageSummary";
+import { Num, formatCompact, formatCostCompact } from "../utils/numbers";
 
 function todayIso(): string {
   return new Date().toISOString().slice(0, 10);
@@ -31,14 +32,6 @@ function todayIso(): string {
 
 function currentMonth(): string {
   return new Date().toISOString().slice(0, 7);
-}
-
-function formatNumber(n: number): string {
-  return n.toLocaleString();
-}
-
-function formatCost(n: number): string {
-  return `$${n.toFixed(4)}`;
 }
 
 function formatAxisTime(hours: number, timestamp: string): string {
@@ -270,15 +263,15 @@ export function UsagePage() {
           <div className="stats-row" style={{ marginTop: 12 }}>
             <div className="stat-box">
               <div className="label">Requests</div>
-              <div className="value">{formatNumber(totalSummary.requests)}</div>
+              <div className="value"><Num value={totalSummary.requests} /></div>
             </div>
             <div className="stat-box">
               <div className="label">Tokens</div>
-              <div className="value">{formatNumber(totalSummary.tokens)}</div>
+              <div className="value"><Num value={totalSummary.tokens} /></div>
             </div>
             <div className="stat-box">
               <div className="label">Cost</div>
-              <div className="value">{formatCost(totalSummary.cost)}</div>
+              <div className="value"><Num value={totalSummary.cost} format="cost" /></div>
             </div>
           </div>
         )}
@@ -360,13 +353,14 @@ export function UsagePage() {
                   yAxisId="left"
                   tick={{ fill: CHART_AXIS_COLOR, fontSize: 11 }}
                   stroke={CHART_AXIS_COLOR}
+                  tickFormatter={(v: number) => formatCompact(v)}
                 />
                 <YAxis
                   yAxisId="right"
                   orientation="right"
                   tick={{ fill: CHART_AXIS_COLOR, fontSize: 11 }}
                   stroke={CHART_AXIS_COLOR}
-                  tickFormatter={(v: number) => `$${v.toFixed(2)}`}
+                  tickFormatter={(v: number) => formatCostCompact(v)}
                 />
                 <Tooltip contentStyle={tooltipStyle} itemStyle={{ fontSize: 12 }} />
                 <Legend wrapperStyle={{ fontSize: 11, color: "var(--text-secondary)" }} />
@@ -403,9 +397,9 @@ export function UsagePage() {
                 {range.slice().reverse().map((day) => (
                   <tr key={day.date}>
                     <td>{day.date}</td>
-                    <td style={{ textAlign: "right" }}><span className="mono">{formatNumber(day.requests)}</span></td>
-                    <td style={{ textAlign: "right" }}><span className="mono">{formatNumber(day.total_tokens)}</span></td>
-                    <td style={{ textAlign: "right" }}><span className="mono">{formatCost(day.cost_usd)}</span></td>
+                    <td style={{ textAlign: "right" }}><Num value={day.requests} /></td>
+                    <td style={{ textAlign: "right" }}><Num value={day.total_tokens} /></td>
+                    <td style={{ textAlign: "right" }}><Num value={day.cost_usd} format="cost" /></td>
                   </tr>
                 ))}
               </tbody>
@@ -434,9 +428,9 @@ export function UsagePage() {
                   <tr key={`${row.provider}-${row.model}`}>
                     <td><span className="mono">{row.model}</span></td>
                     <td>{row.provider}</td>
-                    <td style={{ textAlign: "right" }}><span className="mono">{formatNumber(row.request_count)}</span></td>
-                    <td style={{ textAlign: "right" }}><span className="mono">{formatNumber(row.total_tokens)}</span></td>
-                    <td style={{ textAlign: "right" }}><span className="mono">{formatCost(row.cost_usd)}</span></td>
+                    <td style={{ textAlign: "right" }}><Num value={row.request_count} /></td>
+                    <td style={{ textAlign: "right" }}><Num value={row.total_tokens} /></td>
+                    <td style={{ textAlign: "right" }}><Num value={row.cost_usd} format="cost" /></td>
                     <td>
                       <div className="bar-cell">
                         <div className="bar-track">
@@ -473,9 +467,9 @@ export function UsagePage() {
                 {providerBreakdown.map((row) => (
                   <tr key={row.provider}>
                     <td>{row.provider}</td>
-                    <td style={{ textAlign: "right" }}><span className="mono">{formatNumber(row.request_count)}</span></td>
-                    <td style={{ textAlign: "right" }}><span className="mono">{formatNumber(row.total_tokens)}</span></td>
-                    <td style={{ textAlign: "right" }}><span className="mono">{formatCost(row.cost_usd)}</span></td>
+                    <td style={{ textAlign: "right" }}><Num value={row.request_count} /></td>
+                    <td style={{ textAlign: "right" }}><Num value={row.total_tokens} /></td>
+                    <td style={{ textAlign: "right" }}><Num value={row.cost_usd} format="cost" /></td>
                     <td>
                       <div className="bar-cell">
                         <div className="bar-track">
@@ -511,20 +505,20 @@ export function UsagePage() {
           <div className="stats-row">
             <div className="stat-box">
               <div className="label">Accounts</div>
-              <div className="value">{formatNumber(costSummary.totals.accounts)}</div>
+              <div className="value"><Num value={costSummary.totals.accounts} /></div>
             </div>
             <div className="stat-box">
               <div className="label">Requests</div>
-              <div className="value">{formatNumber(costSummary.totals.total_requests)}</div>
+              <div className="value"><Num value={costSummary.totals.total_requests} /></div>
             </div>
             <div className="stat-box">
               <div className="label">Total Cost</div>
-              <div className="value">{formatCost(costSummary.totals.total_cost_usd)}</div>
+              <div className="value"><Num value={costSummary.totals.total_cost_usd} format="cost" /></div>
             </div>
             <div className="stat-box">
               <div className="label">Overage</div>
               <div className="value" style={{ color: costSummary.totals.total_overage_usd > 0 ? "var(--accent-red)" : undefined }}>
-                {formatCost(costSummary.totals.total_overage_usd)}
+                <Num value={costSummary.totals.total_overage_usd} format="cost" />
               </div>
             </div>
           </div>
@@ -545,19 +539,19 @@ export function UsagePage() {
                 <tbody>
                   {costSummary.rows.map((row) => (
                     <tr key={row.cliproxy_account}>
-                      <td>{row.cliproxy_account}</td>
-                      <td>{row.subscription_code ?? "—"}</td>
-                      <td style={{ textAlign: "right" }}><span className="mono">{formatCost(row.monthly_price_usd)}</span></td>
-                      <td style={{ textAlign: "right" }}><span className="mono">{formatNumber(row.total_requests)}</span></td>
-                      <td style={{ textAlign: "right" }}><span className="mono">{formatCost(row.total_cost_usd)}</span></td>
-                      <td
-                        style={{
-                          textAlign: "right",
-                          color: row.computed_overage_usd > 0 ? "var(--accent-red)" : undefined,
-                        }}
-                      >
-                        <span className="mono">{formatCost(row.computed_overage_usd)}</span>
-                      </td>
+                    <td>{row.cliproxy_account}</td>
+                    <td>{row.subscription_code ?? "—"}</td>
+                    <td style={{ textAlign: "right" }}><Num value={row.monthly_price_usd} format="cost" /></td>
+                    <td style={{ textAlign: "right" }}><Num value={row.total_requests} /></td>
+                    <td style={{ textAlign: "right" }}><Num value={row.total_cost_usd} format="cost" /></td>
+                    <td
+                      style={{
+                        textAlign: "right",
+                        color: row.computed_overage_usd > 0 ? "var(--accent-red)" : undefined,
+                      }}
+                    >
+                      <Num value={row.computed_overage_usd} format="cost" />
+                    </td>
                     </tr>
                   ))}
                 </tbody>
@@ -573,15 +567,15 @@ export function UsagePage() {
           <div className="stats-row">
             <div className="stat-box">
               <div className="label">Total Requests</div>
-              <div className="value">{formatNumber(stats.total_requests)}</div>
+              <div className="value"><Num value={stats.total_requests} /></div>
             </div>
             <div className="stat-box">
               <div className="label">Total Tokens</div>
-              <div className="value">{formatNumber(stats.total_tokens)}</div>
+              <div className="value"><Num value={stats.total_tokens} /></div>
             </div>
             <div className="stat-box">
               <div className="label">Total Cost</div>
-              <div className="value">{formatCost(stats.total_cost_usd)}</div>
+              <div className="value"><Num value={stats.total_cost_usd} format="cost" /></div>
             </div>
           </div>
           {stats.first_request_at && (

@@ -1,13 +1,9 @@
 import type { Usage } from "../../usage";
+import { Num } from "../utils/numbers";
 
 function formatPct(n: number | null | undefined): string {
   if (n == null) return "—";
   return `${n.toFixed(1)}%`;
-}
-
-function formatNumber(n: number | null | undefined): string {
-  if (n == null) return "—";
-  return n.toLocaleString();
 }
 
 function timeUntil(iso: string | null | undefined): string {
@@ -59,7 +55,7 @@ export function QuotaCard({ snapshot }: QuotaCardProps) {
 
       <div className="quota-meta">
         <span>Used: {formatPct(snapshot.used_pct)}</span>
-        <span>Remaining: {formatNumber(snapshot.remaining)}</span>
+        <span>Remaining: {snapshot.remaining != null ? <Num value={snapshot.remaining} /> : "—"}</span>
       </div>
 
       {snapshot.resets_at && (

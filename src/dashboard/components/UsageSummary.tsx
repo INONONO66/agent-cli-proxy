@@ -1,12 +1,5 @@
 import type { Usage } from "../../usage";
-
-function formatNumber(n: number): string {
-  return n.toLocaleString();
-}
-
-function formatCost(n: number): string {
-  return `$${n.toFixed(4)}`;
-}
+import { Num } from "../utils/numbers";
 
 interface UsageSummaryProps {
   summary: Usage.DailyUsageSummary;
@@ -23,15 +16,15 @@ export function UsageSummary({ summary }: UsageSummaryProps) {
       <div className="stats-row">
         <div className="stat-box">
           <div className="label">Requests</div>
-          <div className="value">{formatNumber(summary.requests)}</div>
+          <div className="value"><Num value={summary.requests} /></div>
         </div>
         <div className="stat-box">
           <div className="label">Total Tokens</div>
-          <div className="value">{formatNumber(summary.total_tokens)}</div>
+          <div className="value"><Num value={summary.total_tokens} /></div>
         </div>
         <div className="stat-box">
           <div className="label">Cost</div>
-          <div className="value">{formatCost(summary.cost_usd)}</div>
+          <div className="value"><Num value={summary.cost_usd} format="cost" /></div>
         </div>
       </div>
 
@@ -56,9 +49,9 @@ export function UsageSummary({ summary }: UsageSummaryProps) {
                 <tr key={`${row.provider}-${row.model}`}>
                   <td><span className="mono">{row.model}</span></td>
                   <td>{row.provider}</td>
-                  <td style={{ textAlign: "right" }}><span className="mono">{formatNumber(row.request_count)}</span></td>
-                  <td style={{ textAlign: "right" }}><span className="mono">{formatNumber(row.total_tokens)}</span></td>
-                  <td style={{ textAlign: "right" }}><span className="mono">{formatCost(row.cost_usd)}</span></td>
+                  <td style={{ textAlign: "right" }}><Num value={row.request_count} /></td>
+                  <td style={{ textAlign: "right" }}><Num value={row.total_tokens} /></td>
+                  <td style={{ textAlign: "right" }}><Num value={row.cost_usd} format="cost" /></td>
                   <td>
                     <div className="bar-cell">
                       <div className="bar-track">

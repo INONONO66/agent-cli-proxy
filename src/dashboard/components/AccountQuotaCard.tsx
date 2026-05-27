@@ -1,4 +1,5 @@
 import type { Usage } from "../../usage";
+import { Num } from "../utils/numbers";
 
 const PROVIDER_COLORS: Record<string, { bg: string; color: string }> = {
   claude: { bg: "rgba(208,126,60,0.15)", color: "#d07e3c" },
@@ -36,10 +37,7 @@ function formatPct(n: number | null | undefined): string {
   return `${n.toFixed(1)}%`;
 }
 
-function formatNumber(n: number | null | undefined): string {
-  if (n == null) return "—";
-  return n.toLocaleString();
-}
+
 
 function timeUntil(iso: string | null | undefined): string {
   if (!iso) return "—";
@@ -206,7 +204,7 @@ export function AccountQuotaCard({ provider, account, snapshots }: AccountQuotaC
                   color: "var(--text-secondary)",
                 }}
               >
-                <span>Remaining: {formatNumber(snap.remaining)}</span>
+                <span>Remaining: {snap.remaining != null ? <Num value={snap.remaining} /> : "—"}</span>
                 <span>Resets in: {timeUntil(snap.resets_at)}</span>
               </div>
 

@@ -9,6 +9,7 @@ import {
 } from "../api";
 import { usePolling } from "../hooks/usePolling";
 import type { ApiKey, ApiKeyUsageResponse } from "../api";
+import { Num } from "../utils/numbers";
 
 const knownProviders = ["anthropic", "openai", "kimi", "xai"];
 const fallbackAccounts = ["ino@timetreeapp.com", "openai.hatbox581@passmail.net"];
@@ -235,7 +236,7 @@ export function ApiKeysPage() {
                     <td className="mono">{key.keyPrefix}***</td>
                     <td>{formatDate(key.createdAt)}</td>
                     <td>{key.lastUsedAt ? formatDate(key.lastUsedAt) : "—"}</td>
-                    <td>{key.requestCount}</td>
+                    <td><Num value={key.requestCount} /></td>
                     <td>{formatRestriction(key.allowedAccounts)}</td>
                     <td>{formatRestriction(key.allowedProviders)}</td>
                     <td>
@@ -262,9 +263,9 @@ export function ApiKeysPage() {
                             <div className="skeleton skeleton-text" style={{ width: "40%" }} />
                           ) : (
                             <div style={{ display: "flex", gap: 24, flexWrap: "wrap" }}>
-                              <UsageMetric label="Requests" value={String(usageById[key.id]?.requestCount ?? 0)} />
-                              <UsageMetric label="Tokens" value={String(usageById[key.id]?.totalTokens ?? 0)} />
-                              <UsageMetric label="Cost" value={`$${(usageById[key.id]?.totalCostUsd ?? 0).toFixed(4)}`} />
+                              <UsageMetric label="Requests" value={<Num value={usageById[key.id]?.requestCount ?? 0} />} />
+                              <UsageMetric label="Tokens" value={<Num value={usageById[key.id]?.totalTokens ?? 0} />} />
+                              <UsageMetric label="Cost" value={<Num value={usageById[key.id]?.totalCostUsd ?? 0} format="cost" />} />
                             </div>
                           )}
                         </div>
@@ -377,7 +378,7 @@ function RestrictionEditor(props: RestrictionEditorProps) {
 
 interface UsageMetricProps {
   readonly label: string;
-  readonly value: string;
+  readonly value: React.ReactNode;
 }
 
 function UsageMetric(props: UsageMetricProps) {
