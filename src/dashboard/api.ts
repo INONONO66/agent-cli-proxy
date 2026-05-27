@@ -124,6 +124,8 @@ export interface ApiKey {
   revokedAt: string | null;
   lastUsedAt: string | null;
   requestCount: number;
+  allowedAccounts: string[] | null;
+  allowedProviders: string[] | null;
 }
 
 export interface ApiKeyCreateResponse {
@@ -132,6 +134,13 @@ export interface ApiKeyCreateResponse {
   keyPrefix: string;
   name: string;
   createdAt: string;
+  allowedAccounts: string[] | null;
+  allowedProviders: string[] | null;
+}
+
+export interface ApiKeyRestrictions {
+  allowedAccounts?: string[] | null;
+  allowedProviders?: string[] | null;
 }
 
 export interface ApiKeyUsageResponse {
@@ -345,10 +354,24 @@ export function fetchApiKeys(): Promise<ApiKeyListResponse> {
   return api<ApiKeyListResponse>("/admin/api-keys");
 }
 
-export function createApiKey(name: string): Promise<ApiKeyCreateResponse> {
+export function createApiKey(name: string, restrictions: ApiKeyRestrictions = {}): Promise<ApiKeyCreateResponse> {
   return api<ApiKeyCreateResponse>("/admin/api-keys", {
     method: "POST",
-    body: JSON.stringify({ name }),
+    body: JSON.stringify({
+      name,
+      allowed_accounts: restrictions.allowedAccounts,
+      allowed_providers: restrictions.allowedProviders,
+    }),
+  });
+}
+
+export function updateApiKey(id: number, restrictions: ApiKeyRestrictions): Promise<{ ok: boolean }> {
+  return api<{ ok: boolean }>(`/admin/api-keys/${id}`, {
+    method: "PATCH",
+    body: JSON.stringify({
+      allowed_accounts: restrictions.allowedAccounts,
+      allowed_providers: restrictions.allowedProviders,
+    }),
   });
 }
 
