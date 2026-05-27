@@ -19,6 +19,7 @@ async function main(): Promise<void> {
     breakerOpenAfterFailures: Config.breakerOpenAfterFailures,
     breakerHalfOpenAfterMs: Config.breakerHalfOpenAfterMs,
     breakerEvictAfterMs: Config.breakerEvictAfterMs,
+    rateLimitMaxRetries: Config.rateLimitMaxRetries,
   });
 
   Pricing.fetchPricing().catch((err) => {

@@ -45,6 +45,7 @@ export interface ValidatedConfig {
   breakerOpenAfterFailures: number;
   breakerHalfOpenAfterMs: number;
   breakerEvictAfterMs: number;
+  rateLimitMaxRetries: number;
 }
 
 export interface ConfigIssue {
@@ -134,6 +135,7 @@ export namespace Config {
       breakerOpenAfterFailures: readPositiveInteger(env, "UPSTREAM_CIRCUIT_BREAKER_OPEN_AFTER_FAILURES", 5, 1000, issues),
       breakerHalfOpenAfterMs: readPositiveNumber(env, "UPSTREAM_CIRCUIT_BREAKER_HALF_OPEN_AFTER_MS", 30_000, issues),
       breakerEvictAfterMs: readPositiveNumber(env, "UPSTREAM_CIRCUIT_BREAKER_EVICT_AFTER_MS", 300_000, issues),
+      rateLimitMaxRetries: readPositiveInteger(env, "RATE_LIMIT_MAX_RETRIES", 3, 20, issues),
     };
 
     if (!isLoopbackHost(config.host) && !config.adminApiKey) {
