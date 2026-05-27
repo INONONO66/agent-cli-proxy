@@ -27,6 +27,7 @@ async function main(): Promise<void> {
   });
   Pricing.startBackgroundRefresh({ signal: shutdownController.signal });
 
+  Storage.backupBeforeStart(Config.dbPath);
   const db = Storage.initDb(Config.dbPath);
   Storage.recoverStalePending(db);
   const usageService = UsageService.create(db);

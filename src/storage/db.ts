@@ -261,6 +261,40 @@ export namespace Storage {
     }
     return recovered;
   }
+
+  export function backupBeforeStart(dbPath: string): void {
+    const { existsSync, copyFileSync, statSync, unlinkSync, readdirSync } = require("node:fs");
+    const { dirname, join, basename } = require("node:path");
+    if (!existsSync(dbPath)) return;
+
+    const stat = statSync(dbPath);
+    if (stat.size < 4096) return;
+
+    const dir = dirname(dbPath);
+    const base = basename(dbPath, ".db");
+    const ts = new Date().toISOString().replace(/[:.]/g, "-").slice(0, 19);
+    const backupName = `${base}.backup-${ts}.db`;
+    const backupPath = join(dir, backupName);
+
+    try {
+      copyFileSync(dbPath, backupPath);
+      logger.info("database backup created", { event: "db.backup", path: backupPath, size: stat.size });
+    } catch (err) {
+      logger.warn("database backup failed", { event: "db.backup_failed", err });
+    }
+
+    try {
+      const MAX_BACKUPS = 5;
+      const backups = readdirSync(dir)
+        .filter((f: string) => f.startsWith(`${base}.backup-`) && f.endsWith(".db"))
+        .sort()
+        .reverse();
+      for (const old of backups.slice(MAX_BACKUPS)) {
+        unlinkSync(join(dir, old));
+        logger.info("old backup removed", { event: "db.backup_pruned", file: old });
+      }
+    } catch {}
+  }
 }
 
 function isSqliteBusyError(err: unknown): boolean {

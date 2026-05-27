@@ -2,16 +2,24 @@ import { join, normalize, resolve } from "node:path";
 import { Logger } from "../util/logger";
 
 const logger = Logger.fromConfig().child({ component: "dashboard" });
-const distRoot = resolve("dist/dashboard");
+// resolve relative to the bundle's own directory so it works both in dev (cwd=project root)
+// and in production (cwd=runtime dir where dashboard/ sits next to index.js)
+const bundleDir = typeof import.meta.dir === "string" ? import.meta.dir : process.cwd();
+const distRoot = resolve(bundleDir, "dashboard");
+const distRootFallback = resolve("dist/dashboard");
 const devIndex = resolve("src/dashboard/index.html");
 const distIndex = join(distRoot, "index.html");
+const distIndexFallback = join(distRootFallback, "index.html");
 
 export namespace Dashboard {
   export function createHandler() {
     return async function handleDashboard(req: Request): Promise<Response> {
       const url = new URL(req.url);
       const distIndexFile = Bun.file(distIndex);
-      if (await distIndexFile.exists()) return serveFromDist(url.pathname, distIndexFile);
+      if (await distIndexFile.exists()) return serveFromDist(url.pathname, distRoot, distIndexFile);
+
+      const fallbackIndexFile = Bun.file(distIndexFallback);
+      if (await fallbackIndexFile.exists()) return serveFromDist(url.pathname, distRootFallback, fallbackIndexFile);
 
       const devIndexFile = Bun.file(devIndex);
       if (process.env.NODE_ENV !== "production" && await devIndexFile.exists()) {
@@ -24,9 +32,9 @@ export namespace Dashboard {
   }
 }
 
-async function serveFromDist(pathname: string, indexFile: Bun.BunFile): Promise<Response> {
+async function serveFromDist(pathname: string, root: string, indexFile: Bun.BunFile): Promise<Response> {
   const relative = pathname.replace(/^\/dashboard\/?/, "") || "index.html";
-  const filePath = safeJoin(distRoot, relative);
+  const filePath = safeJoin(root, relative);
   if (filePath) {
     const file = Bun.file(filePath);
     if (await file.exists()) return fileResponse(file, mimeType(filePath));
