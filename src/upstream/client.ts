@@ -8,6 +8,7 @@ export namespace UpstreamClient {
   export type ErrorCode =
     | "network"
     | "5xx"
+    | "rate-limited"
     | "aborted"
     | "aborted-due-to-timeout"
     | "short-circuit";
@@ -45,6 +46,7 @@ export namespace UpstreamClient {
   const BODY_TIMEOUT_MESSAGE = "upstream_body_timeout";
 
   const MAX_RETRIES = 2;
+  let rateLimitMaxRetries = 3;
   let openAfterFailures = 5;
   let halfOpenAfterMs = 30_000;
   let breakerEvictAfterMs = 300_000;
@@ -93,6 +95,26 @@ export namespace UpstreamClient {
         });
         timeout.beginBody();
 
+        if (response.status === 429) {
+          const retryAfterMs = parseRetryAfter(response);
+          const retrying = attempt < rateLimitMaxRetries;
+          logger.warn("upstream rate limited (429)", {
+            event: "upstream.rate_limited",
+            providerId,
+            attempt,
+            max_retries: rateLimitMaxRetries,
+            retrying,
+            retry_after_ms: retryAfterMs,
+          });
+          if (retrying) {
+            await discardResponse(response);
+            await sleep(retryAfterMs ?? backoffMs(attempt));
+            attempt += 1;
+            continue;
+          }
+          return withBodyTimeout(response, timeout);
+        }
+
         if (response.status >= 500) {
           if (response.status === 503 && await isUpstreamShortCircuit(response)) {
             logger.warn("upstream returned short-circuit, passing through without breaker penalty", {
@@ -137,10 +159,12 @@ export namespace UpstreamClient {
     breakerOpenAfterFailures: number;
     breakerHalfOpenAfterMs: number;
     breakerEvictAfterMs: number;
+    rateLimitMaxRetries?: number;
   }): void {
     openAfterFailures = config.breakerOpenAfterFailures;
     halfOpenAfterMs = config.breakerHalfOpenAfterMs;
     breakerEvictAfterMs = config.breakerEvictAfterMs;
+    if (config.rateLimitMaxRetries !== undefined) rateLimitMaxRetries = config.rateLimitMaxRetries;
   }
 
   export interface BreakerSnapshot {
@@ -192,6 +216,7 @@ export namespace UpstreamClient {
     openAfterFailures = 5;
     halfOpenAfterMs = 30_000;
     breakerEvictAfterMs = 300_000;
+    rateLimitMaxRetries = 3;
   }
 
   export function __getBreakerCountForTests(): number {
@@ -208,6 +233,7 @@ export namespace UpstreamClient {
     openAfterFailures?: number;
     halfOpenAfterMs?: number;
     breakerEvictAfterMs?: number;
+    rateLimitMaxRetries?: number;
   }): void {
     if (hooks.logger) logger = hooks.logger;
     if (hooks.sleep) sleep = hooks.sleep;
@@ -218,6 +244,7 @@ export namespace UpstreamClient {
     if (hooks.openAfterFailures !== undefined) openAfterFailures = hooks.openAfterFailures;
     if (hooks.halfOpenAfterMs !== undefined) halfOpenAfterMs = hooks.halfOpenAfterMs;
     if (hooks.breakerEvictAfterMs !== undefined) breakerEvictAfterMs = hooks.breakerEvictAfterMs;
+    if (hooks.rateLimitMaxRetries !== undefined) rateLimitMaxRetries = hooks.rateLimitMaxRetries;
   }
 
   export function releaseBodyTimeout(response: Response): void {
@@ -425,6 +452,19 @@ export namespace UpstreamClient {
       signal.addEventListener("abort", () => abort(signal), { once: true });
     }
     return controller.signal;
+  }
+
+  function parseRetryAfter(response: Response): number | null {
+    const raw = response.headers.get("retry-after");
+    if (!raw) return null;
+    const seconds = Number(raw);
+    if (Number.isFinite(seconds) && seconds > 0) return Math.min(seconds * 1000, 60_000);
+    const date = Date.parse(raw);
+    if (Number.isFinite(date)) {
+      const ms = date - now();
+      return ms > 0 ? Math.min(ms, 60_000) : null;
+    }
+    return null;
   }
 
   function isStreamingRequest(options: FetchOptions): boolean {
