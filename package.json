@@ -47,6 +47,7 @@
     "typecheck": "bunx tsc --noEmit",
     "test": "bun test",
     "release-check": "bun run typecheck && bun run test && bun run build && (bunx publint . || bun run scripts/release-fallback-check.ts)",
+    "perf:baseline": "bun run scripts/perf-baseline.ts",
     "prepublishOnly": "bun run release-check",
     "pack:check": "bun pm pack --dry-run",
     "test:e2e": "bun test tests/e2e/",
