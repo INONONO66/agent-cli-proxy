@@ -18,13 +18,11 @@ function expectConfigError(fn: () => unknown): ConfigError {
   throw new Error("Expected ConfigError");
 }
 
-test("non-loopback host requires admin API key", () => {
-  const err = expectConfigError(() => Config.validate(baseEnv({ PROXY_HOST: "0.0.0.0", ADMIN_API_KEY: "" })));
+test("non-loopback host does not require admin API key", () => {
+  const config = Config.validate(baseEnv({ PROXY_HOST: "0.0.0.0", ADMIN_API_KEY: "" }));
 
-  expect(err.issues).toContainEqual({
-    path: "ADMIN_API_KEY",
-    message: "is required when PROXY_HOST is not loopback",
-  });
+  expect(config.adminApiKey).toBe("");
+  expect(config.proxyRequireApiKey).toBe(true);
 });
 
 test("missing CLI proxy upstream fails unless local fallback is explicit", () => {

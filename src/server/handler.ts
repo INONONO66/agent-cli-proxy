@@ -1,4 +1,5 @@
 import { timingSafeEqual } from "node:crypto";
+import type { Server } from "bun";
 import { RequestBodyTooLargeError, RequestInspector, isRequestBodyTooLargeError } from "./request-inspector";
 import { PassThroughProxy, type ProxyAuthContext } from "./pass-through";
 import { Metrics } from "./metrics";
@@ -10,7 +11,6 @@ import { Pricing } from "../storage/pricing";
 import { UpstreamClient } from "../upstream/client";
 import { Supervisor } from "../runtime/supervisor";
 import { Session } from "../admin/session";
-import { Dashboard } from "./dashboard";
 import { PerfMetrics } from "./perf-metrics";
 import { isRequestSecure } from "../util/proxy-headers";
 import { ApiKeyRepo } from "../storage/api-keys";
@@ -46,6 +46,8 @@ type ReadyResult = {
   httpStatus: number;
   durationMs: number;
 };
+
+type RequestContext = Pick<Server<unknown>, "requestIP"> | undefined;
 
 const READY_TOTAL_TIMEOUT_MS = 1_500;
 const READY_CACHE_TTL_MS = 3_000;
@@ -104,10 +106,9 @@ export namespace Handler {
       timeoutMs: Config.oauthJobTimeoutMs,
     };
     const adminRouter = Admin.createRouter(usageService, sessionConfig, oauthConfig);
-    const dashboardHandler = Dashboard.createHandler();
     const maxRequestBodyBytes = options.maxRequestBodyBytes ?? Config.maxRequestBodyBytes;
 
-    return async function handleRequest(req: Request): Promise<Response> {
+    return async function handleRequest(req: Request, context?: RequestContext): Promise<Response> {
       const url = new URL(req.url);
       const path = url.pathname;
       const method = req.method;
@@ -125,7 +126,9 @@ export namespace Handler {
       }
 
       if (path === "/metrics" && method === "GET") {
-        const auth = await isAdminAuthorized(req, sessionConfig, securityConfig);
+        if (!isLocalRequest(req, context)) return withSecurityHeaders(req, securityConfig, localOnlyResponse());
+
+        const auth = await isAdminAuthorized(req, context, sessionConfig, securityConfig);
         if (!auth.authorized) {
           return withSecurityHeaders(req, securityConfig, new Response(JSON.stringify({ error: "Forbidden", code: "UNAUTHORIZED" }), {
             status: 403,
@@ -139,37 +142,15 @@ export namespace Handler {
       }
 
       try {
-        if (path === "/dashboard") {
-          return withSecurityHeaders(req, securityConfig, new Response(null, { status: 302, headers: { location: "/dashboard/" } }));
-        }
-
-        if (path.startsWith("/dashboard/")) {
-          // Dashboard requires session auth or admin API key
-          const dashboardAuth = await isAdminAuthorized(req, sessionConfig, securityConfig);
-          if (!dashboardAuth.authorized) {
-            // Serve login page for unauthenticated HTML requests (SPA will show login form)
-            if (path === "/dashboard/" || path.endsWith(".html")) {
-              return withSecurityHeaders(req, securityConfig, dashboardHandler(req));
-            }
-            // Serve static assets (JS/CSS) so login page can render
-            if (path.endsWith(".js") || path.endsWith(".css") || path.endsWith(".svg") || path.endsWith(".png")) {
-              return withSecurityHeaders(req, securityConfig, dashboardHandler(req));
-            }
-            return withSecurityHeaders(req, securityConfig, new Response(JSON.stringify({ error: "Unauthorized", code: "UNAUTHORIZED" }), {
-              status: 401,
-              headers: { "content-type": "application/json", "cache-control": "no-store" },
-            }));
-          }
-          return withSecurityHeaders(req, securityConfig, dashboardHandler(req));
-        }
-
         if (path.startsWith("/admin/")) {
+          if (!isLocalRequest(req, context)) return withSecurityHeaders(req, securityConfig, localOnlyResponse());
+
           if (isSessionRoute(path)) {
             const sessionResponse = await adminRouter(req);
             if (sessionResponse) return withSecurityHeaders(req, securityConfig, sessionResponse);
           }
 
-          const auth = await isAdminAuthorized(req, sessionConfig, securityConfig);
+          const auth = await isAdminAuthorized(req, context, sessionConfig, securityConfig);
           if (!auth.authorized) {
             return withSecurityHeaders(req, securityConfig, new Response(JSON.stringify({ error: "Forbidden", code: "UNAUTHORIZED" }), {
               status: 403,
@@ -204,8 +185,11 @@ export namespace Handler {
         const needsBodyLimit = method === "POST" || method === "PUT" || method === "PATCH";
         const bounded = needsBodyLimit ? enforceRequestBodyLimit(req, maxRequestBodyBytes) : req;
         if (bounded instanceof Response) return withSecurityHeaders(req, securityConfig, bounded);
-        const info = await RequestInspector.inspect(bounded);
-        return withSecurityHeaders(req, securityConfig, passThrough(bounded, info, proxyAuth.context));
+        const authContext = proxyAuth.context;
+        if (!authContext) throw new Error("proxy auth context missing");
+        const inspected = await RequestInspector.inspect(bounded);
+        const info = authContext.mode === "resolved" ? { ...inspected, apiKey: null } : inspected;
+        return withSecurityHeaders(req, securityConfig, passThrough(bounded, info, authContext));
       } catch (err) {
         if (isRequestBodyTooLargeError(err)) {
           return withSecurityHeaders(req, securityConfig, payloadTooLargeResponse(maxRequestBodyBytes));
@@ -226,7 +210,7 @@ export namespace Handler {
   ): Promise<{ response?: Response; context?: ProxyAuthContext }> {
     if (!securityConfig.proxyRequireApiKey) return undefinedProxyAuth();
 
-    const proxyApiKey = req.headers.get("x-proxy-key")?.trim();
+    const proxyApiKey = extractBearerToken(req.headers);
     if (!proxyApiKey) return { response: proxyApiKeyRequiredResponse() };
 
     const found = await ApiKeyRepo.findByKeyFull(usageService.db, proxyApiKey);
@@ -251,19 +235,27 @@ export namespace Handler {
   }
 
   function proxyApiKeyRequiredResponse(): Response {
-    return new Response(JSON.stringify({ error: "Valid x-proxy-key required." }), {
+    return new Response(JSON.stringify({ error: "Valid Authorization Bearer token required." }), {
       status: 401,
       headers: { "content-type": "application/json", "cache-control": "no-store" },
     });
   }
 
+  function extractBearerToken(headers: Headers): string | null {
+    const authorization = headers.get("authorization")?.trim();
+    const match = authorization?.match(/^Bearer\s+(.+)$/i);
+    const token = match?.[1]?.trim();
+    return token || null;
+  }
+
   async function isAdminAuthorized(
     req: Request,
+    context: RequestContext,
     sessionConfig: Admin.SessionConfig,
     securityConfig: SecurityConfig,
   ): Promise<{ authorized: boolean; viaCookie: boolean }> {
     if (!securityConfig.adminApiKey) {
-      return { authorized: isLoopbackHost(securityConfig.host), viaCookie: false };
+      return { authorized: isLocalRequest(req, context), viaCookie: false };
     }
 
     const bearer = req.headers.get("authorization")?.replace(/^Bearer\s+/i, "").trim();
@@ -335,6 +327,22 @@ export namespace Handler {
 
   function isLoopbackHost(host: string): boolean {
     return host === "127.0.0.1" || host === "localhost" || host === "::1";
+  }
+
+  function isLocalRequest(req: Request, context: RequestContext): boolean {
+    const address = context?.requestIP(req)?.address;
+    return address ? isLoopbackAddress(address) : false;
+  }
+
+  function isLoopbackAddress(address: string): boolean {
+    return address === "127.0.0.1" || address === "::1" || address === "::ffff:127.0.0.1";
+  }
+
+  function localOnlyResponse(): Response {
+    return new Response(JSON.stringify({ error: "Forbidden", code: "LOCAL_ONLY" }), {
+      status: 403,
+      headers: { "content-type": "application/json", "cache-control": "no-store" },
+    });
   }
 
   function constantTimeEqual(left: string, right: string): boolean {

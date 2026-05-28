@@ -178,8 +178,7 @@ async function initInteractive(ctx: CommandContext): Promise<void> {
     const cliProxyApiUrl = await ask(rl, "CLIProxyAPI URL", "http://localhost:8317");
     const cliProxyApiKey = await askSecret(rl, "CLIProxyAPI proxy key", "proxy");
 
-    const exposeAdmin = host !== "127.0.0.1" && host !== "localhost" && host !== "::1";
-    const adminApiKey = exposeAdmin || await confirm(rl, "Generate ADMIN_API_KEY for admin API?", false)
+    const adminApiKey = await confirm(rl, "Generate ADMIN_API_KEY for local admin API?", false)
       ? crypto.randomUUID().replaceAll("-", "")
       : "";
 
@@ -524,7 +523,7 @@ async function serviceCommand(ctx: CommandContext, subcommand: string): Promise<
 
   switch (subcommand) {
     case "install":
-      await installRuntime(runtimeDir, envPath);
+      if (!hasFlag(ctx.args, "--skip-runtime")) await installRuntime(runtimeDir, envPath);
       await installService(ctx, runtimeDir, envPath);
       return 0;
     case "start":
@@ -661,13 +660,6 @@ async function initDbAt(dbPath: string): Promise<void> {
   await mkdir(dirname(dbPath), { recursive: true });
   const db = Storage.initDb(dbPath);
   db.close();
-}
-
-async function openConfiguredDb(ctx: CommandContext) {
-  const envPath = getFlagValue(ctx.args, "--env") ?? defaultEnvPath;
-  const env = parseEnvFile(envPath);
-  applyEnv(env);
-  return Storage.initDb(validateCliEnv(env).dbPath);
 }
 
 function validateCliEnv(env: EnvMap): Readonly<ValidatedConfig> {
@@ -826,7 +818,7 @@ Usage:
   agent-cli-proxy init --non-interactive [--env PATH] [--data-dir PATH] [--runtime-dir PATH] [--admin-token VALUE|--admin-token-env NAME] [--cliproxy-mgmt-key-env NAME] [--force|--merge]
   agent-cli-proxy doctor [--env PATH] [--json]
   agent-cli-proxy db init [--env PATH]
-  agent-cli-proxy service install [--env PATH] [--runtime-dir PATH] [--service-path PATH]
+  agent-cli-proxy service install [--env PATH] [--runtime-dir PATH] [--service-path PATH] [--skip-runtime]
   agent-cli-proxy service start|stop|restart|status
   agent-cli-proxy service logs [--follow]
   agent-cli-proxy backfill-costs [--all] [--limit N]

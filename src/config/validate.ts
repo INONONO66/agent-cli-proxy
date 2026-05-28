@@ -160,13 +160,6 @@ export namespace Config {
       loginRateLimitMaxAttempts: readPositiveInteger(env, "LOGIN_RATE_LIMIT_MAX_ATTEMPTS", 5, 100, issues),
     };
 
-    if (!isLoopbackHost(config.host) && !config.adminApiKey) {
-      issues.push({
-        path: "ADMIN_API_KEY",
-        message: "is required when PROXY_HOST is not loopback",
-      });
-    }
-
     if (!isLoopbackHost(config.host) && !config.proxyRequireApiKey) {
       issues.push({
         path: "PROXY_REQUIRE_API_KEY",

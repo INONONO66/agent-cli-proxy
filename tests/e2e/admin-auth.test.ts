@@ -13,9 +13,13 @@ let storageModule: StorageModule;
 let serviceModule: ServiceModule;
 let handlerModule: HandlerModule;
 let db: Database;
-let handleRequest: (req: Request) => Promise<Response>;
+let handleRequest: (req: Request, context?: LocalTestContext) => Promise<Response>;
 let passwordHash: string;
 const envSnapshot = new Map<string, string | undefined>();
+
+type LocalTestContext = {
+  requestIP(req: Request): { address: string; port: number; family: "IPv4" | "IPv6" } | null;
+};
 
 function setEnv(key: string, value: string | undefined): void {
   if (!envSnapshot.has(key)) envSnapshot.set(key, process.env[key]);
@@ -85,7 +89,7 @@ describe("admin auth and deployment security", () => {
   });
 
   it("marks unauthenticated admin JSON failures as no-store", async () => {
-    const res = await handleRequest(new Request("http://proxy.example.test/admin/usage/today"));
+    const res = await handleRequest(new Request("http://127.0.0.1:3100/admin/usage/today"), localContext());
 
     expect(res.status).toBe(403);
     expect(res.headers.get("content-type")).toContain("application/json");
@@ -150,26 +154,39 @@ describe("admin auth and deployment security", () => {
         "x-forwarded-proto": "https",
       },
       body: JSON.stringify({ password: PASSWORD }),
-    }));
+    }), localContext());
 
     expect(res.status).toBe(200);
     expect(res.headers.get("set-cookie")).toContain("Secure");
   });
 
-  it("protects metrics off loopback while preserving admin token access", async () => {
-    const unauthorized = await handlerModule.Handler.create(serviceModule.UsageService.create(db), {
-      securityConfig: { adminApiKey: ADMIN_TOKEN, host: "0.0.0.0", proxyRequireApiKey: true, trustProxyHeaders: false },
-    })(new Request("http://proxy.example.test/metrics"));
-    expect(unauthorized.status).toBe(403);
-    expect(unauthorized.headers.get("cache-control")).toBe("no-store");
-
-    const authorized = await handlerModule.Handler.create(serviceModule.UsageService.create(db), {
+  it("keeps metrics local-only even when admin token is valid", async () => {
+    const remote = await handlerModule.Handler.create(serviceModule.UsageService.create(db), {
       securityConfig: { adminApiKey: ADMIN_TOKEN, host: "0.0.0.0", proxyRequireApiKey: true, trustProxyHeaders: false },
     })(new Request("http://proxy.example.test/metrics", {
       headers: { "x-admin-token": ADMIN_TOKEN },
-    }));
-    expect(authorized.status).toBe(200);
-    expect(authorized.headers.get("content-type")).toContain("text/plain");
+    }), remoteContext());
+    expect(remote.status).toBe(403);
+    expect(remote.headers.get("cache-control")).toBe("no-store");
+    expect(await remote.json()).toMatchObject({ code: "LOCAL_ONLY" });
+
+    const local = await handlerModule.Handler.create(serviceModule.UsageService.create(db), {
+      securityConfig: { adminApiKey: ADMIN_TOKEN, host: "0.0.0.0", proxyRequireApiKey: true, trustProxyHeaders: false },
+    })(new Request("http://127.0.0.1:3100/metrics", {
+      headers: { "x-admin-token": ADMIN_TOKEN },
+    }), localContext());
+    expect(local.status).toBe(200);
+    expect(local.headers.get("content-type")).toContain("text/plain");
+  });
+
+  it("keeps admin APIs local-only even when admin token is valid", async () => {
+    const res = await handleRequest(new Request("http://proxy.example.test/admin/usage/today", {
+      headers: { "x-admin-token": ADMIN_TOKEN },
+    }), remoteContext());
+
+    expect(res.status).toBe(403);
+    expect(res.headers.get("cache-control")).toBe("no-store");
+    expect(await res.json()).toMatchObject({ code: "LOCAL_ONLY" });
   });
 
   it("rejects handler security overrides that disable proxy keys off loopback", () => {
@@ -189,7 +206,7 @@ async function loginCookie(): Promise<string> {
     method: "POST",
     headers: { "content-type": "application/json" },
     body: JSON.stringify({ password: PASSWORD }),
-  }));
+  }), localContext());
   expect(res.status).toBe(200);
   const setCookie = res.headers.get("set-cookie");
   if (!setCookie) throw new Error("login did not set cookie");
@@ -204,5 +221,13 @@ function createApiKey(headers: Record<string, string>, name: string): Promise<Re
       ...headers,
     },
     body: JSON.stringify({ name }),
-  }));
+  }), localContext());
+}
+
+function localContext() {
+  return { requestIP: () => ({ address: "127.0.0.1", port: 54321, family: "IPv4" as const }) };
+}
+
+function remoteContext() {
+  return { requestIP: () => ({ address: "203.0.113.10", port: 54321, family: "IPv4" as const }) };
 }
