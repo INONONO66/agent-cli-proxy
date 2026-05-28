@@ -258,6 +258,43 @@ test("Anthropic body rewrite strips stale transfer headers before upstream fetch
   expect(forwardedHeaders.get("content-type")).toBe("application/json");
 });
 
+test("client-supplied forwarding headers are not trusted or forwarded upstream by default", async () => {
+  let forwardedHeaders = new Headers();
+  const { db, handle } = createHarness(async (options) => {
+    forwardedHeaders = new Headers(options.headers);
+    return new Response(JSON.stringify({
+      model: "gpt-5.4-mini",
+      usage: { prompt_tokens: 1, completion_tokens: 2, total_tokens: 3 },
+    }), { status: 200, headers: { "content-type": "application/json" } });
+  });
+
+  const req = request("/v1/chat/completions", { model: "gpt-5.4-mini", messages: [{ role: "user", content: "hi" }] }, {
+    "x-forwarded-for": "203.0.113.7",
+    "x-forwarded-proto": "https",
+    "x-forwarded-host": "public.example",
+    "x-forwarded-port": "443",
+    forwarded: "for=203.0.113.7;proto=https;host=public.example",
+    "cf-visitor": JSON.stringify({ scheme: "https" }),
+    "cf-connecting-ip": "203.0.113.8",
+    "cf-ipcountry": "US",
+  });
+  const info = await inspect(req);
+  expect(info.clientIp).toBeNull();
+
+  const res = await handle(req, info);
+  await res.text();
+
+  expect(forwardedHeaders.get("x-forwarded-for")).toBeNull();
+  expect(forwardedHeaders.get("x-forwarded-proto")).toBeNull();
+  expect(forwardedHeaders.get("x-forwarded-host")).toBeNull();
+  expect(forwardedHeaders.get("x-forwarded-port")).toBeNull();
+  expect(forwardedHeaders.get("forwarded")).toBeNull();
+  expect(forwardedHeaders.get("cf-visitor")).toBeNull();
+  expect(forwardedHeaders.get("cf-connecting-ip")).toBeNull();
+  expect(forwardedHeaders.get("cf-ipcountry")).toBeNull();
+  expect(latest(db).source_ip).toBeNull();
+});
+
 test("x-proxy-key identifies the request, updates last used, and stays off upstream headers", async () => {
   const { db } = createHarness(async () => new Response(JSON.stringify({ ok: true }), {
     status: 200,

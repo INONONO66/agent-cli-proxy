@@ -18,6 +18,7 @@ describe("dashboard config defaults", () => {
     expect(config.oauthJobTimeoutMs).toBe(300_000);
     expect(config.cliproxyBinaryPath).toBe("");
     expect(config.cliproxyConfigPath).toBe("");
+    expect(config.trustProxyHeaders).toBe(false);
   });
 });
 
@@ -27,6 +28,7 @@ describe("dashboard config env parsing", () => {
       DASHBOARD_PASSWORD_HASH: "$2b$10$hash",
       DASHBOARD_SESSION_SECRET: "session-secret",
       DASHBOARD_SESSION_TTL_MS: "123456",
+      TRUST_PROXY_HEADERS: "true",
       OAUTH_JOB_TIMEOUT_MS: "654321",
       CLIPROXY_BINARY_PATH: "/opt/cliproxy",
       CLIPROXY_CONFIG_PATH: "/opt/cliproxy/config.json",
@@ -38,5 +40,6 @@ describe("dashboard config env parsing", () => {
     expect(config.oauthJobTimeoutMs).toBe(654_321);
     expect(config.cliproxyBinaryPath).toBe("/opt/cliproxy");
     expect(config.cliproxyConfigPath).toBe("/opt/cliproxy/config.json");
+    expect(config.trustProxyHeaders).toBe(true);
   });
 });
