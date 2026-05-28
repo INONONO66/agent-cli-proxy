@@ -46,5 +46,17 @@ data/*.backup*
 # sisyphus work artifacts
 .sisyphus/
 
+# agent work artifacts
+.omo/
+.omx/
+.cursor/
+.playwright-mcp/
+
+# AI agent config
+CLAUDE.md
+
 # local agent rules
 *.local.md
+
+# screenshots / evidence images
+*.png
