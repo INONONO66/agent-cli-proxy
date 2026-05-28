@@ -44,7 +44,7 @@ export namespace Session {
       if (!isAlreadyExistsError(err)) throw err;
       const raced = await readSecretFile(secretPath);
       if (raced) return raced;
-      await replaceEmptySecretFile(secretPath, secret);
+      return replaceEmptySecretFile(secretPath, secret);
     }
     logger.info("dashboard session secret generated", { event: "dashboard.session_secret.generated" });
     return secret;
@@ -216,9 +216,9 @@ async function readSecretFile(path: string): Promise<string | null> {
   return value || null;
 }
 
-async function replaceEmptySecretFile(secretPath: string, secret: string): Promise<void> {
+async function replaceEmptySecretFile(secretPath: string, secret: string): Promise<string> {
   const existing = await readSecretFile(secretPath);
-  if (existing) return;
+  if (existing) return existing;
 
   const tempPath = join(dirname(secretPath), `.${basename(secretPath)}.${randomHex(8)}.tmp`);
   let handle: Awaited<ReturnType<typeof open>> | null = null;
@@ -229,6 +229,7 @@ async function replaceEmptySecretFile(secretPath: string, secret: string): Promi
     await handle.close();
     handle = null;
     await rename(tempPath, secretPath);
+    return secret;
   } catch (err) {
     if (handle) await handle.close().catch(() => undefined);
     await rm(tempPath, { force: true }).catch(() => undefined);
