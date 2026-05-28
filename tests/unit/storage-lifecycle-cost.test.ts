@@ -4,24 +4,6 @@ import { Storage } from "../../src/storage/db";
 import { RequestRepo } from "../../src/storage/repo";
 import type { Usage } from "../../src/usage";
 
-const migration005 = new URL(
-  "../../src/storage/migrations/005_lifecycle_cost_subscription.sql",
-  import.meta.url,
-);
-
-function splitStatements(sql: string): string[] {
-  return sql
-    .replace(/^\s*--.*$/gm, "")
-    .split(";")
-    .map((stmt) => stmt.trim())
-    .filter(Boolean);
-}
-
-async function applyMigration005(db: Database): Promise<void> {
-  const sql = await Bun.file(migration005).text();
-  for (const stmt of splitStatements(sql)) db.exec(stmt);
-}
-
 function tableColumns(db: Database, table: string): Record<string, string> {
   const rows = db
     .query(`PRAGMA table_info(${table})`)
@@ -85,16 +67,17 @@ function baseLog(overrides: Partial<Omit<Usage.RequestLog, "id">> = {}): Omit<Us
   };
 }
 
-test("fresh DB has lifecycle/cost/subscription columns, cost_audit, and indexes", () => {
+test("fresh DB has lifecycle/cost columns, cost_audit, and indexes", () => {
   const db = Storage.initDb(":memory:");
   const columns = tableColumns(db, "request_logs");
 
   expect(columns.status).toBe("INTEGER");
   expect(columns.lifecycle_status).toBe("TEXT");
   expect(columns.cost_status).toBe("TEXT");
-  expect(columns.subscription_code).toBe("TEXT");
   expect(columns.finalized_at).toBe("TEXT");
   expect(columns.error_message).toBe("TEXT");
+  expect(columns.actual_model).toBe("TEXT");
+  expect(columns.actual_provider).toBe("TEXT");
 
   const costAuditColumns = tableColumns(db, "cost_audit");
   expect(costAuditColumns.request_log_id).toBe("INTEGER");
@@ -104,66 +87,15 @@ test("fresh DB has lifecycle/cost/subscription columns, cost_audit, and indexes"
   const requestIndexes = indexNames(db, "request_logs");
   expect(requestIndexes).toContain("idx_request_logs_lifecycle_status");
   expect(requestIndexes).toContain("idx_request_logs_cost_status");
-  expect(requestIndexes).toContain("idx_request_logs_subscription_code");
   expect(indexNames(db, "cost_audit")).toContain("idx_cost_audit_request_log_id");
 
   const applied = db
     .query("SELECT name FROM schema_migrations WHERE name = ?")
-    .get("005_lifecycle_cost_subscription.sql");
+    .get("001_init.sql");
   expect(applied).toBeTruthy();
 });
 
-test("migration 005 upgrades old rows without data loss and backfills lifecycle/cost", async () => {
-  const db = new Database(":memory:");
-  createOldRequestLogs(db);
-  db.query(`
-    INSERT INTO request_logs (
-      provider, model, tool, client_id, path, streamed, status,
-      prompt_tokens, completion_tokens, cache_creation_tokens, cache_read_tokens,
-      total_tokens, cost_usd, incomplete, error_code, started_at, finished_at
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-  `).run(
-    "anthropic", "claude", "opencode", "client-a", "/v1/messages", 0, 200,
-    1, 2, 0, 0, 3, 0.25, 0, null, "2026-05-04T00:00:00.000Z", "2026-05-04T00:00:01.000Z",
-  );
-  db.query(`
-    INSERT INTO request_logs (
-      provider, model, tool, client_id, path, streamed, status,
-      prompt_tokens, completion_tokens, cache_creation_tokens, cache_read_tokens,
-      total_tokens, cost_usd, incomplete, error_code, started_at, finished_at
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-  `).run(
-    "openai", "gpt", "opencode", "client-b", "/v1/chat/completions", 0, 500,
-    1, 2, 0, 0, 3, 0, 0, "upstream_error", "2026-05-04T01:00:00.000Z", null,
-  );
 
-  await applyMigration005(db);
-
-  const rows = db
-    .query(`
-      SELECT id, provider, status, lifecycle_status, cost_status, finalized_at, cost_usd, error_code
-      FROM request_logs ORDER BY id
-    `)
-    .all() as Usage.RequestLog[];
-
-  expect(rows).toHaveLength(2);
-  expect(rows[0]).toMatchObject({
-    provider: "anthropic",
-    status: 200,
-    lifecycle_status: "completed",
-    cost_status: "ok",
-    finalized_at: "2026-05-04T00:00:01.000Z",
-    cost_usd: 0.25,
-  });
-  expect(rows[1]).toMatchObject({
-    provider: "openai",
-    status: 500,
-    lifecycle_status: "error",
-    cost_status: "pending",
-    finalized_at: "2026-05-04T01:00:00.000Z",
-    error_code: "upstream_error",
-  });
-});
 
 test("RequestRepo.insert derives lifecycle/cost defaults and keeps HTTP status correlation", () => {
   const db = Storage.initDb(":memory:");
