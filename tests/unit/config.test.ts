@@ -149,3 +149,53 @@ test("invalid URLs fail for upstream and provider config", () => {
     "providers[0].upstreamBaseUrl",
   ]));
 });
+
+test("invalid security booleans fail fast", () => {
+  const err = expectConfigError(() => Config.validate(baseEnv({
+    TRUST_PROXY_HEADERS: "treu",
+    PROXY_REQUIRE_API_KEY: "maybe",
+  })));
+
+  expect(err.issues).toEqual(expect.arrayContaining([
+    { path: "TRUST_PROXY_HEADERS", message: "must be a boolean (true/false, yes/no, or 1/0)" },
+    { path: "PROXY_REQUIRE_API_KEY", message: "must be a boolean (true/false, yes/no, or 1/0)" },
+  ]));
+});
+
+test("placeholder secrets emit configuration warnings", () => {
+  const warnings: Array<{ path: string; message: string }> = [];
+  Config.validate(baseEnv({
+    PROXY_HOST: "0.0.0.0",
+    ADMIN_API_KEY: "admin",
+    CLI_PROXY_API_KEY: "proxy",
+    CLIPROXY_MGMT_KEY: "changeme",
+    DASHBOARD_SESSION_SECRET: "secret",
+  }), { onWarning: (issue) => warnings.push(issue) });
+
+  expect(warnings.map((warning) => warning.path)).toEqual(expect.arrayContaining([
+    "ADMIN_API_KEY",
+    "CLI_PROXY_API_KEY",
+    "CLIPROXY_MGMT_KEY",
+    "DASHBOARD_SESSION_SECRET",
+  ]));
+});
+
+test("placeholder upstream proxy key warns for non-loopback upstream URLs", () => {
+  const warnings: Array<{ path: string; message: string }> = [];
+  Config.validate(baseEnv({
+    CLI_PROXY_API_URL: "https://cliproxy.example.test",
+    CLI_PROXY_API_KEY: "proxy",
+  }), { onWarning: (issue) => warnings.push(issue) });
+
+  expect(warnings.map((warning) => warning.path)).toContain("CLI_PROXY_API_KEY");
+});
+
+test("IPv6 loopback upstream keeps local placeholder warning suppressed", () => {
+  const warnings: Array<{ path: string; message: string }> = [];
+  Config.validate(baseEnv({
+    CLI_PROXY_API_URL: "http://[::1]:8317",
+    CLI_PROXY_API_KEY: "proxy",
+  }), { onWarning: (issue) => warnings.push(issue) });
+
+  expect(warnings.map((warning) => warning.path)).not.toContain("CLI_PROXY_API_KEY");
+});
