@@ -11,6 +11,7 @@ export namespace CLIProxyLogin {
     xai: ["-xai-login", "-no-browser"],
     google: ["-login", "-no-browser"],
     antigravity: ["-antigravity-login", "-no-browser"],
+    glm: ["-glm-login", "-no-browser"],
   };
 
   export interface Job {

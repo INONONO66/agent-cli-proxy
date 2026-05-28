@@ -45,6 +45,7 @@ describe("CLIProxyLogin", () => {
       "antigravity",
       "claude",
       "codex",
+      "glm",
       "google",
       "kimi",
       "xai",
