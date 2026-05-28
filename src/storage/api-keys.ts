@@ -201,6 +201,10 @@ export namespace ApiKeyRepo {
     };
   }
 
+  export async function findByKeyFull(db: Database, key: string): Promise<FoundApiKeyFull | null> {
+    return findByHashFull(db, await sha256Hex(key));
+  }
+
   export function touchLastUsed(db: Database, id: number): void {
     db.prepare(`
       UPDATE api_keys

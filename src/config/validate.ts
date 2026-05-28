@@ -153,6 +153,13 @@ export namespace Config {
       });
     }
 
+    if (!isLoopbackHost(config.host) && !config.proxyRequireApiKey) {
+      issues.push({
+        path: "PROXY_REQUIRE_API_KEY",
+        message: "must be true when PROXY_HOST is not loopback",
+      });
+    }
+
     warnForWeakSecret(warnings, "ADMIN_API_KEY", config.adminApiKey);
     warnForWeakSecret(warnings, "CLIPROXY_MGMT_KEY", config.cliproxyMgmtKey);
     warnForWeakSecret(warnings, "DASHBOARD_SESSION_SECRET", config.dashboardSessionSecret);

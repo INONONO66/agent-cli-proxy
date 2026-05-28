@@ -59,7 +59,7 @@ Layer responsibilities:
 
 1. **Cloudflare edge**: WAF, rate limits, bot controls, and optional Cloudflare Access user/service-token policy.
 2. **Worker facade, optional**: validate expected edge identity, normalize CORS, reject disallowed methods/paths, strip untrusted forwarding headers, forward only required headers.
-3. **Application proxy API key**: every externally reachable LLM proxy request under `/v1/*` and `/api/*` should use a managed `x-proxy-key` when relying on application-level identity, provider scoping, last-used tracking, or usage attribution. Current `PROXY_REQUIRE_API_KEY=true` also accepts `Authorization` and `x-api-key` as compatibility presence gates, but those headers are not managed proxy-key validation or attribution today. This remains separate from Cloudflare Access identity.
+3. **Application proxy API key**: every externally reachable LLM proxy request under `/v1/*` and `/api/*` must use a valid managed `x-proxy-key` when `PROXY_REQUIRE_API_KEY=true`. Upstream-style `Authorization` and `x-api-key` headers do not satisfy this application-level key check. This remains separate from Cloudflare Access identity.
 4. **Admin credentials**: `/admin/*`, `/dashboard/*`, and `/metrics` use `ADMIN_API_KEY`/dashboard session rules and must not share the API-client proxy key policy.
 
 Cloudflare Access service tokens authenticate automated services with `CF-Access-Client-Id` and `CF-Access-Client-Secret` headers. When Access forwards requests to an origin, Cloudflare includes a `Cf-Access-Jwt-Assertion` header; Cloudflare recommends validating that JWT rather than assuming the header is trustworthy in all contexts. A Worker placed behind Access should validate the Access JWT before forwarding privileged requests.
@@ -76,7 +76,7 @@ A future Worker should be small and explicit:
 
 - Allow only the intended public paths: `/v1/*`, `/api/*`, `/health`, and optionally `/ready`.
 - Reject `/admin/*`, `/dashboard/*`, and `/metrics` at the Worker unless there is a separate operator-only Worker route.
-- Require API clients to provide their own managed `x-proxy-key`; do not mint or hard-code user proxy keys at the edge. Treat `Authorization` and `x-api-key` as compatibility presence gates only until managed validation is expanded.
+- Require API clients to provide their own managed `x-proxy-key`; do not mint or hard-code user proxy keys at the edge. Do not treat `Authorization` or `x-api-key` as substitutes for the application proxy key.
 - Store only Cloudflare-to-origin credentials, such as an Access service token, as Worker secrets.
 - Strip incoming `x-forwarded-*`, `cf-connecting-ip`, `cf-visitor`, and similar provenance headers before creating the origin request; let Cloudflare add trusted values.
 - Preserve streaming behavior and avoid buffering SSE responses.
@@ -108,7 +108,10 @@ ADMIN_API_KEY=<long-random-admin-token>
 TRUST_PROXY_HEADERS=true # only when requests arrive solely through Cloudflare/Tunnel and provenance headers are stripped/overwritten before origin
 ```
 
-If the service must bind to `0.0.0.0` for container networking, keep the container/network firewall restricted so only `cloudflared` or the private reverse proxy can reach it. Do not publish the origin port directly to the Internet.
+If the service must bind to `0.0.0.0` for container networking, keep
+`PROXY_REQUIRE_API_KEY=true` and keep the container/network firewall restricted
+so only `cloudflared` or the private reverse proxy can reach it. Do not publish
+the origin port directly to the Internet.
 
 ## Header and JWT trust rules
 
@@ -116,7 +119,7 @@ If the service must bind to `0.0.0.0` for container networking, keep the contain
 - Do not let clients supply or override `x-forwarded-*`, `forwarded`, `cf-*`, or Access JWT headers through the Worker, Transform Rule, Tunnel-only path, or local reverse proxy.
 - If Cloudflare Access is part of the auth boundary, validate `Cf-Access-Jwt-Assertion` using the team domain JWKS and expected audience before relying on identity claims.
 - Keep Cloudflare Access identity and app proxy API keys as separate checks: Access proves edge admission; managed `x-proxy-key` provides current app-level usage attribution and provider scoping.
-- Do not describe `Authorization` or `x-api-key` as managed proxy-key authorization until the runtime validates and attributes those headers the same way it handles `x-proxy-key`.
+- Do not describe `Authorization` or `x-api-key` as managed proxy-key authorization; public proxy auth is intentionally scoped to `x-proxy-key`.
 
 ## Operational controls
 
@@ -129,12 +132,10 @@ If the service must bind to `0.0.0.0` for container networking, keep the contain
 
 ## Follow-up implementation tasks
 
-1. Add tests and docs that make `PROXY_REQUIRE_API_KEY=true` plus managed `x-proxy-key` explicit for all non-loopback/public deployments.
-2. Expand managed proxy API-key validation beyond `x-proxy-key`, or keep Cloudflare/public guidance restricted to `x-proxy-key` for attribution/scoping.
-3. Add a minimal Worker template under documentation or examples only, with no new runtime dependency for the proxy package.
-4. Add Cloudflare Access JWT validation guidance for any future Worker template.
-5. Add deployment examples for Tunnel-only and Worker-plus-Tunnel topologies, including public API path allowlists, admin/dashboard deny rules, and provenance-header strip/overwrite rules.
-6. Add a runbook for key rotation, Cloudflare Access policy changes, and rollback to Tunnel-only.
+1. Add a minimal Worker template under documentation or examples only, with no new runtime dependency for the proxy package.
+2. Add Cloudflare Access JWT validation guidance for any future Worker template.
+3. Add deployment examples for Tunnel-only and Worker-plus-Tunnel topologies, including public API path allowlists, admin/dashboard deny rules, and provenance-header strip/overwrite rules.
+4. Add a runbook for key rotation, Cloudflare Access policy changes, and rollback to Tunnel-only.
 
 ## Decision record
 

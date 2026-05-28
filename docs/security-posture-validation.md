@@ -12,14 +12,18 @@ adding database migrations, or introducing new runtime dependencies.
 - Generated dashboard session secrets are written with owner-only file permissions on POSIX platforms.
 - Structured logs redact sensitive substrings embedded in `Error` messages/stacks, including bearer tokens, API-key labels, and cookie headers.
 - Admin API-key and dashboard session JSON responses include `Cache-Control: no-store`.
+- Externally reachable LLM proxy routes require a valid managed `x-proxy-key`
+  when `PROXY_REQUIRE_API_KEY=true`; upstream-style `Authorization` and
+  `x-api-key` headers are not accepted as application proxy-key substitutes.
+- Non-loopback binds fail configuration validation if `PROXY_REQUIRE_API_KEY`
+  is explicitly disabled.
 - Public security reporting docs no longer include placeholder owner/contact values.
 
 ## Explicitly deferred
 
-Full managed proxy API-key validation for public LLM requests is intentionally left
-for the dedicated public-deployment API-key story because it changes request auth
-semantics for clients that currently pass upstream-style `Authorization` or
-`x-api-key` headers.
+Proxy-key support remains intentionally scoped to `x-proxy-key`. Expanding
+managed validation and attribution to additional client header names would be a
+separate compatibility decision.
 
 ## Validation
 

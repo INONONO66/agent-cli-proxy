@@ -51,10 +51,18 @@ interface LifecycleHandle extends Shutdown.ActiveLifecycleHandle {
   finish(): void;
 }
 
-interface ResolvedProxyApiKey {
+export interface ResolvedProxyApiKey {
   readonly id: number;
   readonly allowedProviders: string[] | null;
+  readonly allowedAccounts: string[] | null;
 }
+
+// Handler owns required public-route authentication. Pass-through keeps a
+// best-effort header mode only for internal callers/tests that need attribution
+// without turning it into an ingress auth boundary.
+export type ProxyAuthContext =
+  | { readonly mode: "resolved"; readonly proxyApiKey: ResolvedProxyApiKey }
+  | { readonly mode: "best-effort-header" };
 
 export namespace PassThroughProxy {
   const activeLifecycleHandles = new Set<LifecycleHandle>();
@@ -72,10 +80,17 @@ export namespace PassThroughProxy {
   export function create(usageService: UsageService.UsageService, dependencies: Dependencies = {}) {
     const fetchUpstream = dependencies.fetch ?? UpstreamClient.fetch;
 
-    return async function handle(req: Request, info: RequestInfo): Promise<Response> {
+    return async function handle(
+      req: Request,
+      info: RequestInfo,
+      authContext: ProxyAuthContext = { mode: "best-effort-header" },
+    ): Promise<Response> {
       const startTime = Date.now();
       const plugin = AgentPlugins.resolve(info);
-      const proxyApiKey = await resolveProxyApiKey(req.headers, usageService.db);
+      const proxyApiKey = authContext.mode === "resolved"
+        ? authContext.proxyApiKey
+        : await resolveProxyApiKey(req.headers, usageService.db);
+      if (proxyApiKey) touchProxyApiKeyLastUsed(usageService, proxyApiKey.id);
       const lifecycle = preLog(req, info, usageService, startTime, proxyApiKey?.id ?? null);
       const requestInfo: RequestInfo = { ...info, requestId: lifecycle?.requestId ?? info.requestId };
       const upstreamUrl = `${Config.cliProxyApiUrl}${requestInfo.path}`;
@@ -866,16 +881,17 @@ export namespace PassThroughProxy {
     const proxyApiKey = headers.get("x-proxy-key");
     if (!proxyApiKey) return null;
 
-    const keyHash = await sha256Hex(proxyApiKey);
-    const found = ApiKeyRepo.findByHash(db, keyHash);
+    const found = await ApiKeyRepo.findByKeyFull(db, proxyApiKey);
     if (!found) return null;
 
-    ApiKeyRepo.touchLastUsed(db, found.id);
-    return { id: found.id, allowedProviders: found.allowedProviders };
+    return { id: found.id, allowedProviders: found.allowedProviders, allowedAccounts: found.allowedAccounts };
   }
 
-  async function sha256Hex(value: string): Promise<string> {
-    const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(value));
-    return Array.from(new Uint8Array(digest), (byte) => byte.toString(16).padStart(2, "0")).join("");
+  function touchProxyApiKeyLastUsed(usageService: UsageService.UsageService, id: number): void {
+    try {
+      ApiKeyRepo.touchLastUsed(usageService.db, id);
+    } catch (err) {
+      logger.warn("proxy API key last-used update failed", { event: "proxy_api_key.touch_failed", err, proxy_api_key_id: id });
+    }
   }
 }

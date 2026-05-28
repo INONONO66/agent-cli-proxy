@@ -162,6 +162,30 @@ test("invalid security booleans fail fast", () => {
   ]));
 });
 
+test("proxy API keys are required by default on non-loopback binds only", () => {
+  const loopback = Config.validate(baseEnv({ PROXY_HOST: "127.0.0.1" }));
+  expect(loopback.proxyRequireApiKey).toBe(false);
+
+  const publicBind = Config.validate(baseEnv({
+    PROXY_HOST: "0.0.0.0",
+    ADMIN_API_KEY: "admin-token",
+  }));
+  expect(publicBind.proxyRequireApiKey).toBe(true);
+});
+
+test("non-loopback binds cannot disable proxy API keys", () => {
+  const err = expectConfigError(() => Config.validate(baseEnv({
+    PROXY_HOST: "0.0.0.0",
+    ADMIN_API_KEY: "admin-token",
+    PROXY_REQUIRE_API_KEY: "false",
+  })));
+
+  expect(err.issues).toContainEqual({
+    path: "PROXY_REQUIRE_API_KEY",
+    message: "must be true when PROXY_HOST is not loopback",
+  });
+});
+
 test("placeholder secrets emit configuration warnings", () => {
   const warnings: Array<{ path: string; message: string }> = [];
   Config.validate(baseEnv({

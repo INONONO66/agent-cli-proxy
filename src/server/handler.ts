@@ -1,6 +1,6 @@
 import { timingSafeEqual } from "node:crypto";
 import { RequestBodyTooLargeError, RequestInspector, isRequestBodyTooLargeError } from "./request-inspector";
-import { PassThroughProxy } from "./pass-through";
+import { PassThroughProxy, type ProxyAuthContext } from "./pass-through";
 import { Metrics } from "./metrics";
 import { Admin } from "../admin";
 import { UsageService } from "../storage/service";
@@ -13,6 +13,7 @@ import { Session } from "../admin/session";
 import { Dashboard } from "./dashboard";
 import { PerfMetrics } from "./perf-metrics";
 import { isRequestSecure } from "../util/proxy-headers";
+import { ApiKeyRepo } from "../storage/api-keys";
 
 const logger = Logger.fromConfig().child({ component: "handler" });
 const readyLogger = logger.child({ component: "handler.ready" });
@@ -69,6 +70,7 @@ export namespace Handler {
   interface SecurityConfig {
     adminApiKey: string;
     host: string;
+    proxyRequireApiKey: boolean;
     trustProxyHeaders: boolean;
   }
 
@@ -82,9 +84,11 @@ export namespace Handler {
     const securityConfig: SecurityConfig = {
       adminApiKey: Config.adminApiKey,
       host: Config.host,
+      proxyRequireApiKey: Config.proxyRequireApiKey,
       trustProxyHeaders: Config.trustProxyHeaders,
       ...options.securityConfig,
     };
+    assertPublicProxyKeyInvariant(securityConfig);
     const sessionConfig: Admin.SessionConfig = {
       ...(options.sessionConfig ?? {
         passwordHash: Config.dashboardPasswordHash,
@@ -190,18 +194,10 @@ export namespace Handler {
           }));
         }
 
-        // Proxy API key enforcement
-        if (Config.proxyRequireApiKey) {
-          const hasKey = req.headers.has("x-proxy-key")
-            || req.headers.has("authorization")
-            || req.headers.has("x-api-key");
-          if (!hasKey) {
-            logger.warn("proxy request rejected: no API key", { event: "proxy.auth.rejected", path });
-            return withSecurityHeaders(req, securityConfig, new Response(JSON.stringify({ error: "API key required. Set x-proxy-key or Authorization header." }), {
-              status: 401,
-              headers: { "content-type": "application/json", "cache-control": "no-store" },
-            }));
-          }
+        const proxyAuth = await enforceProxyApiKey(req, usageService, securityConfig);
+        if (proxyAuth.response) {
+          logger.warn("proxy request rejected: invalid API key", { event: "proxy.auth.rejected", path });
+          return withSecurityHeaders(req, securityConfig, proxyAuth.response);
         }
 
         // Body limit enforcement only for methods that carry a body
@@ -209,7 +205,7 @@ export namespace Handler {
         const bounded = needsBodyLimit ? enforceRequestBodyLimit(req, maxRequestBodyBytes) : req;
         if (bounded instanceof Response) return withSecurityHeaders(req, securityConfig, bounded);
         const info = await RequestInspector.inspect(bounded);
-        return withSecurityHeaders(req, securityConfig, passThrough(bounded, info));
+        return withSecurityHeaders(req, securityConfig, passThrough(bounded, info, proxyAuth.context));
       } catch (err) {
         if (isRequestBodyTooLargeError(err)) {
           return withSecurityHeaders(req, securityConfig, payloadTooLargeResponse(maxRequestBodyBytes));
@@ -221,6 +217,44 @@ export namespace Handler {
         }));
       }
     };
+  }
+
+  async function enforceProxyApiKey(
+    req: Request,
+    usageService: UsageService.UsageService,
+    securityConfig: SecurityConfig,
+  ): Promise<{ response?: Response; context?: ProxyAuthContext }> {
+    if (!securityConfig.proxyRequireApiKey) return undefinedProxyAuth();
+
+    const proxyApiKey = req.headers.get("x-proxy-key")?.trim();
+    if (!proxyApiKey) return { response: proxyApiKeyRequiredResponse() };
+
+    const found = await ApiKeyRepo.findByKeyFull(usageService.db, proxyApiKey);
+    if (!found) return { response: proxyApiKeyRequiredResponse() };
+
+    return {
+      context: {
+        mode: "resolved",
+        proxyApiKey: { id: found.id, allowedProviders: found.allowedProviders, allowedAccounts: found.allowedAccounts },
+      },
+    };
+  }
+
+  function undefinedProxyAuth(): { context: ProxyAuthContext } {
+    return { context: { mode: "best-effort-header" } };
+  }
+
+  function assertPublicProxyKeyInvariant(securityConfig: SecurityConfig): void {
+    if (!isLoopbackHost(securityConfig.host) && !securityConfig.proxyRequireApiKey) {
+      throw new Error("PROXY_REQUIRE_API_KEY must be true when PROXY_HOST is not loopback");
+    }
+  }
+
+  function proxyApiKeyRequiredResponse(): Response {
+    return new Response(JSON.stringify({ error: "Valid x-proxy-key required." }), {
+      status: 401,
+      headers: { "content-type": "application/json", "cache-control": "no-store" },
+    });
   }
 
   async function isAdminAuthorized(
