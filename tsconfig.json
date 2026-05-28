@@ -9,10 +9,7 @@
     "jsxImportSource": "react",
     "lib": ["ESNext", "DOM", "DOM.Iterable"],
     "types": ["bun-types"],
-    "baseUrl": ".",
-    "paths": {
-      "@/*": ["src/dashboard/*"]
-    }
+    "baseUrl": "."
   },
   "exclude": []
 }

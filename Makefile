@@ -43,8 +43,6 @@ install-runtime: ## copy dist/ to runtime dir
 	@# preserve: .env (symlink or file), proxy.db, pricing-cache.json, .dashboard-session-secret, backups
 	cp "$(DIST_DIR)/index.js" "$(RUNTIME_DIR)/"
 	cp "$(DIST_DIR)/cli.js" "$(RUNTIME_DIR)/"
-	rm -rf "$(RUNTIME_DIR)/dashboard"
-	cp -r "$(DIST_DIR)/dashboard" "$(RUNTIME_DIR)/"
 	rm -rf "$(RUNTIME_DIR)/migrations"
 	cp -r "$(DIST_DIR)/migrations" "$(RUNTIME_DIR)/"
 	@# ensure .env symlink exists if not already present
