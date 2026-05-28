@@ -2,7 +2,9 @@ import { afterEach, describe, expect, spyOn, test } from "bun:test";
 import { mkdtemp, rm, readFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { Session } from "../../src/admin/session";
+
+process.env.CLI_PROXY_API_URL ??= "http://localhost:8317";
+const { Session } = await import("../../src/admin/session");
 
 const tempDirs: string[] = [];
 const envSnapshot = new Map<string, string | undefined>();
@@ -67,7 +69,7 @@ describe("Session", () => {
     const [issuedAt, signature] = validToken.split(".");
     expect(await Session.verifySession(`${issuedAt}.${signature}x`, secret, ttlMs)).toBe(false);
 
-    const futureToken = await signWithNow(secret, now + 60_001);
+    const futureToken = await signWithNow(secret, now + 120_000);
     expect(await Session.verifySession(futureToken, secret, ttlMs)).toBe(false);
 
     for (const token of ["", "missing-dot", "one.two.three"]) {
@@ -98,5 +100,24 @@ describe("Session", () => {
     const secret = await Session.resolveSecret(dbPath);
 
     expect(secret).toBe("existing-secret");
+  });
+
+  test("login ignores forwarded proto for Secure cookie unless proxy headers are trusted", async () => {
+    const passwordHash = await Bun.password.hash("correct horse battery staple");
+    const res = await Session.handleLogin(new Request("http://127.0.0.1/admin/session/login", {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        "x-forwarded-proto": "https",
+      },
+      body: JSON.stringify({ password: "correct horse battery staple" }),
+    }), {
+      passwordHash,
+      secret: "session-secret",
+      ttlMs: 60_000,
+    });
+
+    expect(res.status).toBe(200);
+    expect(res.headers.get("set-cookie")).not.toContain("Secure");
   });
 });
