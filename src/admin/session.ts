@@ -84,14 +84,16 @@ export namespace Session {
 
     clearLoginAttempts(clientIp);
     const token = await signSession(config.secret);
+    const isSecure = new URL(req.url).protocol === "https:";
     return json({ ok: true }, 200, {
-      "set-cookie": buildCookie(token, Math.floor(config.ttlMs / 1000)),
+      "set-cookie": buildCookie(token, Math.floor(config.ttlMs / 1000), isSecure),
     });
   }
 
-  export function handleLogout(): Response {
+  export function handleLogout(req: Request): Response {
+    const isSecure = new URL(req.url).protocol === "https:";
     return json({ ok: true }, 200, {
-      "set-cookie": `${COOKIE_NAME}=; HttpOnly; SameSite=Strict; Path=/; Max-Age=0`,
+      "set-cookie": `${COOKIE_NAME}=; HttpOnly; SameSite=Strict; Path=/; Max-Age=0${isSecure ? "; Secure" : ""}`,
     });
   }
 
@@ -163,13 +165,8 @@ function readCookie(header: string | null, name: string): string | null {
   return null;
 }
 
-function isSecureContext(): boolean {
-  const host = Config.host;
-  return host !== "127.0.0.1" && host !== "localhost" && host !== "::1";
-}
-
-function buildCookie(token: string, maxAgeSeconds: number): string {
-  const secure = isSecureContext() ? "; Secure" : "";
+function buildCookie(token: string, maxAgeSeconds: number, isSecure: boolean): string {
+  const secure = isSecure ? "; Secure" : "";
   return `${COOKIE_NAME}=${token}; HttpOnly; SameSite=Strict; Path=/; Max-Age=${maxAgeSeconds}${secure}`;
 }
 

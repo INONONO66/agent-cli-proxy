@@ -69,7 +69,7 @@ export namespace Admin {
         }
 
         if (path === "/admin/session/logout" && req.method === "POST") {
-          return Session.handleLogout();
+          return Session.handleLogout(req);
         }
 
         if (path === "/admin/session" && req.method === "GET") {
