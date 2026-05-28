@@ -143,16 +143,68 @@ test("Cost.compute keeps zero usage pending to preserve ok implies positive cost
 
 test("pricing fallback after first fetch failure is immediately stale and retries upstream", async () => {
   Pricing.__clearPricingForTests();
-  let attempts = 0;
-  globalThis.fetch = (() => {
-    attempts += 1;
+  let modelsDevAttempts = 0;
+  globalThis.fetch = ((input: string | URL | Request) => {
+    const url = typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
+    if (url.includes("models.dev")) modelsDevAttempts += 1;
     return Promise.reject(new Error("network down"));
   }) as unknown as typeof fetch;
 
   await Pricing.fetchPricing();
   await Pricing.fetchPricing();
 
-  expect(attempts).toBe(2);
+  expect(modelsDevAttempts).toBe(2);
+});
+
+test("pricing fetch falls back to OpenRouter model pricing when models.dev fails", async () => {
+  Pricing.__clearPricingForTests();
+  const calls: string[] = [];
+  globalThis.fetch = ((input: string | URL | Request) => {
+    const url = typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
+    calls.push(url);
+    if (url.includes("models.dev")) {
+      return Promise.resolve(new Response("unavailable", { status: 503 }));
+    }
+    return Promise.resolve(new Response(JSON.stringify({
+      data: [{
+        id: "openai/gpt-5-openrouter-only",
+        pricing: {
+          prompt: "0.000001",
+          completion: "0.000002",
+          request: "0",
+          image: "0",
+        },
+      }],
+    }), { status: 200, headers: { "content-type": "application/json" } }));
+  }) as unknown as typeof fetch;
+
+  await Pricing.fetchPricing({ force: true });
+
+  expect(calls.some((url) => url.includes("models.dev"))).toBe(true);
+  expect(calls.some((url) => url.includes("openrouter.ai/api/v1/models"))).toBe(true);
+  expect(Cost.compute({
+    provider: "openai",
+    model: "gpt-5-openrouter-only",
+    usage: { prompt_tokens: 1_000_000, completion_tokens: 1_000_000 },
+  })).toMatchObject({ cost_status: "ok", cost_usd: 3 });
+});
+
+test("Anthropic cache creation uses provider default cache_write multiplier when pricing omits it", () => {
+  Pricing.__setPricingForTests([["anthropic/claude-cache-default", { input: 2, output: 10 }]]);
+
+  const result = Cost.compute({
+    provider: "anthropic",
+    model: "claude-cache-default",
+    usage: {
+      prompt_tokens: 0,
+      completion_tokens: 0,
+      cache_creation_tokens: 1_000_000,
+      cache_read_tokens: 0,
+      reasoning_tokens: 0,
+    },
+  });
+
+  expect(result).toEqual({ cost_status: "ok", source: "pricing", cost_usd: 2.5 });
 });
 
 test("pricing lookup does not match unsafe key-substring aliases", () => {
@@ -197,6 +249,46 @@ test("backfill transitions pending priced rows to ok and writes audit", async ()
   expect(row?.cost_status).toBe("ok");
   expect(row?.cost_usd).toBeGreaterThan(0);
   expect(audits).toHaveLength(1);
+  db.close();
+});
+
+test("backfill resolves failed request cost without adding daily usage", async () => {
+  globalThis.fetch = (() => Promise.reject(new Error("use in-memory pricing"))) as unknown as typeof fetch;
+  Pricing.__setPricingForTests([["openai/gpt-5.4-mini", unitPrice]]);
+  const db = Storage.initDb(":memory:");
+  const service = UsageService.create(db);
+  const id = RequestRepo.insert(db, {
+    request_id: "failed-pending-cost",
+    provider: "openai",
+    model: "gpt-5.4-mini",
+    tool: "opencode",
+    client_id: "local",
+    path: "/v1/chat/completions",
+    streamed: 0,
+    status: 502,
+    lifecycle_status: "error",
+    cost_status: "pending",
+    prompt_tokens: 1_000_000,
+    completion_tokens: 0,
+    cache_creation_tokens: 0,
+    cache_read_tokens: 0,
+    reasoning_tokens: 0,
+    total_tokens: 1_000_000,
+    cost_usd: 0,
+    incomplete: 1,
+    error_code: "bad_gateway",
+    started_at: new Date().toISOString(),
+    finished_at: new Date().toISOString(),
+  });
+
+  const result = await service.backfillCosts({ all: true });
+  const row = RequestRepo.getById(db, id);
+  const daily = db.query("SELECT COUNT(*) AS count FROM daily_usage").get() as { count: number };
+
+  expect(result).toEqual({ scanned: 1, updated: 1, ok: 1, pending: 0, unsupported: 0 });
+  expect(row?.cost_status).toBe("ok");
+  expect(row?.cost_usd).toBeGreaterThan(0);
+  expect(daily.count).toBe(0);
   db.close();
 });
 
