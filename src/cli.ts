@@ -187,7 +187,7 @@ async function initInteractive(ctx: CommandContext): Promise<void> {
     const cliproxyMgmtKey = enableCliproxyCorrelation
       ? await askSecret(rl, "CLIProxyAPI management key", "")
       : "";
-    const enableQuotaRefresh = await confirm(rl, "Enable subscription quota checks from local CLIProxyAPI auth files?", false);
+    const enableQuotaRefresh = await confirm(rl, "Enable quota monitoring from local CLIProxyAPI auth files?", false);
     const cliproxyAuthDir = enableQuotaRefresh
       ? await ask(rl, "CLIProxyAPI auth directory", join(HOME, ".cli-proxy-api"))
       : "";
