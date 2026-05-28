@@ -97,8 +97,6 @@ export namespace Correlator {
         cliproxy_account: detail.source,
         cliproxy_auth_index: detail.auth_index,
         cliproxy_source: detail.source,
-        reasoning_tokens: detail.tokens.reasoning_tokens,
-        actual_model: detail.model,
       });
 
       pool.splice(match.index, 1);

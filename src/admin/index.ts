@@ -281,6 +281,20 @@ export namespace Admin {
           return json(data);
         }
 
+        const costAuditMatch = path.match(/^\/admin\/logs\/(\d+)\/cost-audit$/);
+        if (costAuditMatch) {
+          const id = Number(costAuditMatch[1]);
+          const audits = RequestRepo.getCostAudit(usageService.db, id).map((audit) => ({
+            id: audit.id,
+            model: audit.model,
+            provider: audit.provider,
+            source: audit.source,
+            baseCostUsd: audit.base_cost_usd,
+            calcAt: audit.calc_at,
+          }));
+          return json({ requestLogId: id, audits });
+        }
+
         return null;
       } catch (err) {
         logger.error("admin request failed", { err, path, method: req.method });

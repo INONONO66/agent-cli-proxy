@@ -434,8 +434,6 @@ export namespace UsageService {
         cliproxy_account?: string;
         cliproxy_auth_index?: string;
         cliproxy_source?: string;
-        reasoning_tokens?: number;
-        actual_model?: string;
       },
     ): void {
       const txn = db.transaction(() => {
@@ -454,7 +452,7 @@ export namespace UsageService {
             completion_tokens: log.completion_tokens,
             cache_creation_tokens: log.cache_creation_tokens,
             cache_read_tokens: log.cache_read_tokens,
-            reasoning_tokens: fields.reasoning_tokens ?? 0,
+            reasoning_tokens: log.reasoning_tokens ?? 0,
             total_tokens: log.total_tokens,
             cost_usd: log.cost_usd,
           });

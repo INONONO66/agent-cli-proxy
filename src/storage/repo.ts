@@ -314,8 +314,6 @@ export namespace RequestRepo {
       cliproxy_account?: string;
       cliproxy_auth_index?: string;
       cliproxy_source?: string;
-      reasoning_tokens?: number;
-      actual_model?: string;
     },
   ): number {
     const stmt = db.prepare(`
@@ -323,8 +321,6 @@ export namespace RequestRepo {
       SET cliproxy_account = COALESCE(?, cliproxy_account),
           cliproxy_auth_index = COALESCE(?, cliproxy_auth_index),
           cliproxy_source = COALESCE(?, cliproxy_source),
-          reasoning_tokens = COALESCE(?, reasoning_tokens),
-          actual_model = COALESCE(?, actual_model),
           correlated_at = ?
       WHERE id = ? AND cliproxy_account IS NULL
     `);
@@ -332,8 +328,6 @@ export namespace RequestRepo {
       fields.cliproxy_account ?? null,
       fields.cliproxy_auth_index ?? null,
       fields.cliproxy_source ?? null,
-      fields.reasoning_tokens ?? null,
-      fields.actual_model ?? null,
       new Date().toISOString(),
       id,
     );
@@ -483,6 +477,16 @@ export namespace RequestRepo {
       LIMIT 1
     `);
     return (stmt.get(requestLogId) as Usage.CostAudit) || null;
+  }
+
+  export function getCostAudit(db: Database, requestLogId: number): Usage.CostAudit[] {
+    const stmt = db.prepare(`
+      SELECT id, request_log_id, model, provider, source, base_cost_usd, calc_at
+      FROM cost_audit
+      WHERE request_log_id = ?
+      ORDER BY calc_at ASC
+    `);
+    return stmt.all(requestLogId) as Usage.CostAudit[];
   }
 }
 
