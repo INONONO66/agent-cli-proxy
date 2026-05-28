@@ -33,6 +33,9 @@ export namespace UsageService {
     async function finalizeUsage(id: number, log: Omit<Usage.RequestLog, "id">): Promise<boolean> {
       const cost = computeCost(log);
       const logWithCost = { ...log, cost_usd: cost.cost_usd, cost_status: cost.cost_status };
+      const costProvider = logWithCost.cost_provider ?? logWithCost.provider;
+      const costModel = logWithCost.cost_model ?? logWithCost.model;
+      const costLog = { ...logWithCost, provider: costProvider, model: costModel };
 
       const txn = db.transaction(() => {
         const previous = RequestRepo.getById(db, id);
@@ -63,13 +66,13 @@ export namespace UsageService {
 
         if (updated === 0) return false;
 
-        insertCostAudit(id, logWithCost, previous, cost);
+        insertCostAudit(id, costLog, previous, cost);
 
         const day = logWithCost.started_at.slice(0, 10);
         UsageRepo.upsertDaily(db, {
           day,
-          provider: logWithCost.provider,
-          model: logWithCost.model,
+          provider: costProvider,
+          model: costModel,
           request_count: 1,
           prompt_tokens: logWithCost.prompt_tokens,
           completion_tokens: logWithCost.completion_tokens,
@@ -261,13 +264,19 @@ export namespace UsageService {
     function computeCost(log: {
       provider: string;
       model: string;
+      cost_provider?: string;
+      cost_model?: string;
       prompt_tokens: number;
       completion_tokens: number;
       cache_creation_tokens: number;
       cache_read_tokens: number;
       reasoning_tokens?: number | null;
     }): Cost.CostResult {
-      return Cost.compute(Cost.inputsFromLog(log));
+      return Cost.compute(Cost.inputsFromLog({
+        ...log,
+        provider: log.cost_provider ?? log.provider,
+        model: log.cost_model ?? log.model,
+      }));
     }
 
     function insertCostAudit(

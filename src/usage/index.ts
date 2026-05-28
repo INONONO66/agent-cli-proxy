@@ -21,6 +21,8 @@ export namespace Usage {
     model: string;
     actual_model?: string;
     actual_provider?: string;
+    cost_provider?: string;
+    cost_model?: string;
     proxy_api_key_id?: number;
     tool: string;
     client_id: string;

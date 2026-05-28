@@ -722,6 +722,8 @@ export namespace PassThroughProxy {
         model,
         actual_model: fields.parsed.actualModel ?? undefined,
         actual_provider: actualProvider,
+        cost_provider: actualProvider,
+        cost_model: model,
         proxy_api_key_id: lifecycle.proxyApiKeyId,
         tool: lifecycle.tool,
         client_id: lifecycle.clientId,
