@@ -5,6 +5,8 @@ import type { OAuthStartResponse } from "../api";
 import { cn } from "@/lib/utils";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
+import { Spinner } from "@/components/ui/spinner";
+import { Check, X, Ban } from "lucide-react";
 
 interface OAuthJobPanelProps {
   job: OAuthStartResponse;
@@ -89,7 +91,7 @@ export function OAuthJobPanel({ job, onDone }: OAuthJobPanelProps) {
                   isFailed && "border-destructive bg-destructive/15",
                   isActive && "border-primary",
                 )}>
-                  {isPast ? "✓" : isFailed ? "✕" : isActive && !isTerminal ? <div className="w-2.5 h-2.5 border-[1.5px] border-border border-t-primary rounded-full animate-spin" /> : idx + 1}
+                  {isPast ? <Check className="size-3" /> : isFailed ? <X className="size-3" /> : isActive && !isTerminal ? <Spinner className="size-2.5" /> : idx + 1}
                 </div>
                 <span>{step.label}</span>
               </div>
@@ -98,10 +100,10 @@ export function OAuthJobPanel({ job, onDone }: OAuthJobPanelProps) {
         </div>
 
         <div className="flex items-center gap-2 mb-3 mt-3">
-          {!isTerminal && <div className="w-4 h-4 border-2 border-border border-t-primary rounded-full animate-spin" />}
-          {doneEvent && <span className="text-emerald-500">✓</span>}
-          {errorEvent && <span className="text-destructive">✕</span>}
-          {cancelledEvent && <span className="text-muted-foreground">⊘</span>}
+          {!isTerminal && <Spinner className="size-4" />}
+          {doneEvent && <Check className="size-4 text-emerald-500" />}
+          {errorEvent && <X className="size-4 text-destructive" />}
+          {cancelledEvent && <Ban className="size-4 text-muted-foreground" />}
           <span className="text-sm">
             {latest?.type === "started" && "Waiting for OAuth URL..."}
             {latest?.type === "url" && "Open the URL to authenticate"}

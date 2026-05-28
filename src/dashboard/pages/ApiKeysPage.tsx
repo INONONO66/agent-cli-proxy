@@ -15,7 +15,10 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
+import { Label } from "@/components/ui/label";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { Alert, AlertDescription } from "@/components/ui/alert";
 import {
   Dialog,
   DialogContent,
@@ -24,6 +27,17 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from "@/components/ui/alert-dialog";
 
 const knownProviders = ["anthropic", "openai", "kimi", "xai"];
 const fallbackAccounts = ["ino@timetreeapp.com", "openai.hatbox581@passmail.net"];
@@ -44,6 +58,7 @@ export function ApiKeysPage() {
   const [editAccounts, setEditAccounts] = useState("");
   const [editProviders, setEditProviders] = useState<string[]>([]);
   const [savingEdit, setSavingEdit] = useState(false);
+  const [actionError, setActionError] = useState("");
 
   useEffect(() => {
     let cancelled = false;
@@ -71,6 +86,7 @@ export function ApiKeysPage() {
       const name = newName.trim();
       if (!name) return;
       setCreating(true);
+      setActionError("");
       try {
         const res = await createApiKey(name, {
           allowedAccounts: parseCsv(newAccounts),
@@ -82,7 +98,7 @@ export function ApiKeysPage() {
         setNewProviders([]);
         refresh();
       } catch (err) {
-        alert(err instanceof Error ? err.message : "Failed to create key");
+        setActionError(err instanceof Error ? err.message : "Failed to create key");
       } finally {
         setCreating(false);
       }
@@ -107,13 +123,13 @@ export function ApiKeysPage() {
   }, []);
 
   const handleRevoke = useCallback(
-    async (id: number, name: string) => {
-      if (!window.confirm(`Revoke API key "${name}"? This cannot be undone.`)) return;
+    async (id: number) => {
+      setActionError("");
       try {
         await revokeApiKey(id);
         refresh();
       } catch (err) {
-        alert(err instanceof Error ? err.message : "Failed to revoke key");
+        setActionError(err instanceof Error ? err.message : "Failed to revoke key");
       }
     },
     [refresh],
@@ -134,6 +150,7 @@ export function ApiKeysPage() {
   const handleSaveEdit = useCallback(async () => {
     if (!editingKey) return;
     setSavingEdit(true);
+    setActionError("");
     try {
       await updateApiKey(editingKey.id, {
         allowedAccounts: parseCsv(editAccounts),
@@ -142,7 +159,7 @@ export function ApiKeysPage() {
       closeEdit();
       refresh();
     } catch (err) {
-      alert(err instanceof Error ? err.message : "Failed to update key");
+      setActionError(err instanceof Error ? err.message : "Failed to update key");
     } finally {
       setSavingEdit(false);
     }
@@ -161,7 +178,7 @@ export function ApiKeysPage() {
         const usage = await fetchApiKeyUsage(id);
         setUsageById((prev) => ({ ...prev, [id]: usage }));
       } catch (err) {
-        alert(err instanceof Error ? err.message : "Failed to load usage");
+        setActionError(err instanceof Error ? err.message : "Failed to load usage");
       } finally {
         setUsageLoading((prev) => ({ ...prev, [id]: false }));
       }
@@ -177,7 +194,17 @@ export function ApiKeysPage() {
         <h2 className="text-lg font-semibold">API Keys</h2>
       </div>
 
-      {error && <div className="rounded-lg border border-destructive/50 bg-destructive/10 text-destructive p-3 text-sm mb-4">{error}</div>}
+      {error && (
+        <Alert variant="destructive" className="mb-4">
+          <AlertDescription>{error}</AlertDescription>
+        </Alert>
+      )}
+
+      {actionError && (
+        <Alert variant="destructive" className="mb-4">
+          <AlertDescription>{actionError}</AlertDescription>
+        </Alert>
+      )}
 
       <Card className="mb-5">
         <CardContent className="p-4">
@@ -262,9 +289,25 @@ export function ApiKeysPage() {
                         {!key.revokedAt && (
                           <>
                             <Button variant="outline" size="xs" onClick={() => openEdit(key)}>Edit</Button>
-                            <Button variant="destructive" size="xs" onClick={() => handleRevoke(key.id, key.name)}>
-                              Revoke
-                            </Button>
+                            <AlertDialog>
+                              <AlertDialogTrigger asChild>
+                                <Button variant="destructive" size="xs">Revoke</Button>
+                              </AlertDialogTrigger>
+                              <AlertDialogContent>
+                                <AlertDialogHeader>
+                                  <AlertDialogTitle>Revoke API Key</AlertDialogTitle>
+                                  <AlertDialogDescription>
+                                    Revoke API key &ldquo;{key.name}&rdquo;? This cannot be undone.
+                                  </AlertDialogDescription>
+                                </AlertDialogHeader>
+                                <AlertDialogFooter>
+                                  <AlertDialogCancel>Cancel</AlertDialogCancel>
+                                  <AlertDialogAction onClick={() => handleRevoke(key.id)}>
+                                    Revoke
+                                  </AlertDialogAction>
+                                </AlertDialogFooter>
+                              </AlertDialogContent>
+                            </AlertDialog>
                           </>
                         )}
                       </div>
@@ -358,25 +401,20 @@ function RestrictionEditor(props: RestrictionEditorProps) {
         value={props.accounts}
         onChange={(e) => props.onAccountsChange(e.target.value)}
         disabled={props.disabled}
-        list="api-key-account-options"
       />
-      <datalist id="api-key-account-options">
-        {props.accountOptions.map((account) => (
-          <option key={account} value={account} />
-        ))}
-      </datalist>
-      <div className="flex gap-2 flex-wrap">
+      <div className="flex gap-3 flex-wrap">
         {props.providerOptions.map((provider) => (
-          <label key={provider} className="flex items-center gap-1 text-xs cursor-pointer">
-            <input
-              type="checkbox"
-              className="rounded border-input"
+          <div key={provider} className="flex items-center gap-1.5">
+            <Checkbox
+              id={`provider-${provider}`}
               checked={props.providers.includes(provider)}
               disabled={props.disabled}
-              onChange={() => props.onProvidersChange(toggleSelection(props.providers, provider))}
+              onCheckedChange={() => props.onProvidersChange(toggleSelection(props.providers, provider))}
             />
-            {provider}
-          </label>
+            <Label htmlFor={`provider-${provider}`} className="text-xs cursor-pointer">
+              {provider}
+            </Label>
+          </div>
         ))}
       </div>
     </div>

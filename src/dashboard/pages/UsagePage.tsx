@@ -25,6 +25,9 @@ import { Num, formatCompact, formatCostCompact } from "../utils/numbers";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Spinner } from "@/components/ui/spinner";
+import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 
 function todayIso(): string {
@@ -201,9 +204,9 @@ export function UsagePage() {
 
         {timeRange === "custom" && (
           <div className="flex gap-3 items-center mt-2">
-            <label className="text-xs text-muted-foreground">From</label>
+            <Label className="text-xs">From</Label>
             <Input type="date" className="h-8 text-xs w-auto" value={customFrom} onChange={(e) => setCustomFrom(e.target.value)} />
-            <label className="text-xs text-muted-foreground">To</label>
+            <Label className="text-xs">To</Label>
             <Input type="date" className="h-8 text-xs w-auto" value={customTo} onChange={(e) => setCustomTo(e.target.value)} />
           </div>
         )}
@@ -217,14 +220,14 @@ export function UsagePage() {
         )}
 
         {usageTrendError && (
-          <div className="rounded-lg border border-destructive/50 bg-destructive/10 text-destructive p-3 text-sm mt-3">
-            {usageTrendError}
-          </div>
+          <Alert variant="destructive" className="mt-3">
+            <AlertDescription>{usageTrendError}</AlertDescription>
+          </Alert>
         )}
 
         {usageTrendLoading && !usageTrend && (
           <div className="flex justify-center py-6">
-            <div className="w-5 h-5 border-2 border-border border-t-primary rounded-full animate-spin" />
+            <Spinner className="size-5" />
           </div>
         )}
 
@@ -372,7 +375,7 @@ export function UsagePage() {
       <div className="mb-6">
         <h3 className="text-sm font-semibold mb-3">Monthly Cost Summary</h3>
         <div className="flex gap-2 items-center flex-wrap">
-          <label className="text-xs text-muted-foreground">Month</label>
+          <Label className="text-xs">Month</Label>
           <Input type="month" className="h-8 text-xs w-auto" value={month} onChange={(e) => setMonth(e.target.value)} />
         </div>
       </div>

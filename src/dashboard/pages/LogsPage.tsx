@@ -5,19 +5,21 @@ import { usePolling } from "../hooks/usePolling";
 import { LogTable } from "../components/LogTable";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Alert, AlertDescription } from "@/components/ui/alert";
 
 const PROVIDERS = ["anthropic", "openai", "kimi", "xai"];
 
 const STATUS_OPTIONS = [
-  { label: "All", value: "" },
+  { label: "All", value: "__all__" },
   { label: "2xx", value: "2xx", min: 200, max: 299 },
   { label: "3xx", value: "3xx", min: 300, max: 399 },
   { label: "4xx", value: "4xx", min: 400, max: 499 },
   { label: "5xx", value: "5xx", min: 500, max: 599 },
 ] as const;
 
-const LIFECYCLE_OPTIONS: { label: string; value: Usage.LifecycleStatus | "" }[] = [
-  { label: "All", value: "" },
+const LIFECYCLE_OPTIONS: { label: string; value: string }[] = [
+  { label: "All", value: "__all__" },
   { label: "Pending", value: "pending" },
   { label: "Completed", value: "completed" },
   { label: "Error", value: "error" },
@@ -64,7 +66,7 @@ export function LogsPage() {
     let statusMax: number | undefined;
     if (appliedStatus) {
       const opt = STATUS_OPTIONS.find((o) => o.value === appliedStatus);
-      if (opt?.value) {
+      if (opt?.value && opt.value !== "__all__") {
         statusMin = opt.min;
         statusMax = opt.max;
       }
@@ -150,8 +152,6 @@ export function LogsPage() {
     return () => window.removeEventListener("hashchange", onHashChange);
   }, []);
 
-
-
   const tools = useMemo(() => {
     if (!logs) return [];
     const set = new Set<string>();
@@ -159,23 +159,30 @@ export function LogsPage() {
     return Array.from(set).sort();
   }, [logs]);
 
-  const selectClass = "h-8 rounded-md border border-input bg-transparent px-2 text-xs min-w-[140px]";
-
   return (
     <div>
       <div className="flex items-center justify-between gap-3 flex-wrap mb-5">
         <h2 className="text-lg font-semibold">Request Logs</h2>
       </div>
 
-      {error && <div className="rounded-lg border border-destructive/50 bg-destructive/10 text-destructive p-3 text-sm mb-4">{error}</div>}
+      {error && (
+        <Alert variant="destructive" className="mb-4">
+          <AlertDescription>{error}</AlertDescription>
+        </Alert>
+      )}
 
       <div className="flex gap-2 items-center flex-wrap mb-4">
-        <select className={selectClass} value={tool} onChange={(e) => setTool(e.target.value)}>
-          <option value="">All tools</option>
-          {tools.map((t) => (
-            <option key={t} value={t}>{t}</option>
-          ))}
-        </select>
+        <Select value={tool || "__all__"} onValueChange={(v) => setTool(v === "__all__" ? "" : v)}>
+          <SelectTrigger size="sm" className="min-w-[140px]">
+            <SelectValue placeholder="All tools" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="__all__">All tools</SelectItem>
+            {tools.map((t) => (
+              <SelectItem key={t} value={t}>{t}</SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
         <Input
           type="text"
           placeholder="Client ID"
@@ -190,22 +197,37 @@ export function LogsPage() {
           value={model}
           onChange={(e) => setModel(e.target.value)}
         />
-        <select className={selectClass} value={provider} onChange={(e) => setProvider(e.target.value)}>
-          <option value="">All providers</option>
-          {PROVIDERS.map((p) => (
-            <option key={p} value={p}>{p}</option>
-          ))}
-        </select>
-        <select className={selectClass} value={status} onChange={(e) => setStatus(e.target.value)}>
-          {STATUS_OPTIONS.map((o) => (
-            <option key={o.value} value={o.value}>{o.label}</option>
-          ))}
-        </select>
-        <select className={selectClass} value={lifecycle} onChange={(e) => setLifecycle(e.target.value as Usage.LifecycleStatus | "")}>
-          {LIFECYCLE_OPTIONS.map((o) => (
-            <option key={o.value} value={o.value}>{o.label}</option>
-          ))}
-        </select>
+        <Select value={provider || "__all__"} onValueChange={(v) => setProvider(v === "__all__" ? "" : v)}>
+          <SelectTrigger size="sm" className="min-w-[140px]">
+            <SelectValue placeholder="All providers" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="__all__">All providers</SelectItem>
+            {PROVIDERS.map((p) => (
+              <SelectItem key={p} value={p}>{p}</SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+        <Select value={status || "__all__"} onValueChange={(v) => setStatus(v === "__all__" ? "" : v)}>
+          <SelectTrigger size="sm" className="min-w-[100px]">
+            <SelectValue placeholder="All" />
+          </SelectTrigger>
+          <SelectContent>
+            {STATUS_OPTIONS.map((o) => (
+              <SelectItem key={o.value} value={o.value}>{o.label}</SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+        <Select value={lifecycle || "__all__"} onValueChange={(v) => setLifecycle((v === "__all__" ? "" : v) as Usage.LifecycleStatus | "")}>
+          <SelectTrigger size="sm" className="min-w-[120px]">
+            <SelectValue placeholder="All" />
+          </SelectTrigger>
+          <SelectContent>
+            {LIFECYCLE_OPTIONS.map((o) => (
+              <SelectItem key={o.value} value={o.value}>{o.label}</SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
         <Button variant="default" size="sm" onClick={applyFilters}>Apply</Button>
         <Button variant="outline" size="sm" onClick={clearFilters}>Clear Filters</Button>
       </div>

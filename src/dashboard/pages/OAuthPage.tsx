@@ -7,6 +7,7 @@ import { OAuthJobPanel } from "../components/OAuthJobPanel";
 import type { OAuthStartResponse } from "../api";
 import { Card, CardContent } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
+import { Alert, AlertDescription } from "@/components/ui/alert";
 
 export function OAuthPage() {
   const fetchAccounts = useCallback(() => getOAuthAccounts(), []);
@@ -36,7 +37,11 @@ export function OAuthPage() {
         <h2 className="text-lg font-semibold">OAuth Accounts</h2>
       </div>
 
-      {error && <div className="rounded-lg border border-destructive/50 bg-destructive/10 text-destructive p-3 text-sm mb-4">{error}</div>}
+      {error && (
+        <Alert variant="destructive" className="mb-4">
+          <AlertDescription>{error}</AlertDescription>
+        </Alert>
+      )}
 
       {activeJob && (
         <OAuthJobPanel job={activeJob} onDone={handleJobDone} />
