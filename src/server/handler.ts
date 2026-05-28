@@ -11,6 +11,7 @@ import { UpstreamClient } from "../upstream/client";
 import { Supervisor } from "../runtime/supervisor";
 import { Session } from "../admin/session";
 import { Dashboard } from "./dashboard";
+import { PerfMetrics } from "./perf-metrics";
 import { isRequestSecure } from "../util/proxy-headers";
 
 const logger = Logger.fromConfig().child({ component: "handler" });
@@ -348,6 +349,7 @@ export namespace Handler {
   async function computeReadyResult(usageService: UsageService.UsageService): Promise<ReadyResult> {
     const startedAt = Date.now();
     const result = await raceWithDeadline(runReadyChecks(usageService), startedAt);
+    PerfMetrics.observeReadyCheck({ status: result.body.status, durationMs: result.durationMs });
     readyLogger.info("readiness checked", {
       event: "ready.check",
       status: result.body.status,

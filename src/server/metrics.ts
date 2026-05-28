@@ -1,5 +1,6 @@
 import type { Database } from "bun:sqlite";
 import { UsageRepo } from "../storage/repo";
+import { PerfMetrics } from "./perf-metrics";
 
 export namespace Metrics {
   function escape(value: string): string {
@@ -36,6 +37,8 @@ export namespace Metrics {
       const cost = Number.isFinite(row.cost_usd) ? row.cost_usd : 0;
       lines.push(`agent_cli_proxy_cost_usd_today{${labels}} ${cost}`);
     }
+
+    lines.push(PerfMetrics.renderPrometheus().trimEnd());
 
     return lines.join("\n") + "\n";
   }
