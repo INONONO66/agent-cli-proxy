@@ -4,10 +4,11 @@ After=network-online.target
 
 [Service]
 Type=simple
-WorkingDirectory=%h/.local/share/agent-cli-proxy
+WorkingDirectory=%h/.local/share/agent-cli-proxy/runtime
 Environment=NODE_ENV=production
 Environment=PATH=%h/.bun/bin:/usr/local/bin:/usr/bin:/bin
-EnvironmentFile=%h/.local/share/agent-cli-proxy/.env
+Environment=AGENT_CLI_PROXY_DATA_DIR=%h/.local/share/agent-cli-proxy
+EnvironmentFile=%h/.config/agent-cli-proxy/.env
 ExecStart=%h/.bun/bin/bun run index.js
 Restart=always
 RestartSec=5

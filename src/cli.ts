@@ -42,9 +42,9 @@ const XDG_CONFIG_HOME = process.env.XDG_CONFIG_HOME ?? join(HOME, ".config");
 const XDG_DATA_HOME = process.env.XDG_DATA_HOME ?? join(HOME, ".local", "share");
 
 const defaultConfigDir = join(XDG_CONFIG_HOME, APP_NAME);
-const defaultDataDir = join(XDG_DATA_HOME, APP_NAME);
-const defaultRuntimeDir = join(XDG_DATA_HOME, APP_NAME, "runtime");
-const defaultEnvPath = join(defaultConfigDir, ".env");
+const defaultDataDir = process.env.AGENT_CLI_PROXY_DATA_DIR ?? join(XDG_DATA_HOME, APP_NAME);
+const defaultRuntimeDir = process.env.AGENT_CLI_PROXY_RUNTIME_DIR ?? join(defaultDataDir, "runtime");
+const defaultEnvPath = process.env.AGENT_CLI_PROXY_ENV ?? join(defaultConfigDir, ".env");
 const defaultDbPath = join(defaultDataDir, "proxy.db");
 const defaultPricingCachePath = join(defaultDataDir, "pricing-cache.json");
 const defaultPlansPath = join(defaultConfigDir, "plans.json");
@@ -317,8 +317,9 @@ function writeOptions(ctx: CommandContext): EnvWriteOptions {
 async function initDbCommand(ctx: CommandContext): Promise<void> {
   const envPath = getFlagValue(ctx.args, "--env") ?? defaultEnvPath;
   const env = parseEnvFile(envPath);
-  await initDbAt(env.DB_PATH ?? defaultDbPath);
-  writeOut(`Initialized DB at ${env.DB_PATH ?? defaultDbPath}`);
+  const config = validateCliEnv(env);
+  await initDbAt(config.dbPath);
+  writeOut(`Initialized DB at ${config.dbPath}`);
 }
 
 async function backfillCostsCommand(ctx: CommandContext): Promise<void> {
@@ -326,9 +327,8 @@ async function backfillCostsCommand(ctx: CommandContext): Promise<void> {
   const env = parseEnvFile(envPath);
   applyEnv(env);
   const { UsageService } = await import("./storage/service");
-  Config.validate(process.env);
-  const dbPath = env.DB_PATH ?? defaultDbPath;
-  const db = Storage.initDb(dbPath);
+  const config = validateCliEnv(env);
+  const db = Storage.initDb(config.dbPath);
   const usageService = UsageService.create(db);
   const result = await usageService.backfillCosts({
     all: hasFlag(ctx.args, "--all"),
@@ -770,8 +770,11 @@ async function openConfiguredDb(ctx: CommandContext) {
   const envPath = getFlagValue(ctx.args, "--env") ?? defaultEnvPath;
   const env = parseEnvFile(envPath);
   applyEnv(env);
-  Config.validate(process.env);
-  return Storage.initDb(env.DB_PATH ?? process.env.DB_PATH ?? defaultDbPath);
+  return Storage.initDb(validateCliEnv(env).dbPath);
+}
+
+function validateCliEnv(env: EnvMap): Readonly<ValidatedConfig> {
+  return Config.validate({ ...envFromProcess(), ...env });
 }
 
 export async function writeEnvAtomic(path: string, envMap: EnvMap, opts: EnvWriteOptions): Promise<void> {

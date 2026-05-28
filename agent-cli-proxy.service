@@ -10,7 +10,9 @@ ExecStart=/usr/bin/env bun run dist/index.js
 Restart=always
 RestartSec=5
 Environment="NODE_ENV=production"
-EnvironmentFile=/opt/agent-cli-proxy/.env
+Environment="AGENT_CLI_PROXY_DATA_DIR=/var/lib/agent-cli-proxy"
+Environment="PRICING_CACHE_PATH=/var/cache/agent-cli-proxy/pricing-cache.json"
+EnvironmentFile=/etc/agent-cli-proxy/agent-cli-proxy.env
 
 [Install]
 WantedBy=multi-user.target

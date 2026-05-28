@@ -1,4 +1,6 @@
 import { readFileSync } from "node:fs";
+import { homedir } from "node:os";
+import { isAbsolute, join, relative, resolve } from "node:path";
 import { validateProviderDocument } from "../provider/registry-schema";
 
 export type EnvLike = Record<string, string | undefined>;
@@ -91,9 +93,9 @@ export namespace Config {
       cchPositions: readCchPositions(env, issues),
       toolPrefix: readString(env, "TOOL_PREFIX", "mcp_"),
       cliProxyApiKey: readString(env, "CLI_PROXY_API_KEY", "proxy"),
-      dbPath: readString(env, "DB_PATH", "data/proxy.db"),
+      dbPath: readString(env, "DB_PATH", defaultStatePath(env, "proxy.db")),
       pricingCacheTtlMs: readPositiveNumber(env, "PRICING_CACHE_TTL_MS", 3600000, issues),
-      pricingCachePath: readString(env, "PRICING_CACHE_PATH", "data/pricing-cache.json"),
+      pricingCachePath: readString(env, "PRICING_CACHE_PATH", defaultStatePath(env, "pricing-cache.json")),
       readyPricingMaxAgeMs: readPositiveNumber(env, "READY_PRICING_MAX_AGE_MS", 86400000, issues),
       pricingRefreshIntervalMs: readPositiveNumber(env, "PRICING_REFRESH_INTERVAL_MS", 21600000, issues),
       costBackfillIntervalMs: readPositiveNumber(env, "COST_BACKFILL_INTERVAL_MS", 1800000, issues),
@@ -164,6 +166,8 @@ export namespace Config {
     warnForWeakSecret(warnings, "CLIPROXY_MGMT_KEY", config.cliproxyMgmtKey);
     warnForWeakSecret(warnings, "DASHBOARD_SESSION_SECRET", config.dashboardSessionSecret);
     if (!isLoopbackHost(config.host) || !isLoopbackUrl(config.cliProxyApiUrl)) warnForWeakSecret(warnings, "CLI_PROXY_API_KEY", config.cliProxyApiKey);
+    warnForDeployStatePath(warnings, "DB_PATH", config.dbPath, env, { allowMemory: true });
+    warnForDeployStatePath(warnings, "PRICING_CACHE_PATH", config.pricingCachePath, env);
 
     validateProviderConfig(env, issues);
 
@@ -174,11 +178,69 @@ export namespace Config {
 }
 
 const DEFAULT_CLI_PROXY_API_URL = "http://localhost:8317";
+const APP_NAME = "agent-cli-proxy";
 const LOOPBACK_HOSTS = new Set(["127.0.0.1", "localhost", "::1"]);
 
 function readString(env: EnvLike, key: string, fallback: string): string {
   const value = env[key];
   return value === undefined ? fallback : value;
+}
+
+function defaultStatePath(env: EnvLike, filename: string): string {
+  const explicitDataDir = env.AGENT_CLI_PROXY_DATA_DIR?.trim();
+  if (explicitDataDir) return join(explicitDataDir, filename);
+
+  const xdgDataHome = env.XDG_DATA_HOME?.trim();
+  if (xdgDataHome) return join(xdgDataHome, APP_NAME, filename);
+
+  const home = env.HOME?.trim() || homedir();
+  if (home) return join(home, ".local", "share", APP_NAME, filename);
+
+  return join("data", filename);
+}
+
+function warnForDeployStatePath(
+  warnings: ConfigIssue[],
+  key: "DB_PATH" | "PRICING_CACHE_PATH",
+  value: string,
+  env: EnvLike,
+  opts: { allowMemory?: boolean } = {},
+): void {
+  if (opts.allowMemory && value === ":memory:") return;
+  if (!isAbsolute(value)) {
+    warnings.push({
+      path: key,
+      message: "should be an absolute path outside the deploy/runtime directory to survive releases",
+    });
+    return;
+  }
+
+  for (const root of deployStateRoots(env)) {
+    if (!isPathWithin(value, root)) continue;
+    warnings.push({
+      path: key,
+      message: `should be outside deploy/runtime directory ${root} to survive releases`,
+    });
+    return;
+  }
+}
+
+function deployStateRoots(env: EnvLike): string[] {
+  return [
+    env.AGENT_CLI_PROXY_RUNTIME_DIR,
+    env.AGENT_CLI_PROXY_DEPLOY_DIR,
+    process.cwd(),
+    "/opt/agent-cli-proxy",
+  ]
+    .map((root) => root?.trim())
+    .filter((root): root is string => typeof root === "string" && root.length > 0 && isAbsolute(root));
+}
+
+function isPathWithin(path: string, root: string): boolean {
+  const resolvedPath = resolve(path);
+  const resolvedRoot = resolve(root);
+  const rel = relative(resolvedRoot, resolvedPath);
+  return rel === "" || (!rel.startsWith("..") && !isAbsolute(rel));
 }
 
 function readBoolean(env: EnvLike, key: string, fallback: boolean, issues: ConfigIssue[]): boolean {

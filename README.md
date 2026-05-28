@@ -97,8 +97,8 @@ Provider API keys are intentionally **not** stored by this proxy. The proxy rout
 | `CLI_PROXY_API_URL` | `http://localhost:8317` | Upstream CLIProxyAPI URL (required unless `PROXY_LOCAL_OK=1`) |
 | `CLI_PROXY_API_KEY` | `proxy` | Proxy auth key sent to CLIProxyAPI |
 | `CLAUDE_CODE_VERSION` | `2.1.87` | Claude Code version for bypass headers |
-| `DB_PATH` | `data/proxy.db` | SQLite database path |
-| `PRICING_CACHE_PATH` | `data/pricing-cache.json` | Runtime models.dev pricing cache |
+| `DB_PATH` | `$XDG_DATA_HOME/agent-cli-proxy/proxy.db` or `~/.local/share/agent-cli-proxy/proxy.db` | SQLite database path. Use an absolute path outside repo/dist/runtime replacement directories. |
+| `PRICING_CACHE_PATH` | `$XDG_DATA_HOME/agent-cli-proxy/pricing-cache.json` or `~/.local/share/agent-cli-proxy/pricing-cache.json` | Runtime models.dev pricing cache. Use an absolute path outside repo/dist/runtime replacement directories. |
 | `READY_PRICING_MAX_AGE_MS` | `86400000` | Maximum pricing cache age accepted by `/ready` (24h) |
 | `PRICING_REFRESH_INTERVAL_MS` | `21600000` | How often to refresh pricing from models.dev (6h) |
 | `COST_BACKFILL_INTERVAL_MS` | `1800000` | How often to backfill zero-cost request logs (30m) |
@@ -123,6 +123,25 @@ Provider API keys are intentionally **not** stored by this proxy. The proxy rout
 | `UPSTREAM_CIRCUIT_BREAKER_OPEN_AFTER_FAILURES` | `5` | Consecutive upstream failures before the circuit breaker opens |
 | `UPSTREAM_CIRCUIT_BREAKER_HALF_OPEN_AFTER_MS` | `30000` | Delay before a half-open probe is allowed (30s) |
 | `UPSTREAM_CIRCUIT_BREAKER_EVICT_AFTER_MS` | `300000` | Idle time before a healthy breaker is evicted (5m) |
+
+### Persistent config and data paths
+
+Keep mutable files outside the deploy directory so `git pull`, rsync, package
+replacement, or runtime bundle refreshes do not erase state:
+
+- config/env: `~/.config/agent-cli-proxy/.env` for user installs, or
+  `/etc/agent-cli-proxy/agent-cli-proxy.env` for system installs
+- SQLite DB and WAL/SHM: `~/.local/share/agent-cli-proxy/proxy.db` or
+  `/var/lib/agent-cli-proxy/proxy.db`
+- pricing cache: `~/.local/share/agent-cli-proxy/pricing-cache.json` or
+  `/var/cache/agent-cli-proxy/pricing-cache.json`
+
+`agent-cli-proxy init` writes absolute `DB_PATH` and `PRICING_CACHE_PATH`
+values. Runtime defaults also use XDG data paths when those variables are
+unset. Explicit relative paths still work for local development, but startup
+emits configuration warnings because they are deploy-directory dependent.
+
+See `docs/deployment-state.md` for systemd and rollback guidance.
 
 ### Public proxy API keys
 
