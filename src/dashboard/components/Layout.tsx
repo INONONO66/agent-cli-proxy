@@ -7,12 +7,14 @@ interface AuthContextValue {
   authenticated: boolean;
   setAuthenticated: (value: boolean) => void;
   loading: boolean;
+  loginConfigured: boolean;
 }
 
 export const AuthContext = React.createContext<AuthContextValue>({
   authenticated: false,
   setAuthenticated: () => {},
   loading: true,
+  loginConfigured: true,
 });
 
 const NAV = [
@@ -77,11 +79,15 @@ export function Layout({ children }: { children: React.ReactNode }) {
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [authenticated, setAuthenticated] = useState(false);
+  const [loginConfigured, setLoginConfigured] = useState(true);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     getSession()
-      .then((res) => setAuthenticated(res.authenticated))
+      .then((res) => {
+        setAuthenticated(res.authenticated);
+        setLoginConfigured(res.loginConfigured !== false);
+      })
       .catch(() => setAuthenticated(false))
       .finally(() => setLoading(false));
   }, []);
@@ -93,7 +99,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   return (
-    <AuthContext.Provider value={{ authenticated, setAuthenticated, loading }}>
+    <AuthContext.Provider value={{ authenticated, setAuthenticated, loading, loginConfigured }}>
       {children}
     </AuthContext.Provider>
   );
