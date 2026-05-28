@@ -686,15 +686,16 @@ export namespace QuotaRepo {
   export function insertSnapshot(db: Database, snapshot: Usage.QuotaSnapshot): number {
     const stmt = db.prepare(`
       INSERT INTO quota_snapshots (
-        timestamp, provider, account, quota_type, used_pct,
+        timestamp, provider, account, quota_type, model, used_pct,
         remaining, remaining_raw, resets_at, raw_json
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `);
     const result = stmt.run(
       snapshot.timestamp,
       snapshot.provider,
       snapshot.account,
       snapshot.quota_type,
+      snapshot.model ?? null,
       snapshot.used_pct ?? null,
       snapshot.remaining ?? null,
       snapshot.remaining_raw ?? null,

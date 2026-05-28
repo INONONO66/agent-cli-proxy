@@ -191,6 +191,7 @@ export namespace Storage {
         provider TEXT NOT NULL,
         account TEXT NOT NULL,
         quota_type TEXT NOT NULL,
+        model TEXT,
         used_pct REAL,
         remaining REAL,
         remaining_raw TEXT,
@@ -198,6 +199,7 @@ export namespace Storage {
         raw_json TEXT
       )
     `);
+    ensureColumn(db, "quota_snapshots", "model", "TEXT");
     db.exec(
       "CREATE INDEX IF NOT EXISTS idx_quota_snapshots_provider ON quota_snapshots(provider, account, timestamp)",
     );

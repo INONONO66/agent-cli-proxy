@@ -84,6 +84,7 @@ export namespace QuotaProbe {
         provider: result.provider,
         account: result.account,
         quota_type: window.quota_type,
+        model: window.model ?? null,
         used_pct: window.used_pct ?? null,
         remaining:
           window.used_pct === undefined ? null : Math.max(0, 100 - window.used_pct),

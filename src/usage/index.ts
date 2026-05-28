@@ -135,6 +135,7 @@ export namespace Usage {
     provider: string;
     account: string;
     quota_type: string;
+    model?: string | null;
     used_pct?: number | null;
     remaining?: number | null;
     remaining_raw?: string | null;

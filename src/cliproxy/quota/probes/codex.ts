@@ -1,5 +1,12 @@
-import type { AuthFile, ProbeFn, ProbeWindow } from "../types";
-import { errorMessage, fetchJson, normalizePercent, normalizeReset, quotaTypeFromSeconds } from "../helpers";
+import type { ProbeFn, ProbeWindow } from "../types";
+import { fetchJson, normalizePercent, normalizeReset, quotaTypeFromSeconds } from "../helpers";
+
+type CodexRateLimitWindow = {
+  used_percent?: number;
+  reset_at?: number | string;
+  reset_after_seconds?: number;
+  limit_window_seconds?: number;
+};
 
 export const probeCodex: ProbeFn = async (auth) => {
   const account = auth.email ?? "codex";
@@ -59,18 +66,8 @@ export const probeCodex: ProbeFn = async (auth) => {
     credits?: { balance?: number | string | null };
     rate_limit?: {
       limit_reached?: boolean;
-      primary_window?: {
-        used_percent?: number;
-        reset_at?: number | string;
-        reset_after_seconds?: number;
-        limit_window_seconds?: number;
-      };
-      secondary_window?: {
-        used_percent?: number;
-        reset_at?: number | string;
-        reset_after_seconds?: number;
-        limit_window_seconds?: number;
-      };
+      primary_window?: CodexRateLimitWindow;
+      secondary_window?: CodexRateLimitWindow;
     };
   };
 
@@ -89,6 +86,38 @@ export const probeCodex: ProbeFn = async (auth) => {
       resets_at: reset,
       raw: window,
     });
+  }
+
+  const additionalLimits = (data as {
+    additional_rate_limits?: Array<{
+      limit_name?: string;
+      rate_limit?: {
+        primary_window?: CodexRateLimitWindow;
+        secondary_window?: CodexRateLimitWindow;
+      };
+    }>;
+  }).additional_rate_limits;
+
+  if (Array.isArray(additionalLimits)) {
+    for (const limit of additionalLimits) {
+      const limitName = limit.limit_name ?? "unknown";
+      for (const [fallback, window] of [
+        ["5h", limit.rate_limit?.primary_window],
+        ["week", limit.rate_limit?.secondary_window],
+      ] as const) {
+        if (!window) continue;
+        const used = normalizePercent(window.used_percent);
+        const reset = normalizeReset(window.reset_at);
+        if (used === undefined && !reset) continue;
+        windows.push({
+          quota_type: `${quotaTypeFromSeconds(window.limit_window_seconds, fallback)}:${limitName}`,
+          used_pct: used,
+          resets_at: reset,
+          model: limitName,
+          raw: window,
+        });
+      }
+    }
   }
 
   let plan = data.plan_type;
