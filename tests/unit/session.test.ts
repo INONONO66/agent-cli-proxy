@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, spyOn, test } from "bun:test";
-import { chmod, mkdtemp, rm, readFile, stat } from "node:fs/promises";
+import { chmod, mkdtemp, rm, stat } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -84,7 +84,7 @@ describe("Session", () => {
     const secretPath = join(dir, ".dashboard-session-secret");
 
     const secret = await Session.resolveSecret(dbPath);
-    const fileSecret = (await readFile(secretPath, "utf-8")).trim();
+    const fileSecret = (await Bun.file(secretPath).text()).trim();
 
     expect(secret).toBe(fileSecret);
     expect(secret).toMatch(/^[0-9a-f]{64}$/);
@@ -130,7 +130,7 @@ describe("Session", () => {
     if (process.platform !== "win32") await chmod(secretPath, 0o644);
 
     const secret = await Session.resolveSecret(dbPath);
-    const fileSecret = (await readFile(secretPath, "utf-8")).trim();
+    const fileSecret = (await Bun.file(secretPath).text()).trim();
 
     expect(secret).toBe(fileSecret);
     expect(secret).toMatch(/^[0-9a-f]{64}$/);
