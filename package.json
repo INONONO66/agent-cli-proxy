@@ -48,7 +48,7 @@
     "prepublishOnly": "bun run release-check",
     "pack:check": "bun pm pack --dry-run",
     "test:e2e": "bun test tests/e2e/",
-    "test:e2e:mock": "MOCK_CLI_PROXY=1 CLI_PROXY_API_URL=http://localhost:18317 bun test tests/e2e/",
+    "test:e2e:mock": "MOCK_CLI_PROXY=1 CLI_PROXY_API_URL=http://localhost:18317 bun test tests/e2e/admin-auth.test.ts && MOCK_CLI_PROXY=1 CLI_PROXY_API_URL=http://localhost:18317 bun test tests/e2e/body-size-limit.test.ts && MOCK_CLI_PROXY=1 CLI_PROXY_API_URL=http://localhost:18317 bun test tests/e2e/ready.test.ts && MOCK_CLI_PROXY=1 CLI_PROXY_API_URL=http://localhost:18317 bun test tests/e2e/proxy.test.ts && MOCK_CLI_PROXY=1 CLI_PROXY_API_URL=http://localhost:18317 bun test tests/e2e/transforms.test.ts",
     "start": "bun run dist/index.js",
     "backfill:costs": "bun run src/cli.ts backfill-costs --env .env",
     "release": "bun run scripts/release.ts",
