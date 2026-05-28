@@ -3,6 +3,7 @@ import { readdir } from "node:fs/promises";
 
 import { Storage } from "./db";
 import { QuotaRepo, RequestRepo, UsageRepo } from "./repo";
+import { ApiKeyRepo } from "./api-keys";
 import { Pricing } from "./pricing";
 import { Cost } from "./cost";
 import { Usage } from "../usage";
@@ -24,7 +25,6 @@ export namespace UsageService {
 
   export function create(db: Database, options: CreateOptions = {}) {
     const serviceLogger = options.logger ?? logger;
-    const now = options.now ?? (() => new Date());
 
     function preLog(log: Omit<Usage.RequestLog, "id">): number {
       return Storage.runWriteWithRetry(db, () => RequestRepo.insert(db, log));
@@ -456,6 +456,18 @@ export namespace UsageService {
             total_tokens: log.total_tokens,
             cost_usd: log.cost_usd,
           });
+
+          if (log.proxy_api_key_id) {
+            const apiKey = ApiKeyRepo.findByIdAllowedAccounts(db, log.proxy_api_key_id);
+            if (apiKey?.allowedAccounts && !apiKey.allowedAccounts.includes(fields.cliproxy_account)) {
+              serviceLogger.warn("correlated account not in API key allowed list", {
+                event: "apikey.account_mismatch",
+                proxy_api_key_id: log.proxy_api_key_id,
+                cliproxy_account: fields.cliproxy_account,
+                allowed_accounts: apiKey.allowedAccounts,
+              });
+            }
+          }
         }
       });
       Storage.runWriteWithRetry(db, txn);

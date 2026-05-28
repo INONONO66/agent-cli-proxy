@@ -19,6 +19,10 @@ export function registerProbe(type: string, fn: ProbeFn): void {
   probes.set(type, fn);
 }
 
+export function registeredProbeTypes(): string[] {
+  return Array.from(probes.keys());
+}
+
 // built-in probes
 registerProbe("claude", probeClaude);
 registerProbe("codex", probeCodex);

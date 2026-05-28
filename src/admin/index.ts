@@ -5,12 +5,12 @@ import { Storage } from "../storage/db";
 import { Logger } from "../util/logger";
 import { UpstreamClient } from "../upstream/client";
 import { ProviderRegistry } from "../provider/registry";
-import { CanonicalProvider } from "../provider/canonical";
 import { Pricing } from "../storage/pricing";
 import { Session } from "./session";
 import { OAuthAdmin } from "./oauth";
 import { ApiKeysAdmin } from "./api-keys";
 import { Usage } from "../usage";
+import { registeredProbeTypes } from "../cliproxy/quota";
 import { dirname } from "path";
 import { mkdirSync } from "fs";
 
@@ -169,6 +169,10 @@ export namespace Admin {
           const refresh = path.endsWith("/refresh") || url.searchParams.get("refresh") === "true";
           if (refresh) return json(await usageService.refreshQuotas());
           return json({ snapshots: usageService.getLatestQuotas() });
+        }
+
+        if (path === "/admin/quotas/probes") {
+          return json({ probes: registeredProbeTypes() });
         }
 
         if (path === "/admin/quotas/history") {
