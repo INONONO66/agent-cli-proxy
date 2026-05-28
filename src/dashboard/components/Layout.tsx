@@ -1,7 +1,28 @@
 import React, { useCallback, useContext, useEffect, useState } from "react";
 import { getSession, logout } from "../api";
-import { cn } from "@/lib/utils";
+import {
+  Sidebar,
+  SidebarContent,
+  SidebarFooter,
+  SidebarHeader,
+  SidebarMenu,
+  SidebarMenuItem,
+  SidebarMenuButton,
+  SidebarProvider,
+  SidebarInset,
+  SidebarTrigger,
+} from "@/components/ui/sidebar";
+import { ScrollArea } from "@/components/ui/scroll-area";
+import { Separator } from "@/components/ui/separator";
 import { Button } from "@/components/ui/button";
+import {
+  Gauge,
+  FileText,
+  BarChart3,
+  KeyRound,
+  ShieldCheck,
+  LogOut,
+} from "lucide-react";
 
 interface AuthContextValue {
   authenticated: boolean;
@@ -18,11 +39,11 @@ export const AuthContext = React.createContext<AuthContextValue>({
 });
 
 const NAV = [
-  { path: "#/quotas", label: "Quotas" },
-  { path: "#/logs", label: "Logs" },
-  { path: "#/usage", label: "Usage" },
-  { path: "#/api-keys", label: "API Keys" },
-  { path: "#/oauth", label: "OAuth" },
+  { path: "#/quotas", label: "Quotas", icon: Gauge },
+  { path: "#/logs", label: "Logs", icon: FileText },
+  { path: "#/usage", label: "Usage", icon: BarChart3 },
+  { path: "#/api-keys", label: "API Keys", icon: KeyRound },
+  { path: "#/oauth", label: "OAuth", icon: ShieldCheck },
 ];
 
 export function Layout({ children }: { children: React.ReactNode }) {
@@ -44,36 +65,49 @@ export function Layout({ children }: { children: React.ReactNode }) {
   }, [setAuthenticated]);
 
   return (
-    <div className="flex h-screen overflow-hidden">
-      <aside className="w-52 shrink-0 bg-sidebar border-r border-sidebar-border flex flex-col">
-        <div className="px-4 py-4 border-b border-sidebar-border">
+    <SidebarProvider>
+      <Sidebar>
+        <SidebarHeader className="px-4 py-4">
           <h1 className="text-lg font-semibold">agent-cli-proxy</h1>
           <div className="text-xs text-muted-foreground">dashboard</div>
-        </div>
-        <nav className="flex-1 px-3 py-3 space-y-1">
-          {NAV.map((item) => (
-            <a
-              key={item.path}
-              href={item.path}
-              className={cn(
-                "block px-3 py-2 rounded-md text-sm transition-colors",
-                hash === item.path || hash.startsWith(item.path + "/")
-                  ? "bg-sidebar-accent text-sidebar-accent-foreground font-medium"
-                  : "text-sidebar-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground",
-              )}
-            >
-              {item.label}
-            </a>
-          ))}
-        </nav>
-        <div className="px-3 py-3 border-t border-sidebar-border">
-          <Button variant="outline" className="w-full" onClick={handleLogout}>
+        </SidebarHeader>
+        <Separator />
+        <SidebarContent className="px-2 py-2">
+          <SidebarMenu>
+            {NAV.map((item) => (
+              <SidebarMenuItem key={item.path}>
+                <SidebarMenuButton
+                  asChild
+                  isActive={hash === item.path || hash.startsWith(item.path + "/")}
+                  tooltip={item.label}
+                >
+                  <a href={item.path}>
+                    <item.icon />
+                    <span>{item.label}</span>
+                  </a>
+                </SidebarMenuButton>
+              </SidebarMenuItem>
+            ))}
+          </SidebarMenu>
+        </SidebarContent>
+        <SidebarFooter className="px-2 py-2">
+          <Button variant="outline" className="w-full gap-2" onClick={handleLogout}>
+            <LogOut className="size-4" />
             Logout
           </Button>
-        </div>
-      </aside>
-      <main className="flex-1 overflow-y-auto p-6 min-w-0">{children}</main>
-    </div>
+        </SidebarFooter>
+      </Sidebar>
+      <SidebarInset>
+        <header className="flex h-12 items-center gap-2 border-b px-4 md:hidden">
+          <SidebarTrigger />
+          <Separator orientation="vertical" className="h-4" />
+          <span className="text-sm font-medium">agent-cli-proxy</span>
+        </header>
+        <ScrollArea className="flex-1 h-[calc(100vh-3rem)] md:h-screen">
+          <main className="p-6 min-w-0">{children}</main>
+        </ScrollArea>
+      </SidebarInset>
+    </SidebarProvider>
   );
 }
 
