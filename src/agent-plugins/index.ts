@@ -10,8 +10,15 @@ export type { RequestInfo } from "./types";
 
 const registry: AgentPlugin[] = [];
 
+interface LegacyAgentPluginTransform {
+  transformHeaders?(headers: Headers, info: RequestInfo): Headers;
+  transformBody?(body: unknown, info: RequestInfo): unknown;
+  transformResponse?(responseBody: string, info: RequestInfo): string;
+  transformStreamLine?(line: string, info: RequestInfo): string;
+}
+
 export namespace AgentPlugins {
-  export function register(plugin: AgentPlugin): void {
+  export function register(plugin: AgentPlugin & LegacyAgentPluginTransform): void {
     registry.push(plugin);
   }
 

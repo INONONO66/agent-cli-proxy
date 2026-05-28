@@ -1,4 +1,4 @@
-import type { AgentPlugin, RequestInfo } from "./types";
+import type { RequestInfo } from "./types";
 import {
   anthropicBypassBody,
   anthropicBypassHeaders,
@@ -6,7 +6,7 @@ import {
   anthropicBypassStreamLine,
 } from "./anthropic-bypass";
 
-export const openclawPlugin: AgentPlugin = {
+export const openclawPlugin = {
   id: "openclaw",
 
   matches(info: RequestInfo): boolean {
@@ -18,7 +18,6 @@ export const openclawPlugin: AgentPlugin = {
         userAgent.includes("openclaw-"),
     );
   },
-
   transformHeaders: anthropicBypassHeaders,
   transformBody: anthropicBypassBody,
   transformResponse: anthropicBypassResponse,

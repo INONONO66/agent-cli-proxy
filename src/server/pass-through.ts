@@ -4,8 +4,9 @@ import { ResponseParser, type ParsedResponse } from "./response-parser";
 import { UsageService } from "../storage/service";
 import { ApiKeyRepo } from "../storage/api-keys";
 import { AgentPlugins, type AgentPlugin } from "../agent-plugins";
-import { ProviderRegistry } from "../provider/registry";
 import { CanonicalProvider } from "../provider/canonical";
+import { ProviderTransforms } from "../provider/transform";
+import "../provider/transforms";
 import { UpstreamClient } from "../upstream/client";
 import { Logger } from "../util/logger";
 import type { Usage } from "../usage";
@@ -115,7 +116,7 @@ export namespace PassThroughProxy {
           );
         }
 
-        const { body, rewritten } = await buildBody(req, requestInfo, plugin);
+        const { body, rewritten } = await buildBody(req, requestInfo, providerId);
         const upstreamResponse = await fetchUpstream({
           method: req.method,
           url: upstreamUrl,
@@ -132,10 +133,10 @@ export namespace PassThroughProxy {
 
         if (isStreaming) {
           streamHandedOff = true;
-          return await handleStreaming(upstreamResponse, requestInfo, usageService, lifecycle, plugin);
+          return await handleStreaming(upstreamResponse, requestInfo, usageService, lifecycle, providerId);
         }
 
-        return await handleNonStreaming(upstreamResponse, requestInfo, usageService, lifecycle, plugin);
+        return await handleNonStreaming(upstreamResponse, requestInfo, usageService, lifecycle, providerId);
       } catch (err) {
         const upstreamBodyTimeout = isUpstreamBodyTimeout(err);
         const aborted = !upstreamBodyTimeout && isAbortLike(err, req.signal);
@@ -302,8 +303,8 @@ export namespace PassThroughProxy {
     return AbortSignal.any(signals);
   }
 
-  async function buildBody(req: Request, info: RequestInfo, plugin: AgentPlugin): Promise<BodyBuildResult> {
-    if (!plugin.transformBody || info.isStreaming) return { body: req.body, rewritten: false };
+  async function buildBody(req: Request, info: RequestInfo, providerId: string): Promise<BodyBuildResult> {
+    if (!ProviderTransforms.get(providerId)?.transformBody || info.isStreaming) return { body: req.body, rewritten: false };
     const contentType = req.headers.get("content-type") ?? "";
     // only attempt JSON transform for JSON bodies; binary/multipart pass through unchanged
     if (!contentType.startsWith("application/json") && !contentType.startsWith("text/")) {
@@ -312,10 +313,10 @@ export namespace PassThroughProxy {
     const text = await req.text();
     try {
       const parsed = JSON.parse(text) as unknown;
-      const rewritten = plugin.transformBody(parsed, info);
+      const rewritten = ProviderTransforms.applyBody(providerId, parsed, info);
       return { body: JSON.stringify(rewritten), rewritten: true };
     } catch (err) {
-      logger.warn("plugin body transform failed, forwarding original body", { err, path: info.path, request_id: info.requestId });
+      logger.warn("provider body transform failed, forwarding original body", { err, path: info.path, request_id: info.requestId, provider: providerId });
       return { body: text, rewritten: false };
     }
   }
@@ -330,7 +331,7 @@ export namespace PassThroughProxy {
     }
   }
 
-  export function buildHeaders(headers: Headers, info: RequestInfo, plugin: AgentPlugin, bodyRewritten = false): Headers {
+  export function buildHeaders(headers: Headers, info: RequestInfo, _plugin: AgentPlugin, bodyRewritten = false): Headers {
     const result = new Headers(headers);
     result.set("authorization", `Bearer ${Config.cliProxyApiKey}`);
     result.delete("x-proxy-key");
@@ -339,7 +340,8 @@ export namespace PassThroughProxy {
     result.delete("content-encoding");
     result.delete("accept-encoding");
     stripSpoofableProxyHeaders(result);
-    const transformed = plugin.transformHeaders(result, info);
+    const providerId = providerForPath(info.path, info.model);
+    const transformed = ProviderTransforms.applyHeaders(providerId, result, info);
     if (bodyRewritten) transformed.set("content-type", "application/json");
     return transformed;
   }
@@ -353,7 +355,7 @@ export namespace PassThroughProxy {
     info: RequestInfo,
     usageService: UsageService.UsageService,
     lifecycle: LifecycleContext | null,
-    plugin: AgentPlugin,
+    providerId: string,
   ): Promise<Response> {
     const contentLength = upstreamResponse.headers.get("content-length");
     if (contentLength && parseInt(contentLength, 10) > MAX_RESPONSE_BODY_BYTES) {
@@ -444,11 +446,11 @@ export namespace PassThroughProxy {
       });
     }
 
-    if (plugin.transformResponse && upstreamResponse.status < 400) {
+    if (upstreamResponse.status < 400) {
       try {
-        responseText = plugin.transformResponse(responseText, info);
+        responseText = ProviderTransforms.applyResponse(providerId, responseText, info);
       } catch (err) {
-        logger.warn("plugin response transform failed", { err, path: info.path, status: upstreamResponse.status, request_id: requestIdFor(lifecycle, info) });
+        logger.warn("provider response transform failed", { err, path: info.path, status: upstreamResponse.status, request_id: requestIdFor(lifecycle, info), provider: providerId });
       }
     }
 
@@ -476,7 +478,7 @@ export namespace PassThroughProxy {
     info: RequestInfo,
     usageService: UsageService.UsageService,
     lifecycle: LifecycleContext | null,
-    plugin: AgentPlugin,
+    providerId: string,
   ): Promise<Response> {
     const upstreamBody = upstreamResponse.body;
     if (!upstreamBody) {
@@ -505,7 +507,7 @@ export namespace PassThroughProxy {
         if (parsed.actualModel) actualModel = parsed.actualModel;
         if (parsed.usage) accumulated = mergeUsage(accumulated, parsed.usage);
       }
-      return plugin.transformStreamLine ? plugin.transformStreamLine(line, info) : line;
+      return ProviderTransforms.applyStreamLine(providerId, line, info);
     }
 
     function transformChunk(chunk: Uint8Array): Uint8Array | null {

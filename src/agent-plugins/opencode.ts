@@ -1,4 +1,4 @@
-import type { AgentPlugin, RequestInfo } from "./types";
+import type { RequestInfo } from "./types";
 import {
   anthropicBypassBody,
   anthropicBypassHeaders,
@@ -6,7 +6,7 @@ import {
   anthropicBypassStreamLine,
 } from "./anthropic-bypass";
 
-export const opencodePlugin: AgentPlugin = {
+export const opencodePlugin = {
   id: "opencode",
 
   matches(info: RequestInfo): boolean {
@@ -20,7 +20,6 @@ export const opencodePlugin: AgentPlugin = {
         userAgent.includes("openai-sdk-bun"),
     );
   },
-
   transformHeaders: anthropicBypassHeaders,
   transformBody: anthropicBypassBody,
   transformResponse: anthropicBypassResponse,

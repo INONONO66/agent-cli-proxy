@@ -1,18 +1,17 @@
-import type { RequestInfo } from "./types";
 import {
   anthropicBypassBody,
   anthropicBypassHeaders,
   anthropicBypassResponse,
   anthropicBypassStreamLine,
-} from "./anthropic-bypass";
+} from "../../agent-plugins/anthropic-bypass";
+import { ProviderTransforms, type ProviderTransform } from "../transform";
 
-export const genericPlugin = {
-  id: "generic",
-  matches(_info: RequestInfo): boolean {
-    return true;
-  },
+const anthropicTransform: ProviderTransform = {
+  providerId: "anthropic",
   transformHeaders: anthropicBypassHeaders,
   transformBody: anthropicBypassBody,
   transformResponse: anthropicBypassResponse,
   transformStreamLine: anthropicBypassStreamLine,
 };
+
+ProviderTransforms.register(anthropicTransform);
