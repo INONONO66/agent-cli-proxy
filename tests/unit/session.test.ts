@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, spyOn, test } from "bun:test";
-import { mkdtemp, rm, readFile } from "node:fs/promises";
+import { chmod, mkdtemp, rm, readFile, stat } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -88,6 +88,9 @@ describe("Session", () => {
 
     expect(secret).toBe(fileSecret);
     expect(secret).toMatch(/^[0-9a-f]{64}$/);
+    if (process.platform !== "win32") {
+      expect((await stat(secretPath)).mode & 0o777).toBe(0o600);
+    }
   });
 
   test("resolveSecret reads an existing secret file", async () => {
@@ -100,6 +103,40 @@ describe("Session", () => {
     const secret = await Session.resolveSecret(dbPath);
 
     expect(secret).toBe("existing-secret");
+  });
+
+  test("resolveSecret tightens an existing secret file", async () => {
+    const dir = await withTempDir("agent-cli-proxy-session-");
+    setEnv("DASHBOARD_SESSION_SECRET", undefined);
+    const dbPath = join(dir, "proxy.db");
+    const secretPath = join(dir, ".dashboard-session-secret");
+    await Bun.write(secretPath, "existing-secret\n");
+    if (process.platform !== "win32") await chmod(secretPath, 0o644);
+
+    const secret = await Session.resolveSecret(dbPath);
+
+    expect(secret).toBe("existing-secret");
+    if (process.platform !== "win32") {
+      expect((await stat(secretPath)).mode & 0o777).toBe(0o600);
+    }
+  });
+
+  test("resolveSecret replaces an existing empty secret file", async () => {
+    const dir = await withTempDir("agent-cli-proxy-session-");
+    setEnv("DASHBOARD_SESSION_SECRET", undefined);
+    const dbPath = join(dir, "proxy.db");
+    const secretPath = join(dir, ".dashboard-session-secret");
+    await Bun.write(secretPath, "");
+    if (process.platform !== "win32") await chmod(secretPath, 0o644);
+
+    const secret = await Session.resolveSecret(dbPath);
+    const fileSecret = (await readFile(secretPath, "utf-8")).trim();
+
+    expect(secret).toBe(fileSecret);
+    expect(secret).toMatch(/^[0-9a-f]{64}$/);
+    if (process.platform !== "win32") {
+      expect((await stat(secretPath)).mode & 0o777).toBe(0o600);
+    }
   });
 
   test("login ignores forwarded proto for Secure cookie unless proxy headers are trusted", async () => {

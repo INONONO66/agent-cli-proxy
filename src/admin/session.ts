@@ -1,4 +1,4 @@
-import { mkdir } from "node:fs/promises";
+import { chmod, mkdir, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { Logger } from "../util/logger";
 import { Config } from "../config";
@@ -32,15 +32,20 @@ export namespace Session {
     if (configured) return configured;
 
     const secretPath = join(dirname(dbPath), ".dashboard-session-secret");
-    const existing = Bun.file(secretPath);
-    if (await existing.exists()) {
-      const value = (await existing.text()).trim();
-      if (value) return value;
-    }
+    const existing = await readSecretFile(secretPath);
+    if (existing) return existing;
 
     const secret = randomHex(32);
     await mkdir(dirname(secretPath), { recursive: true });
-    await Bun.write(secretPath, `${secret}\n`);
+    try {
+      await writeFile(secretPath, `${secret}\n`, { mode: 0o600, flag: "wx" });
+    } catch (err) {
+      if (!isAlreadyExistsError(err)) throw err;
+      const raced = await readSecretFile(secretPath);
+      if (raced) return raced;
+      await writeFile(secretPath, `${secret}\n`, { mode: 0o600, flag: "w" });
+      await chmodSecretFile(secretPath);
+    }
     logger.info("dashboard session secret generated", { event: "dashboard.session_secret.generated" });
     return secret;
   }
@@ -203,9 +208,26 @@ function clearLoginAttempts(ip: string): void {
   loginAttempts.delete(ip);
 }
 
+async function readSecretFile(path: string): Promise<string | null> {
+  const file = Bun.file(path);
+  if (!(await file.exists())) return null;
+  const value = (await file.text()).trim();
+  await chmodSecretFile(path);
+  return value || null;
+}
+
+async function chmodSecretFile(path: string): Promise<void> {
+  if (process.platform === "win32") return;
+  await chmod(path, 0o600);
+}
+
+function isAlreadyExistsError(err: unknown): boolean {
+  return typeof err === "object" && err !== null && "code" in err && (err as { code?: unknown }).code === "EEXIST";
+}
+
 function json(data: unknown, status = 200, headers: Record<string, string> = {}): Response {
   return new Response(JSON.stringify(data), {
     status,
-    headers: { "content-type": "application/json", ...headers },
+    headers: { "content-type": "application/json", "cache-control": "no-store", ...headers },
   });
 }
