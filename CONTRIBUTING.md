@@ -89,7 +89,7 @@ Keep PRs focused. A PR that fixes a bug and adds an unrelated feature is harder 
 
 ## Architecture overview
 
-The proxy intercepts HTTP requests from AI coding tools (OpenCode, OpenClaw, Hermes), identifies the originating tool from request headers, and forwards the request to CLIProxyAPI. Before forwarding, it inserts a `pending` row in SQLite. After the upstream response streams to the client, it finalizes the row with token counts and cost data from models.dev pricing. An optional correlator loop maps CLIProxyAPI accounts to request rows for account attribution. A cost backfill loop recomputes zero-cost rows when pricing data becomes available later.
+The proxy forwards HTTP requests from AI coding tools (OpenCode, OpenClaw, Hermes) to CLIProxyAPI and identifies the originating tool from request headers. For LLM generation calls, it inserts a `pending` row in SQLite before forwarding. After the upstream response streams to the client, it finalizes the row with token counts and cost data from live pricing. Non-LLM proxy calls are forwarded without request-log rows. An optional correlator loop maps CLIProxyAPI accounts to request rows for account attribution. A cost backfill loop recomputes zero-cost rows when pricing data becomes available later.
 
 Key modules:
 

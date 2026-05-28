@@ -8,7 +8,7 @@ AI API proxy with per-tool usage monitoring. Sits between AI coding tools (OpenC
 
 ## Why this exists
 
-Most AI coding tools share a single upstream API key, making it impossible to know which tool or session is responsible for a given cost spike. agent-cli-proxy intercepts every request, identifies the originating tool from request headers, and records per-tool usage with accurate cost attribution from models.dev pricing data. It also correlates CLIProxyAPI accounts to request rows so usage can be audited by upstream account.
+Most AI coding tools share a single upstream API key, making it impossible to know which tool or session is responsible for a given cost spike. agent-cli-proxy forwards API requests, identifies the originating tool from request headers, and records LLM generation usage with accurate cost attribution from live pricing data. It also correlates CLIProxyAPI accounts to request rows so usage can be audited by upstream account.
 
 ## Install
 
@@ -333,7 +333,7 @@ Hermes    ─┘
 
 Each tool is automatically identified by request headers and tracked separately. Multiple instances of the same tool are distinguished by `X-Agent-Name` header or session IDs.
 
-The request lifecycle: a `pending` row is inserted before the upstream call (pre-log), the upstream response streams to the client, and the row is finalized with tokens and cost after the stream completes. ProviderTransform modules apply provider-specific header, body, response, and stream-line rewrites, while the provider registry selects built-in or custom providers. An optional correlator loop maps CLIProxyAPI accounts to request rows for account attribution. A cost backfill loop recomputes zero-cost rows when pricing data becomes available.
+The request lifecycle for LLM generation calls: a `pending` row is inserted before the upstream call (pre-log), the upstream response streams to the client, and the row is finalized with tokens and cost after the stream completes. Non-LLM proxy calls are forwarded without request-log rows. ProviderTransform modules apply provider-specific header, body, response, and stream-line rewrites, while the provider registry selects built-in or custom providers. An optional correlator loop maps CLIProxyAPI accounts to request rows for account attribution. A cost backfill loop recomputes zero-cost rows when pricing data becomes available.
 
 ### Tool Identification
 
