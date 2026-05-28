@@ -41,7 +41,7 @@
   ],
   "scripts": {
     "dev": "bun run --watch src/index.ts",
-    "build": "bun build src/index.ts src/cli.ts --target=bun --outdir=./dist && rm -rf dist/migrations && cp -R src/storage/migrations dist/migrations && bun run scripts/post-build.ts",
+    "build": "bun build src/index.ts src/cli.ts --target=bun --outdir=./dist && bun build src/dashboard/server.ts --target=bun --outfile=./dist/dashboard-server.js && rm -rf dist/dashboard && bun run scripts/build-dashboard.ts && rm -rf dist/migrations && cp -R src/storage/migrations dist/migrations && bun run scripts/post-build.ts",
     "typecheck": "bunx tsc --noEmit",
     "test": "bun test",
     "release-check": "bun run typecheck && bun run test && bun run build && (bunx publint . || bun run scripts/release-fallback-check.ts)",
@@ -55,7 +55,10 @@
     "release:patch": "bun run scripts/release.ts patch",
     "release:minor": "bun run scripts/release.ts minor",
     "release:major": "bun run scripts/release.ts major",
-    "release:dry-run": "bun run scripts/release.ts --dry-run"
+    "release:dry-run": "bun run scripts/release.ts --dry-run",
+    "dashboard:dev": "bun run --watch src/dashboard/server.ts",
+    "dashboard:build": "bun run scripts/build-dashboard.ts",
+    "dashboard:start": "NODE_ENV=production bun run dist/dashboard-server.js"
   },
   "devDependencies": {
     "@types/bun": "latest",
