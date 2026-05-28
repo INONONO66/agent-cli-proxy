@@ -16,12 +16,16 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { Separator } from "@/components/ui/separator";
 import { Button } from "@/components/ui/button";
 import {
+  LayoutDashboard,
   Gauge,
-  FileText,
   BarChart3,
+  FileText,
   KeyRound,
   ShieldCheck,
+  Settings,
   LogOut,
+  Moon,
+  Sun,
 } from "lucide-react";
 
 interface AuthContextValue {
@@ -39,16 +43,39 @@ export const AuthContext = React.createContext<AuthContextValue>({
 });
 
 const NAV = [
+  { path: "#/", label: "Overview", icon: LayoutDashboard },
   { path: "#/quotas", label: "Quotas", icon: Gauge },
-  { path: "#/logs", label: "Logs", icon: FileText },
   { path: "#/usage", label: "Usage", icon: BarChart3 },
+  { path: "#/logs", label: "Logs", icon: FileText },
   { path: "#/api-keys", label: "API Keys", icon: KeyRound },
   { path: "#/oauth", label: "OAuth", icon: ShieldCheck },
+  { path: "#/system", label: "System", icon: Settings },
 ];
+
+function isActive(hash: string, navPath: string): boolean {
+  if (navPath === "#/") return hash === "#/" || hash === "" || hash === "#";
+  return hash === navPath || hash.startsWith(navPath + "/");
+}
+
+function useDarkMode() {
+  const [dark, setDark] = useState(() => {
+    const stored = localStorage.getItem("dashboard-theme");
+    if (stored) return stored === "dark";
+    return document.documentElement.classList.contains("dark");
+  });
+
+  useEffect(() => {
+    document.documentElement.classList.toggle("dark", dark);
+    localStorage.setItem("dashboard-theme", dark ? "dark" : "light");
+  }, [dark]);
+
+  return [dark, () => setDark((prev) => !prev)] as const;
+}
 
 export function Layout({ children }: { children: React.ReactNode }) {
   const { setAuthenticated } = useContext(AuthContext);
   const [hash, setHash] = useState(window.location.hash);
+  const [dark, toggleDark] = useDarkMode();
 
   useEffect(() => {
     function onHashChange() {
@@ -78,7 +105,7 @@ export function Layout({ children }: { children: React.ReactNode }) {
               <SidebarMenuItem key={item.path}>
                 <SidebarMenuButton
                   asChild
-                  isActive={hash === item.path || hash.startsWith(item.path + "/")}
+                  isActive={isActive(hash, item.path)}
                   tooltip={item.label}
                 >
                   <a href={item.path}>
@@ -90,7 +117,11 @@ export function Layout({ children }: { children: React.ReactNode }) {
             ))}
           </SidebarMenu>
         </SidebarContent>
-        <SidebarFooter className="px-2 py-2">
+        <SidebarFooter className="px-2 py-2 flex flex-col gap-1.5">
+          <Button variant="ghost" size="sm" className="w-full justify-start gap-2" onClick={toggleDark}>
+            {dark ? <Sun className="size-4" /> : <Moon className="size-4" />}
+            {dark ? "Light mode" : "Dark mode"}
+          </Button>
           <Button variant="outline" className="w-full gap-2" onClick={handleLogout}>
             <LogOut className="size-4" />
             Logout

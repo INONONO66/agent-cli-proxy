@@ -1,7 +1,7 @@
 import { useCallback, useState } from "react";
-import React from "react";
-import { getOAuthAccounts, startOAuthLogin } from "../api";
-import { usePolling } from "../hooks/usePolling";
+import { startOAuthLogin } from "../api";
+import { useOAuthAccounts } from "../hooks/queries";
+import { useQueryClient } from "@tanstack/react-query";
 import { AuthAccountList } from "../components/AuthAccountList";
 import { OAuthJobPanel } from "../components/OAuthJobPanel";
 import type { OAuthStartResponse } from "../api";
@@ -10,8 +10,8 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 
 export function OAuthPage() {
-  const fetchAccounts = useCallback(() => getOAuthAccounts(), []);
-  const { data, loading, error, refresh } = usePolling(fetchAccounts, 30000);
+  const { data, isLoading, error } = useOAuthAccounts();
+  const qc = useQueryClient();
   const [activeJob, setActiveJob] = useState<OAuthStartResponse | null>(null);
 
   const handleRefresh = useCallback(
@@ -28,8 +28,8 @@ export function OAuthPage() {
 
   const handleJobDone = useCallback(() => {
     setActiveJob(null);
-    refresh();
-  }, [refresh]);
+    qc.invalidateQueries({ queryKey: ["oauth", "accounts"] });
+  }, [qc]);
 
   return (
     <div>
@@ -39,7 +39,7 @@ export function OAuthPage() {
 
       {error && (
         <Alert variant="destructive" className="mb-4">
-          <AlertDescription>{error}</AlertDescription>
+          <AlertDescription>{error instanceof Error ? error.message : "Failed to load accounts"}</AlertDescription>
         </Alert>
       )}
 
@@ -47,7 +47,7 @@ export function OAuthPage() {
         <OAuthJobPanel job={activeJob} onDone={handleJobDone} />
       )}
 
-      {loading && !data && (
+      {isLoading && !data && (
         <div className="flex flex-col gap-3">
           {Array.from({ length: 3 }).map((_, i) => (
             <Card key={i}>
