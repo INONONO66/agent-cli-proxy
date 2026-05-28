@@ -141,7 +141,7 @@ values. Runtime defaults also use XDG data paths when those variables are
 unset. Explicit relative paths still work for local development, but startup
 emits configuration warnings because they are deploy-directory dependent.
 
-See `docs/deployment-state.md` for systemd and rollback guidance.
+
 
 ### Public proxy API keys
 
@@ -284,9 +284,7 @@ All `/admin/*` endpoints require `ADMIN_API_KEY` when the proxy is not bound to 
 | `GET` | `/admin/breakers/:providerId` | Single breaker state by provider |
 | `POST` | `/admin/breakers/:providerId/reset` | Reset a breaker to closed state |
 
-For repeatable local before/after timing, run `ADMIN_API_KEY="$ADMIN_API_KEY" bun run perf:baseline --url http://127.0.0.1:8317 --output perf-baseline.md`. See `docs/performance-baseline.md` for metric names and cautions.
 
-For Cloudflare exposure planning, see `docs/cloudflare-exposure-plan.md` before publishing the proxy outside a private network.
 
 ## Health and Readiness
 

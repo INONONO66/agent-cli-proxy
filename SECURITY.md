@@ -52,7 +52,7 @@ PROXY_HOST=0.0.0.0
 ADMIN_API_KEY=a-long-random-secret
 ```
 
-Before publishing through Cloudflare, review `docs/cloudflare-exposure-plan.md`; keep the origin private, separate admin auth from proxy API keys, path-allowlist public API routes, and require managed `x-proxy-key` for externally reachable LLM endpoints that need attribution/provider scoping.
+When publishing through Cloudflare, keep the origin private, separate admin auth from proxy API keys, path-allowlist public API routes, and require managed `x-proxy-key` for externally reachable LLM endpoints.
 
 Do not expose the admin endpoints to the public internet without additional network controls (firewall, reverse proxy with TLS, etc.).
 
@@ -101,4 +101,4 @@ After upgrading, run `agent-cli-proxy doctor` to verify the configuration and da
 
 ## Persistent state and secrets
 
-Production env files, SQLite databases, WAL/SHM sidecars, and pricing caches should live outside the deploy/runtime directory so replacing a release cannot wipe credentials or usage history. Recommended locations are `/etc/agent-cli-proxy/agent-cli-proxy.env`, `/var/lib/agent-cli-proxy/proxy.db`, and `/var/cache/agent-cli-proxy/pricing-cache.json` for system installs, or XDG config/data paths for user installs. See [Persistent config and data outside deploy artifacts](docs/deployment-state.md) for the copy-first migration runbook.
+Production env files, SQLite databases, WAL/SHM sidecars, and pricing caches should live outside the deploy/runtime directory so replacing a release cannot wipe credentials or usage history. Recommended locations are `/etc/agent-cli-proxy/agent-cli-proxy.env`, `/var/lib/agent-cli-proxy/proxy.db`, and `/var/cache/agent-cli-proxy/pricing-cache.json` for system installs, or XDG config/data paths for user installs.

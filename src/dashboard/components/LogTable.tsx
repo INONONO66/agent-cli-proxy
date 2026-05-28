@@ -4,6 +4,7 @@ import { cn } from "@/lib/utils";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 
 function formatDate(iso: string): string {
   const d = new Date(iso);
@@ -81,7 +82,7 @@ export function LogTable({ logs, loading, limit, offset, onLimitChange, onOffset
                 {Array.from({ length: 5 }).map((_, i) => (
                   <TableRow key={`skel-${i}`}>
                     {Array.from({ length: 10 }).map((__, j) => (
-                      <TableCell key={j}><Skeleton className="h-3" style={{ width: `${60 + Math.random() * 40}%` }} /></TableCell>
+                      <TableCell key={j}><Skeleton className="h-3" style={{ width: `${60 + ((i * 10 + j) % 40)}%` }} /></TableCell>
                     ))}
                   </TableRow>
                 ))}
@@ -141,15 +142,16 @@ export function LogTable({ logs, loading, limit, offset, onLimitChange, onOffset
         <div className="text-xs text-muted-foreground">
           Page {Math.floor(offset / limit) + 1} · {limit} per page
         </div>
-        <select
-          className="h-8 rounded-md border border-input bg-transparent px-2 text-xs"
-          value={limit}
-          onChange={(e) => onLimitChange(Number(e.target.value))}
-        >
-          {[25, 50, 100].map((n) => (
-            <option key={n} value={n}>{n} / page</option>
-          ))}
-        </select>
+        <Select value={String(limit)} onValueChange={(v) => onLimitChange(Number(v))}>
+          <SelectTrigger size="sm" className="w-[100px]">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            {[25, 50, 100].map((n) => (
+              <SelectItem key={n} value={String(n)}>{n} / page</SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
       </div>
     </div>
   );

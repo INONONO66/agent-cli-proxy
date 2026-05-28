@@ -21,5 +21,5 @@ export function Num({
 }) {
   const compact = format === "cost" ? formatCostCompact(value) : formatCompact(value);
   const exact = format === "cost" ? `$${value.toFixed(4)}` : value.toLocaleString();
-  return <span className="mono" title={exact}>{compact}</span>;
+  return <span className="font-mono" title={exact}>{compact}</span>;
 }

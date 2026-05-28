@@ -1,6 +1,0 @@
-{
-  "note": "list returns array with keyPrefix visible, NO full key",
-  "route": "GET /admin/api-keys",
-  "responseWrapper": "apiKeys",
-  "fullKeyExposed": false
-}

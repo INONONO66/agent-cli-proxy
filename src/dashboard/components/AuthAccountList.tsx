@@ -3,6 +3,7 @@ import { cn } from "@/lib/utils";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Separator } from "@/components/ui/separator";
 
 function resolveProvider(account: AuthAccount): string {
   return account.type ?? account.provider ?? "unknown";
@@ -73,8 +74,9 @@ export function AuthAccountList({ accounts, onRefresh }: AuthAccountListProps) {
 
   return (
     <div className="flex flex-col gap-6">
-      {providers.map((provider) => (
+      {providers.map((provider, idx) => (
         <div key={provider}>
+          {idx > 0 && <Separator className="mb-6" />}
           <div className="flex items-center gap-2 mb-3 text-sm font-semibold uppercase tracking-wide">
             <Badge variant="outline" className={cn("text-[11px]", providerBadgeClass(provider))}>
               {provider}
@@ -89,7 +91,7 @@ export function AuthAccountList({ accounts, onRefresh }: AuthAccountListProps) {
               const email = account.email ?? "Unknown";
               const lastRefresh = account.last_refresh ?? account.refreshed_at;
               return (
-                <Card key={i}>
+                <Card key={account.email ?? i}>
                   <CardContent className="flex items-center justify-between gap-3 flex-wrap p-4">
                     <div className="flex-1 min-w-0">
                       <div className="text-sm font-medium">{email}</div>

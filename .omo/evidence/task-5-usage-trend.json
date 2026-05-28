@@ -1,5 +1,0 @@
-{
-  "task": "usage trend endpoint",
-  "result": "GET /admin/usage/trend returns buckets with timestamp, requests, tokens, and cost_usd",
-  "verified": ["bun run typecheck"]
-}

@@ -1,4 +1,5 @@
 import { useCallback, useState } from "react";
+import React from "react";
 import { getOAuthAccounts, startOAuthLogin } from "../api";
 import { usePolling } from "../hooks/usePolling";
 import { AuthAccountList } from "../components/AuthAccountList";
@@ -6,9 +7,11 @@ import { OAuthJobPanel } from "../components/OAuthJobPanel";
 import type { OAuthStartResponse } from "../api";
 import { Card, CardContent } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
+import { Alert, AlertDescription } from "@/components/ui/alert";
 
 export function OAuthPage() {
-  const { data, loading, error, refresh } = usePolling(getOAuthAccounts, 30000);
+  const fetchAccounts = useCallback(() => getOAuthAccounts(), []);
+  const { data, loading, error, refresh } = usePolling(fetchAccounts, 30000);
   const [activeJob, setActiveJob] = useState<OAuthStartResponse | null>(null);
 
   const handleRefresh = useCallback(
@@ -34,7 +37,11 @@ export function OAuthPage() {
         <h2 className="text-lg font-semibold">OAuth Accounts</h2>
       </div>
 
-      {error && <div className="rounded-lg border border-destructive/50 bg-destructive/10 text-destructive p-3 text-sm mb-4">{error}</div>}
+      {error && (
+        <Alert variant="destructive" className="mb-4">
+          <AlertDescription>{error}</AlertDescription>
+        </Alert>
+      )}
 
       {activeJob && (
         <OAuthJobPanel job={activeJob} onDone={handleJobDone} />

@@ -14,5 +14,5 @@
       "@/*": ["src/dashboard/*"]
     }
   },
-  "exclude": ["test-inspector.ts"]
+  "exclude": []
 }
