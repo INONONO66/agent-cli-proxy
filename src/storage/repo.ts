@@ -53,8 +53,8 @@ export namespace RequestRepo {
         total_tokens, cost_usd, incomplete, error_code, latency_ms,
         started_at, finished_at, meta_json, user_agent, source_ip,
         agent, source, msg_id, lifecycle_status, cost_status,
-        subscription_code, finalized_at, error_message
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        finalized_at, error_message
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `);
 
     const result = stmt.run(
@@ -88,7 +88,6 @@ export namespace RequestRepo {
       log.msg_id ?? null,
       lifecycleStatus,
       costStatus,
-      log.subscription_code ?? null,
       finalizedAt,
       log.error_message ?? null,
     );
@@ -314,8 +313,6 @@ export namespace RequestRepo {
       cliproxy_account?: string;
       cliproxy_auth_index?: string;
       cliproxy_source?: string;
-      reasoning_tokens?: number;
-      actual_model?: string;
     },
   ): number {
     const stmt = db.prepare(`
@@ -323,8 +320,6 @@ export namespace RequestRepo {
       SET cliproxy_account = COALESCE(?, cliproxy_account),
           cliproxy_auth_index = COALESCE(?, cliproxy_auth_index),
           cliproxy_source = COALESCE(?, cliproxy_source),
-          reasoning_tokens = COALESCE(?, reasoning_tokens),
-          actual_model = COALESCE(?, actual_model),
           correlated_at = ?
       WHERE id = ? AND cliproxy_account IS NULL
     `);
@@ -332,8 +327,6 @@ export namespace RequestRepo {
       fields.cliproxy_account ?? null,
       fields.cliproxy_auth_index ?? null,
       fields.cliproxy_source ?? null,
-      fields.reasoning_tokens ?? null,
-      fields.actual_model ?? null,
       new Date().toISOString(),
       id,
     );
@@ -348,7 +341,6 @@ export namespace RequestRepo {
       finalized_at?: string;
       error_message?: string;
       cost_status?: Usage.CostStatus;
-      subscription_code?: string;
     },
   ): void {
     const stmt = db.prepare(`
@@ -356,8 +348,7 @@ export namespace RequestRepo {
       SET lifecycle_status = COALESCE(?, lifecycle_status),
           finalized_at = COALESCE(?, finalized_at),
           error_message = COALESCE(?, error_message),
-          cost_status = COALESCE(?, cost_status),
-          subscription_code = COALESCE(?, subscription_code)
+          cost_status = COALESCE(?, cost_status)
       WHERE id = ?
     `);
     stmt.run(
@@ -365,7 +356,6 @@ export namespace RequestRepo {
       fields.finalized_at ?? null,
       fields.error_message ?? null,
       fields.cost_status ?? null,
-      fields.subscription_code ?? null,
       id,
     );
   }
@@ -377,6 +367,7 @@ export namespace RequestRepo {
       provider?: string;
       model?: string;
       actual_model?: string;
+      actual_provider?: string;
       proxy_api_key_id?: number;
       streamed?: number;
       status?: number;
@@ -395,7 +386,6 @@ export namespace RequestRepo {
       finalized_at: string;
       error_message?: string;
       cost_status: Usage.CostStatus;
-      subscription_code?: string;
     },
   ): number {
     const stmt = db.prepare(`
@@ -403,6 +393,7 @@ export namespace RequestRepo {
       SET provider = COALESCE(?, provider),
           model = COALESCE(?, model),
           actual_model = COALESCE(?, actual_model),
+          actual_provider = COALESCE(?, actual_provider),
           proxy_api_key_id = COALESCE(?, proxy_api_key_id),
           streamed = COALESCE(?, streamed),
           status = COALESCE(?, status),
@@ -420,14 +411,14 @@ export namespace RequestRepo {
           lifecycle_status = ?,
           finalized_at = ?,
           error_message = COALESCE(?, error_message),
-          cost_status = ?,
-          subscription_code = COALESCE(?, subscription_code)
+          cost_status = ?
       WHERE id = ? AND lifecycle_status = 'pending'
     `);
     const result = stmt.run(
       fields.provider ?? null,
       fields.model ?? null,
       fields.actual_model ?? null,
+      fields.actual_provider ?? null,
       fields.proxy_api_key_id ?? null,
       fields.streamed ?? null,
       fields.status ?? null,
@@ -446,7 +437,6 @@ export namespace RequestRepo {
       fields.finalized_at,
       fields.error_message ?? null,
       fields.cost_status,
-      fields.subscription_code ?? null,
       id,
     );
     return result.changes;
@@ -481,6 +471,16 @@ export namespace RequestRepo {
     `);
     return (stmt.get(requestLogId) as Usage.CostAudit) || null;
   }
+
+  export function getCostAudit(db: Database, requestLogId: number): Usage.CostAudit[] {
+    const stmt = db.prepare(`
+      SELECT id, request_log_id, model, provider, source, base_cost_usd, calc_at
+      FROM cost_audit
+      WHERE request_log_id = ?
+      ORDER BY calc_at ASC
+    `);
+    return stmt.all(requestLogId) as Usage.CostAudit[];
+  }
 }
 
 function parseLifecycleStatus(value: unknown): Usage.LifecycleStatus {
@@ -489,12 +489,6 @@ function parseLifecycleStatus(value: unknown): Usage.LifecycleStatus {
 }
 
 export namespace UsageRepo {
-  export interface DailyBucket {
-    day: string;
-    provider: string;
-    model: string;
-  }
-
   export function upsertDaily(db: Database, usage: Usage.DailyUsage): void {
     const stmt = db.prepare(`
       INSERT INTO daily_usage (
@@ -524,30 +518,6 @@ export namespace UsageRepo {
       usage.total_tokens,
       usage.cost_usd,
     );
-  }
-
-  export function refreshDailyBucket(db: Database, bucket: DailyBucket): void {
-    db.prepare("DELETE FROM daily_usage WHERE day = ? AND provider = ? AND model = ?")
-      .run(bucket.day, bucket.provider, bucket.model);
-
-    db.prepare(`
-      INSERT INTO daily_usage (
-        day, provider, model, request_count, prompt_tokens,
-        completion_tokens, cache_creation_tokens, cache_read_tokens,
-        total_tokens, cost_usd
-      )
-      SELECT
-        substr(started_at, 1, 10), provider, model, COUNT(*),
-        COALESCE(SUM(prompt_tokens), 0), COALESCE(SUM(completion_tokens), 0),
-        COALESCE(SUM(cache_creation_tokens), 0), COALESCE(SUM(cache_read_tokens), 0),
-        COALESCE(SUM(total_tokens), 0), COALESCE(SUM(cost_usd), 0)
-      FROM request_logs
-      WHERE lifecycle_status IN ('completed', 'error')
-        AND substr(started_at, 1, 10) = ?
-        AND provider = ?
-        AND model = ?
-      GROUP BY substr(started_at, 1, 10), provider, model
-    `).run(bucket.day, bucket.provider, bucket.model);
   }
 
   export function upsertDailyAccount(
@@ -679,15 +649,16 @@ export namespace QuotaRepo {
   export function insertSnapshot(db: Database, snapshot: Usage.QuotaSnapshot): number {
     const stmt = db.prepare(`
       INSERT INTO quota_snapshots (
-        timestamp, provider, account, quota_type, used_pct,
+        timestamp, provider, account, quota_type, model, used_pct,
         remaining, remaining_raw, resets_at, raw_json
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `);
     const result = stmt.run(
       snapshot.timestamp,
       snapshot.provider,
       snapshot.account,
       snapshot.quota_type,
+      snapshot.model ?? null,
       snapshot.used_pct ?? null,
       snapshot.remaining ?? null,
       snapshot.remaining_raw ?? null,
@@ -703,6 +674,10 @@ export namespace QuotaRepo {
       WHERE timestamp < datetime('now', '-30 days')
     `).run();
     return result.changes;
+  }
+
+  export function deleteByProviderAccount(db: Database, provider: string, account: string): void {
+    db.prepare("DELETE FROM quota_snapshots WHERE provider = ? AND account = ?").run(provider, account);
   }
 
   export function getLatest(db: Database): Usage.QuotaSnapshot[] {

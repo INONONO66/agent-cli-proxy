@@ -20,6 +20,9 @@ export namespace Usage {
     provider: string;
     model: string;
     actual_model?: string;
+    actual_provider?: string;
+    cost_provider?: string;
+    cost_model?: string;
     proxy_api_key_id?: number;
     tool: string;
     client_id: string;
@@ -28,7 +31,6 @@ export namespace Usage {
     status?: number;
     lifecycle_status?: LifecycleStatus;
     cost_status?: CostStatus;
-    subscription_code?: string;
     finalized_at?: string;
     error_message?: string;
     prompt_tokens: number;
@@ -132,6 +134,7 @@ export namespace Usage {
     provider: string;
     account: string;
     quota_type: string;
+    model?: string | null;
     used_pct?: number | null;
     remaining?: number | null;
     remaining_raw?: string | null;

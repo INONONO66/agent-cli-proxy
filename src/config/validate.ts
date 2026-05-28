@@ -18,6 +18,8 @@ export interface ValidatedConfig {
   dbPath: string;
   pricingCacheTtlMs: number;
   pricingCachePath: string;
+  pricingOverrides: Record<string, PricingOverride>;
+  pricingAliases: Record<string, string>;
   readyPricingMaxAgeMs: number;
   pricingRefreshIntervalMs: number;
   costBackfillIntervalMs: number;
@@ -52,6 +54,14 @@ export interface ValidatedConfig {
   trustProxyHeaders: boolean;
   loginRateLimitWindowMs: number;
   loginRateLimitMaxAttempts: number;
+}
+
+export interface PricingOverride {
+  input: number;
+  output: number;
+  cache_read?: number;
+  cache_write?: number;
+  reasoning?: number;
 }
 
 export interface ConfigIssue {
@@ -96,6 +106,8 @@ export namespace Config {
       dbPath: readString(env, "DB_PATH", defaultStatePath(env, "proxy.db")),
       pricingCacheTtlMs: readPositiveNumber(env, "PRICING_CACHE_TTL_MS", 3600000, issues),
       pricingCachePath: readString(env, "PRICING_CACHE_PATH", defaultStatePath(env, "pricing-cache.json")),
+      pricingOverrides: readPricingOverrides(env, issues),
+      pricingAliases: readPricingAliases(env, issues),
       readyPricingMaxAgeMs: readPositiveNumber(env, "READY_PRICING_MAX_AGE_MS", 86400000, issues),
       pricingRefreshIntervalMs: readPositiveNumber(env, "PRICING_REFRESH_INTERVAL_MS", 21600000, issues),
       costBackfillIntervalMs: readPositiveNumber(env, "COST_BACKFILL_INTERVAL_MS", 1800000, issues),
@@ -180,6 +192,21 @@ export namespace Config {
 const DEFAULT_CLI_PROXY_API_URL = "http://localhost:8317";
 const APP_NAME = "agent-cli-proxy";
 const LOOPBACK_HOSTS = new Set(["127.0.0.1", "localhost", "::1"]);
+
+const DEFAULT_PRICING_OVERRIDES: Record<string, PricingOverride> = Object.freeze({
+  "gpt-5.4": { input: 2.5, output: 15, cache_read: 0.25 },
+  "gpt-5.4-mini": { input: 0.75, output: 4.5, cache_read: 0.075 },
+  "gpt-5.4-mini-2026-03-17": { input: 0.75, output: 4.5, cache_read: 0.075 },
+  "kimi-for-coding": { input: 0.4, output: 2.5, cache_read: 0.4 },
+  "kimi-k2": { input: 0.4, output: 2.5, cache_read: 0.4 },
+  "kimi-k2.6": { input: 0.95, output: 4, cache_read: 0.16 },
+});
+
+const DEFAULT_PRICING_ALIASES: Record<string, string> = Object.freeze({
+  "kimi-for-coding": "kimi-k2",
+  "gpt-5.4-mini": "gpt-5.4-mini",
+  "gpt-5.4": "gpt-5.4",
+});
 
 function readString(env: EnvLike, key: string, fallback: string): string {
   const value = env[key];
@@ -289,6 +316,92 @@ function readPositiveInteger(
     return fallback;
   }
   return parsed;
+}
+
+function readPricingOverrides(env: EnvLike, issues: ConfigIssue[]): Record<string, PricingOverride> {
+  const parsed = readJsonObject(env, "PRICING_OVERRIDES_JSON", issues);
+  if (!parsed) return { ...DEFAULT_PRICING_OVERRIDES };
+
+  const overrides: Record<string, PricingOverride> = {};
+  for (const [model, value] of Object.entries(parsed)) {
+    if (!isRecord(value)) {
+      issues.push({ path: `PRICING_OVERRIDES_JSON.${model}`, message: "must be a pricing object" });
+      continue;
+    }
+
+    const input = value.input;
+    const output = value.output;
+    if (!isNonNegativeFiniteNumber(input) || !isNonNegativeFiniteNumber(output)) {
+      issues.push({ path: `PRICING_OVERRIDES_JSON.${model}`, message: "must include non-negative numeric input and output" });
+      continue;
+    }
+
+    const override: PricingOverride = { input, output };
+    readOptionalPricingNumber(value, "cache_read", model, override, issues);
+    readOptionalPricingNumber(value, "cache_write", model, override, issues);
+    readOptionalPricingNumber(value, "reasoning", model, override, issues);
+    overrides[model] = override;
+  }
+
+  return overrides;
+}
+
+function readOptionalPricingNumber(
+  value: Record<string, unknown>,
+  key: "cache_read" | "cache_write" | "reasoning",
+  model: string,
+  override: PricingOverride,
+  issues: ConfigIssue[],
+): void {
+  const candidate = value[key];
+  if (candidate === undefined) return;
+  if (!isNonNegativeFiniteNumber(candidate)) {
+    issues.push({ path: `PRICING_OVERRIDES_JSON.${model}.${key}`, message: "must be a non-negative finite number" });
+    return;
+  }
+  override[key] = candidate;
+}
+
+function readPricingAliases(env: EnvLike, issues: ConfigIssue[]): Record<string, string> {
+  const parsed = readJsonObject(env, "PRICING_ALIASES_JSON", issues);
+  if (!parsed) return { ...DEFAULT_PRICING_ALIASES };
+
+  const aliases: Record<string, string> = {};
+  for (const [modelPrefix, target] of Object.entries(parsed)) {
+    if (typeof target !== "string" || target.trim() === "") {
+      issues.push({ path: `PRICING_ALIASES_JSON.${modelPrefix}`, message: "must be a non-empty string" });
+      continue;
+    }
+    aliases[modelPrefix] = target.trim();
+  }
+  return aliases;
+}
+
+function readJsonObject(env: EnvLike, key: string, issues: ConfigIssue[]): Record<string, unknown> | null {
+  const raw = env[key];
+  if (raw === undefined || raw.trim() === "") return null;
+
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw);
+  } catch (err) {
+    issues.push({ path: key, message: `must be valid JSON: ${err instanceof Error ? err.message : String(err)}` });
+    return null;
+  }
+
+  if (!isRecord(parsed)) {
+    issues.push({ path: key, message: "must be a JSON object" });
+    return null;
+  }
+  return parsed;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function isNonNegativeFiniteNumber(value: unknown): value is number {
+  return typeof value === "number" && Number.isFinite(value) && value >= 0;
 }
 
 function readRequiredUrl(

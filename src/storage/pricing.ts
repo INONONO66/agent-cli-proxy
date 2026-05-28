@@ -1,6 +1,7 @@
 import { dirname } from "node:path";
 import { mkdir } from "node:fs/promises";
 import { Config } from "../config";
+import { CanonicalProvider } from "../provider/canonical";
 import { Logger } from "../util/logger";
 import { Supervisor } from "../runtime/supervisor";
 
@@ -146,7 +147,7 @@ export namespace Pricing {
     pricing: ModelPricing,
     provider?: string,
   ): number {
-    if (provider && normalizeKey(provider) === "openai") {
+    if (provider && CanonicalProvider.billingSemantics(provider) === "openai") {
       const billableInputTokens = Math.max(usage.prompt_tokens - usage.cache_read_tokens, 0);
       return (
         billableInputTokens * pricing.input +
@@ -233,16 +234,7 @@ export namespace Pricing {
   }
 
   function addLocalOverrides(map: PricingMap): void {
-    const overrides: Record<string, ModelPricing> = {
-      "gpt-5.4": { input: 2.5, output: 15, cache_read: 0.25 },
-      "gpt-5.4-mini": { input: 0.75, output: 4.5, cache_read: 0.075 },
-      "gpt-5.4-mini-2026-03-17": { input: 0.75, output: 4.5, cache_read: 0.075 },
-      "kimi-for-coding": { input: 0.4, output: 2.5, cache_read: 0.4 },
-      "kimi-k2": { input: 0.4, output: 2.5, cache_read: 0.4 },
-      "kimi-k2.6": { input: 0.95, output: 4, cache_read: 0.16 },
-    };
-
-    for (const [model, pricing] of Object.entries(overrides)) {
+    for (const [model, pricing] of Object.entries(Config.pricingOverrides)) {
       setPricingAlias(map, model, pricing);
       setPricingAlias(map, `openai/${model}`, pricing);
     }
@@ -265,9 +257,13 @@ export namespace Pricing {
   }
 
   function aliasModel(normalizedModel: string): string | null {
-    if (normalizedModel === "kimi-for-coding") return "kimi-k2";
-    if (normalizedModel.startsWith("gpt-5.4-mini")) return "gpt-5.4-mini";
-    if (normalizedModel.startsWith("gpt-5.4")) return "gpt-5.4";
+    const aliases = Object.entries(Config.pricingAliases)
+      .map(([prefix, target]) => [normalizeKey(prefix), target] as const)
+      .sort(([left], [right]) => right.length - left.length);
+
+    for (const [prefix, target] of aliases) {
+      if (normalizedModel === prefix || normalizedModel.startsWith(prefix)) return target;
+    }
     return null;
   }
 

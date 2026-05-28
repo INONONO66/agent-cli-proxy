@@ -10,6 +10,7 @@ export type ProbeWindow = {
   quota_type: string;
   used_pct?: number;
   resets_at?: string;
+  model?: string;
   raw: unknown;
 };
 

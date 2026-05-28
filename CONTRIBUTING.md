@@ -47,7 +47,7 @@ Tests use Bun's built-in test runner (`bun:test`). No Jest, no Vitest. Add tests
 ## Code style
 
 - **TypeScript strict mode** throughout. No `as any` casts. If you need to escape the type system, leave a comment explaining why.
-- **Namespaces over classes** for module-level grouping (see `Config`, `Admin`, `Plans`, `Storage`). Follow the existing pattern.
+- **Namespaces over classes** for module-level grouping (see `Config`, `Admin`, `Storage`). Follow the existing pattern.
 - **No raw `console.log`** in `src/`. Use the structured logger: `Logger.fromConfig().child({ component: "your-module" })`.
 - **Bun APIs** over Node.js equivalents where available: `Bun.file`, `Bun.serve`, `Bun.$`, `bun:sqlite`.
 - Keep functions small and focused. If a function needs a long comment to explain what it does, consider splitting it.
@@ -65,7 +65,7 @@ git checkout -b fix/the-bug
 Use conventional commit messages:
 
 ```
-feat(plans): add cost-summary endpoint
+    feat(admin): add cost-summary endpoint
 fix(upstream): handle connection timeout correctly
 refactor(config): extract URL normalization helper
 docs(readme): add quickstart section
@@ -89,20 +89,18 @@ Keep PRs focused. A PR that fixes a bug and adds an unrelated feature is harder 
 
 ## Architecture overview
 
-The proxy intercepts HTTP requests from AI coding tools (OpenCode, OpenClaw, Hermes), identifies the originating tool from request headers, and forwards the request to CLIProxyAPI. Before forwarding, it inserts a `pending` row in SQLite. After the upstream response streams to the client, it finalizes the row with token counts and cost data from models.dev pricing. An optional correlator loop maps CLIProxyAPI accounts to request rows for subscription attribution. A cost backfill loop recomputes zero-cost rows when pricing data becomes available later.
+The proxy intercepts HTTP requests from AI coding tools (OpenCode, OpenClaw, Hermes), identifies the originating tool from request headers, and forwards the request to CLIProxyAPI. Before forwarding, it inserts a `pending` row in SQLite. After the upstream response streams to the client, it finalizes the row with token counts and cost data from models.dev pricing. An optional correlator loop maps CLIProxyAPI accounts to request rows for account attribution. A cost backfill loop recomputes zero-cost rows when pricing data becomes available later.
 
 Key modules:
 
 - `src/config/` — environment validation and typed config singleton
-- `src/identification/` — plugin-based tool detection from request headers
-- `src/provider/` — Anthropic and OpenAI request transforms, custom provider registry
+- `src/provider/` — ProviderTransform modules, canonical provider resolver, custom provider registry
 - `src/server/` — HTTP handler, stream relay, request lifecycle
 - `src/storage/` — SQLite repos, pricing cache, usage service
-- `src/admin/` — admin API routes (usage, plans, quotas, logs)
-- `src/plans/` — subscription plan loading and account binding
+- `src/admin/` — admin API routes (usage, providers, pricing, quotas, logs)
 - `src/upstream/` — resilient upstream client with circuit breaker and retry
 - `src/runtime/` — supervisor for background loops (pricing refresh, cost backfill, quota refresh)
-- `src/cli.ts` — all CLI commands (init, doctor, service, plans, providers, backfill-costs)
+- `src/cli.ts` — all CLI commands (init, doctor, service, providers, backfill-costs)
 
 ## Reporting issues
 

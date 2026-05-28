@@ -93,6 +93,20 @@ test("request body limit accepts positive integers up to one billion bytes", () 
   expect(config.maxRequestBodyBytes).toBe(1_000_000_000);
 });
 
+test("pricing overrides and aliases parse from JSON env", () => {
+  const config = Config.validate(baseEnv({
+    PRICING_OVERRIDES_JSON: JSON.stringify({
+      "local-model": { input: 1, output: 2, cache_read: 0.5 },
+    }),
+    PRICING_ALIASES_JSON: JSON.stringify({
+      "local-model-preview": "local-model",
+    }),
+  }));
+
+  expect(config.pricingOverrides["local-model"]).toEqual({ input: 1, output: 2, cache_read: 0.5 });
+  expect(config.pricingAliases["local-model-preview"]).toBe("local-model");
+});
+
 test("invalid port and timeout values fail fast", () => {
   const err = expectConfigError(() => Config.validate(baseEnv({
     PROXY_PORT: "65536",

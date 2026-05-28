@@ -3,10 +3,12 @@ import { readdir } from "node:fs/promises";
 
 import { Storage } from "./db";
 import { QuotaRepo, RequestRepo, UsageRepo } from "./repo";
+import { ApiKeyRepo } from "./api-keys";
 import { Pricing } from "./pricing";
 import { Cost } from "./cost";
 import { Usage } from "../usage";
 import { QuotaProbe } from "../cliproxy/quota";
+import { CanonicalProvider } from "../provider/canonical";
 import { Logger } from "../util/logger";
 import { Config } from "../config";
 import { Supervisor } from "../runtime/supervisor";
@@ -23,7 +25,6 @@ export namespace UsageService {
 
   export function create(db: Database, options: CreateOptions = {}) {
     const serviceLogger = options.logger ?? logger;
-    const now = options.now ?? (() => new Date());
 
     function preLog(log: Omit<Usage.RequestLog, "id">): number {
       return Storage.runWriteWithRetry(db, () => RequestRepo.insert(db, log));
@@ -32,6 +33,9 @@ export namespace UsageService {
     async function finalizeUsage(id: number, log: Omit<Usage.RequestLog, "id">): Promise<boolean> {
       const cost = computeCost(log);
       const logWithCost = { ...log, cost_usd: cost.cost_usd, cost_status: cost.cost_status };
+      const costProvider = logWithCost.cost_provider ?? logWithCost.provider;
+      const costModel = logWithCost.cost_model ?? logWithCost.model;
+      const costLog = { ...logWithCost, provider: costProvider, model: costModel };
 
       const txn = db.transaction(() => {
         const previous = RequestRepo.getById(db, id);
@@ -39,6 +43,7 @@ export namespace UsageService {
           provider: logWithCost.provider,
           model: logWithCost.model,
           actual_model: logWithCost.actual_model,
+          actual_provider: logWithCost.actual_provider,
           streamed: logWithCost.streamed,
           status: logWithCost.status,
           prompt_tokens: logWithCost.prompt_tokens,
@@ -56,18 +61,17 @@ export namespace UsageService {
           finalized_at: logWithCost.finalized_at ?? logWithCost.finished_at ?? new Date().toISOString(),
           error_message: logWithCost.error_message,
           cost_status: cost.cost_status,
-          subscription_code: logWithCost.subscription_code,
         });
 
         if (updated === 0) return false;
 
-        insertCostAudit(id, logWithCost, previous, cost);
+        insertCostAudit(id, costLog, previous, cost);
 
         const day = logWithCost.started_at.slice(0, 10);
         UsageRepo.upsertDaily(db, {
           day,
-          provider: logWithCost.provider,
-          model: logWithCost.model,
+          provider: costProvider,
+          model: costModel,
           request_count: 1,
           prompt_tokens: logWithCost.prompt_tokens,
           completion_tokens: logWithCost.completion_tokens,
@@ -259,13 +263,19 @@ export namespace UsageService {
     function computeCost(log: {
       provider: string;
       model: string;
+      cost_provider?: string;
+      cost_model?: string;
       prompt_tokens: number;
       completion_tokens: number;
       cache_creation_tokens: number;
       cache_read_tokens: number;
       reasoning_tokens?: number | null;
     }): Cost.CostResult {
-      return Cost.compute(Cost.inputsFromLog(log));
+      return Cost.compute(Cost.inputsFromLog({
+        ...log,
+        provider: log.cost_provider ?? log.provider,
+        model: log.cost_model ?? log.model,
+      }));
     }
 
     function insertCostAudit(
@@ -423,8 +433,6 @@ export namespace UsageService {
         cliproxy_account?: string;
         cliproxy_auth_index?: string;
         cliproxy_source?: string;
-        reasoning_tokens?: number;
-        actual_model?: string;
       },
     ): void {
       const txn = db.transaction(() => {
@@ -443,10 +451,22 @@ export namespace UsageService {
             completion_tokens: log.completion_tokens,
             cache_creation_tokens: log.cache_creation_tokens,
             cache_read_tokens: log.cache_read_tokens,
-            reasoning_tokens: fields.reasoning_tokens ?? 0,
+            reasoning_tokens: log.reasoning_tokens ?? 0,
             total_tokens: log.total_tokens,
             cost_usd: log.cost_usd,
           });
+
+          if (log.proxy_api_key_id) {
+            const apiKey = ApiKeyRepo.findByIdAllowedAccounts(db, log.proxy_api_key_id);
+            if (apiKey?.allowedAccounts && !apiKey.allowedAccounts.includes(fields.cliproxy_account)) {
+              serviceLogger.warn("correlated account not in API key allowed list", {
+                event: "apikey.account_mismatch",
+                proxy_api_key_id: log.proxy_api_key_id,
+                cliproxy_account: fields.cliproxy_account,
+                allowed_accounts: apiKey.allowedAccounts,
+              });
+            }
+          }
         }
       });
       Storage.runWriteWithRetry(db, txn);
@@ -470,7 +490,7 @@ export namespace UsageService {
       const now = Date.now();
       const fiveHourSince = new Date(now - 5 * 60 * 60 * 1000).toISOString();
       const sevenDaySince = new Date(now - 7 * 24 * 60 * 60 * 1000).toISOString();
-      const localProvider = report.provider === "claude" ? "anthropic" : "openai";
+      const localProvider = CanonicalProvider.fromAuthType(report.provider);
       return {
         ...report,
         local_usage: {
@@ -501,6 +521,14 @@ export namespace UsageService {
             inserted += 1;
           }
         }
+
+        const currentPairs = new Set(accounts.map((account) => `${account.provider}|${account.account}`));
+        for (const snapshot of QuotaRepo.getLatest(db)) {
+          if (!currentPairs.has(`${snapshot.provider}|${snapshot.account}`)) {
+            QuotaRepo.deleteByProviderAccount(db, snapshot.provider, snapshot.account);
+          }
+        }
+
         return inserted;
       });
       const inserted = Storage.runWriteWithRetry(db, txn);
@@ -530,12 +558,11 @@ export namespace UsageService {
       }
 
       if (!authFileNames.some((name) => name.endsWith(".json"))) {
-        logger.info("quota background refresh skipped", {
-          event: "quota.refresh_skipped",
+        logger.info("quota background refresh starting without auth files", {
+          event: "quota.refresh_no_auth_files",
           reason: "no_auth_files",
           path: Config.cliproxyAuthDir,
         });
-        return null;
       }
 
       return Supervisor.run("quota-refresh", async () => {

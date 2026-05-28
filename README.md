@@ -4,11 +4,11 @@
 [![npm version](https://img.shields.io/npm/v/agent-cli-proxy.svg)](https://www.npmjs.com/package/agent-cli-proxy)
 [![Bun](https://img.shields.io/badge/runtime-Bun-black)](https://bun.sh)
 
-AI API proxy with per-tool usage monitoring. Sits between AI coding tools (OpenCode, OpenClaw, Hermes) and upstream API providers, tracking usage per tool and per instance, computing token costs from live pricing data, and mapping CLIProxyAPI accounts to subscription plans for cost monitoring. Runs as a native Bun process. Self-hosted, no containers needed.
+AI API proxy with per-tool usage monitoring. Sits between AI coding tools (OpenCode, OpenClaw, Hermes) and upstream API providers, tracking usage per tool and per instance, computing token costs from live pricing data, and correlating CLIProxyAPI accounts for cost attribution. Runs as a native Bun process. Self-hosted, no containers needed.
 
 ## Why this exists
 
-Most AI coding tools share a single upstream API key, making it impossible to know which tool or session is responsible for a given cost spike. agent-cli-proxy intercepts every request, identifies the originating tool from request headers, and records per-tool usage with accurate cost attribution from models.dev pricing data. It also maps CLIProxyAPI accounts to subscription plans so you can monitor spend against plan limits without any enforcement overhead.
+Most AI coding tools share a single upstream API key, making it impossible to know which tool or session is responsible for a given cost spike. agent-cli-proxy intercepts every request, identifies the originating tool from request headers, and records per-tool usage with accurate cost attribution from models.dev pricing data. It also correlates CLIProxyAPI accounts to request rows so usage can be audited by upstream account.
 
 ## Install
 
@@ -101,6 +101,8 @@ Provider API keys are intentionally **not** stored by this proxy. The proxy rout
 | `PRICING_CACHE_PATH` | `$XDG_DATA_HOME/agent-cli-proxy/pricing-cache.json` or `~/.local/share/agent-cli-proxy/pricing-cache.json` | Runtime models.dev pricing cache. Use an absolute path outside repo/dist/runtime replacement directories. |
 | `READY_PRICING_MAX_AGE_MS` | `86400000` | Maximum pricing cache age accepted by `/ready` (24h) |
 | `PRICING_REFRESH_INTERVAL_MS` | `21600000` | How often to refresh pricing from models.dev (6h) |
+| `PRICING_OVERRIDES_JSON` | built-in overrides | Optional JSON object of model pricing overrides, keyed by model name. Values use models.dev-style `input`, `output`, `cache_read`, `cache_write`, and `reasoning` per-million-token prices. |
+| `PRICING_ALIASES_JSON` | built-in aliases | Optional JSON object mapping model prefixes to pricing model names for local alias resolution. |
 | `COST_BACKFILL_INTERVAL_MS` | `1800000` | How often to backfill zero-cost request logs (30m) |
 | `COST_BACKFILL_LOOKBACK_MS` | `604800000` | How far back cost backfill looks (7d) |
 | `UPSTREAM_TIMEOUT_MS` | `300000` | Total upstream request timeout (5m) |
@@ -116,10 +118,8 @@ Provider API keys are intentionally **not** stored by this proxy. The proxy rout
 | `CLIENT_NAME_MAPPING` | | API key to display name mapping (e.g. `key1=alice,key2=bob`) |
 | `PROVIDERS_CONFIG_PATH` | | Optional JSON file for custom providers |
 | `PROVIDERS_JSON` | | Inline custom provider JSON; takes precedence over `PROVIDERS_CONFIG_PATH` |
-| `PLANS_JSON` | | Inline plans JSON; takes precedence over `PLANS_PATH` |
-| `PLANS_PATH` | | Path to a custom plans.json file |
 | `CLIPROXY_MGMT_KEY` | | Optional CLIProxyAPI management key for account correlation |
-| `CLIPROXY_AUTH_DIR` | | Optional CLIProxyAPI auth directory for subscription quota checks |
+| `CLIPROXY_AUTH_DIR` | | Optional CLIProxyAPI auth directory for quota probes |
 | `UPSTREAM_CIRCUIT_BREAKER_OPEN_AFTER_FAILURES` | `5` | Consecutive upstream failures before the circuit breaker opens |
 | `UPSTREAM_CIRCUIT_BREAKER_HALF_OPEN_AFTER_MS` | `30000` | Delay before a half-open probe is allowed (30s) |
 | `UPSTREAM_CIRCUIT_BREAKER_EVICT_AFTER_MS` | `300000` | Idle time before a healthy breaker is evicted (5m) |
@@ -188,39 +188,6 @@ Provider fields: `id`, `type` (`openai-compatible` or `anthropic`), `paths`, `up
 
 Save this as a file and set `PROVIDERS_CONFIG_PATH`, or set `PROVIDERS_JSON` to the inline JSON string. Use `agent-cli-proxy providers init` to create a starter file at the default config path.
 
-## Subscription Plans
-
-Plans map CLIProxyAPI accounts to subscription tiers for cost monitoring. This is **monitoring-only** — no request enforcement or quota blocking happens.
-
-### plans.json format
-
-```json
-{
-  "plans": [
-    {
-      "code": "claude_pro",
-      "display_name": "Anthropic Claude Pro",
-      "monthly_price_usd": 20,
-      "notes": "Conservative estimate — verify with vendor — last updated 2026-05"
-    }
-  ]
-}
-```
-
-The proxy ships with a default `plans.json` covering common plans (Claude Pro/Max, ChatGPT Plus/Pro/Business, Kimi Pro, GLM Pro, local BYOK). Override with `PLANS_JSON` or `PLANS_PATH`.
-
-### Plans CLI commands
-
-| Command | Description |
-|---------|-------------|
-| `agent-cli-proxy plans show` | Show loaded plans (human-readable) |
-| `agent-cli-proxy plans show --json` | Show loaded plans as JSON |
-| `agent-cli-proxy plans list` | List all plan codes and prices |
-| `agent-cli-proxy plans init` | Create a starter plans.json at the default config path |
-| `agent-cli-proxy plans path` | Print the active plans.json path |
-| `agent-cli-proxy plans bind <account> <code>` | Bind a CLIProxyAPI account to a plan code |
-| `agent-cli-proxy plans unbind <account>` | Remove a plan binding for an account |
-
 ## CLI Reference
 
 | Command | Description |
@@ -229,7 +196,7 @@ The proxy ships with a default `plans.json` covering common plans (Claude Pro/Ma
 | `agent-cli-proxy init --non-interactive ...` | Non-interactive install (CI-friendly) |
 | `agent-cli-proxy db init` | Initialize or migrate the SQLite database |
 | `agent-cli-proxy paths` | Print default install paths |
-| `agent-cli-proxy doctor` | Validate config, DB, plans, providers, pricing, upstream |
+| `agent-cli-proxy doctor` | Validate config, DB, providers, pricing, upstream |
 | `agent-cli-proxy doctor --json` | Doctor output as JSON (for issue reports) |
 | `agent-cli-proxy service install` | Install user daemon (systemd/launchd) |
 | `agent-cli-proxy service start` | Start the daemon |
@@ -238,12 +205,6 @@ The proxy ships with a default `plans.json` covering common plans (Claude Pro/Ma
 | `agent-cli-proxy service status` | Show daemon status |
 | `agent-cli-proxy service logs` | Show daemon logs |
 | `agent-cli-proxy service logs --follow` | Stream daemon logs |
-| `agent-cli-proxy plans show` | Show loaded plans |
-| `agent-cli-proxy plans list` | List plan codes |
-| `agent-cli-proxy plans init` | Create starter plans.json |
-| `agent-cli-proxy plans path` | Print active plans.json path |
-| `agent-cli-proxy plans bind <account> <code>` | Bind account to plan |
-| `agent-cli-proxy plans unbind <account>` | Remove account binding |
 | `agent-cli-proxy providers show` | Show loaded provider config |
 | `agent-cli-proxy providers path` | Print active providers config path |
 | `agent-cli-proxy providers init` | Create starter providers.json |
@@ -269,17 +230,23 @@ All `/admin/*` endpoints require `ADMIN_API_KEY` when the proxy is not bound to 
 | `GET` | `/admin/usage/accounts?day=` | Per-account usage for a day |
 | `GET` | `/admin/usage/accounts/range?from=&to=` | Per-account usage over a range |
 | `GET` | `/admin/usage/accounts/summary?from=&to=` | Account summary (7-day default) |
+| `GET` | `/admin/usage/trend?hours=` | Time-bucketed usage trend |
 | `GET` | `/admin/stats` | Total statistics |
 | `GET` | `/admin/logs` | Request logs (paginated) |
 | `GET` | `/admin/logs?tool=openclaw` | Filter logs by tool |
 | `GET` | `/admin/logs?client_id=openclaw-jongi` | Filter logs by instance |
 | `GET` | `/admin/logs/:id` | Single request log by ID |
+| `GET` | `/admin/logs/:id/cost-audit` | Cost audit records for a request log |
 | `GET` | `/admin/quotas` | Latest stored quota snapshots |
 | `GET` | `/admin/quotas?refresh=true` | Refresh and return quota snapshots |
 | `GET` | `/admin/quotas/refresh` | Force refresh quota snapshots |
-| `GET` | `/admin/plans` | List all plans |
-| `GET` | `/admin/plans/cost-summary?month=YYYY-MM` | Monthly cost summary by account |
-| `GET` | `/admin/plans/account/:account` | Plan binding and recent usage for an account |
+| `GET` | `/admin/quotas/probes` | Available quota probe definitions |
+| `GET` | `/admin/quotas/history?hours=` | Time-bucketed quota snapshots |
+| `GET` | `/admin/providers` | Loaded provider definitions and source info |
+| `GET` | `/admin/pricing?model=&provider=` | Pricing match and cache freshness for a model |
+| `GET` | `/admin/config` | Redacted runtime configuration summary |
+| `GET` | `/admin/api-keys` | List managed proxy API keys |
+| `POST` | `/admin/api-keys` | Create a managed proxy API key |
 | `GET` | `/admin/breakers` | List all circuit breaker states |
 | `GET` | `/admin/breakers/:providerId` | Single breaker state by provider |
 | `POST` | `/admin/breakers/:providerId/reset` | Reset a breaker to closed state |
@@ -323,7 +290,6 @@ Key event names:
 | `upstream.breaker_reject` | Request rejected by open circuit breaker (not an upstream failure) |
 | `upstream.breaker_reset` | Circuit breaker manually reset via admin endpoint |
 | `cost.guard` | Cost computation skipped or guarded |
-| `plans.unmapped` | CLIProxyAPI account has no plan binding |
 | `shutdown.drain` | Graceful shutdown draining in-flight requests |
 | `shutdown.complete` | Shutdown finalized cleanly |
 
@@ -337,7 +303,7 @@ Hermes    ─┘
 
 Each tool is automatically identified by request headers and tracked separately. Multiple instances of the same tool are distinguished by `X-Agent-Name` header or session IDs.
 
-The request lifecycle: a `pending` row is inserted before the upstream call (pre-log), the upstream response streams to the client, and the row is finalized with tokens and cost after the stream completes. An optional correlator loop maps CLIProxyAPI accounts to request rows for subscription attribution. A cost backfill loop recomputes zero-cost rows when pricing data becomes available.
+The request lifecycle: a `pending` row is inserted before the upstream call (pre-log), the upstream response streams to the client, and the row is finalized with tokens and cost after the stream completes. ProviderTransform modules apply provider-specific header, body, response, and stream-line rewrites, while the provider registry selects built-in or custom providers. An optional correlator loop maps CLIProxyAPI accounts to request rows for account attribution. A cost backfill loop recomputes zero-cost rows when pricing data becomes available.
 
 ### Tool Identification
 
@@ -352,10 +318,10 @@ The request lifecycle: a `pending` row is inserted before the upstream call (pre
 ```
 src/
 ├── config/           # Environment configuration and validation
-├── identification/   # Plugin-based tool identification
 ├── provider/
-│   ├── anthropic/    # Claude bypass + request transform
-│   └── openai/       # OpenAI pass-through
+│   ├── anthropic/    # Anthropic request/response helpers
+│   ├── transforms/   # ProviderTransform registrations
+│   └── registry.ts   # Built-in and custom provider routing
 ├── server/           # HTTP handler, stream relay, usage logging
 ├── storage/          # SQLite repos, pricing, usage service
 ├── usage/            # Usage type definitions
@@ -364,7 +330,7 @@ src/
 
 ## Troubleshooting
 
-Run `agent-cli-proxy doctor` first. It validates configuration, opens the SQLite database, reports applied migrations, checks plans/providers configuration, inspects the pricing cache, probes `CLI_PROXY_API_URL/health`, and lists supervised loops. Use `--json` when attaching output to issues.
+Run `agent-cli-proxy doctor` first. It validates configuration, opens the SQLite database, reports applied migrations, checks provider configuration, inspects the pricing cache, probes `CLI_PROXY_API_URL/health`, and lists supervised loops. Use `--json` when attaching output to issues.
 
 For daemon logs:
 
@@ -378,7 +344,6 @@ On Linux this proxies to `journalctl --user -u agent-cli-proxy.service -f`; on m
 
 - `CLI_PROXY_API_URL is required` — set `CLI_PROXY_API_URL` in your `.env` or pass `PROXY_LOCAL_OK=1` to allow the local default.
 - `ADMIN_API_KEY is required when PROXY_HOST is not loopback` — set `ADMIN_API_KEY` before exposing the proxy beyond `127.0.0.1`.
-- Plans fallback warning in logs — `plans.json` failed to parse; the proxy fell back to bundled defaults. Run `agent-cli-proxy plans show` to inspect the active config.
 
 ## Releasing
 

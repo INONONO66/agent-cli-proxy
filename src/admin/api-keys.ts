@@ -1,5 +1,6 @@
 import { Database } from "bun:sqlite";
 import { ApiKeyRepo } from "../storage/api-keys";
+import { ProviderRegistry } from "../provider/registry";
 
 export namespace ApiKeysAdmin {
   export function createRouter(db: Database) {
@@ -16,11 +17,13 @@ export namespace ApiKeysAdmin {
         if (!body) return json({ error: "Invalid request body" }, 400);
         const name = body.name.trim();
         if (!name) return json({ error: "name is required" }, 400);
+        const warnings = buildProviderWarnings(body.allowed_providers);
 
-        return json(await ApiKeyRepo.create(db, name, {
+        const apiKey = await ApiKeyRepo.create(db, name, {
           allowedAccounts: body.allowed_accounts,
           allowedProviders: body.allowed_providers,
-        }), 201);
+        });
+        return json({ ...apiKey, warnings }, 201);
       }
 
       const usageMatch = path.match(/^\/admin\/api-keys\/(\d+)\/usage$/);
@@ -32,13 +35,14 @@ export namespace ApiKeysAdmin {
       if (keyMatch && req.method === "PATCH") {
         const body = await readUpdateBody(req);
         if (!body) return json({ error: "Invalid request body" }, 400);
+        const warnings = buildProviderWarnings(body.allowed_providers);
 
         const id = Number(keyMatch[1]);
         if (!ApiKeyRepo.update(db, id, {
           allowedAccounts: body.allowed_accounts,
           allowedProviders: body.allowed_providers,
         })) return json({ error: "Not found" }, 404);
-        return json({ ok: true });
+        return json({ ok: true, warnings });
       }
 
       if (keyMatch && req.method === "DELETE") {
@@ -156,6 +160,17 @@ export namespace ApiKeysAdmin {
     const stmt = db.prepare("SELECT revoked_at FROM api_keys WHERE id = ?");
     const row = stmt.get(id) as RevokedAtRow | null;
     return row?.revoked_at ?? null;
+  }
+
+  function buildProviderWarnings(providers: string[] | null | undefined): string[] {
+    const unknown = validateProviderIds(providers);
+    return unknown.length > 0 ? [`unknown providers: ${unknown.join(", ")}`] : [];
+  }
+
+  function validateProviderIds(providers: string[] | null | undefined): string[] {
+    if (!providers || providers.length === 0) return [];
+    const known = new Set(ProviderRegistry.all().map((provider) => provider.id));
+    return providers.filter((provider) => !known.has(provider));
   }
 
   function json(data: unknown, status = 200): Response {

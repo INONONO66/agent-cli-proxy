@@ -201,6 +201,13 @@ export namespace ApiKeyRepo {
     };
   }
 
+  export function findByIdAllowedAccounts(db: Database, id: number): { allowedAccounts: string[] | null } | null {
+    const stmt = db.prepare("SELECT allowed_accounts FROM api_keys WHERE id = ? AND revoked_at IS NULL");
+    const row = stmt.get(id) as { allowed_accounts: string | null } | null;
+    if (!row) return null;
+    return { allowedAccounts: parseRestriction(row.allowed_accounts) };
+  }
+
   export async function findByKeyFull(db: Database, key: string): Promise<FoundApiKeyFull | null> {
     return findByHashFull(db, await sha256Hex(key));
   }

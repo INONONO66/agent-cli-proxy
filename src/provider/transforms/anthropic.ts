@@ -1,10 +1,11 @@
-import { Anthropic } from "../provider/anthropic";
+import { Anthropic } from "../anthropic";
 import {
   rewriteRequestBody,
   stripToolPrefix,
   stripToolPrefixFromLine,
-} from "../provider/anthropic/transform";
-import type { RequestInfo } from "./types";
+} from "../anthropic/transform";
+import { ProviderTransforms, type ProviderTransform } from "../transform";
+import type { RequestInfo } from "../../server/request-inspector";
 
 export function isAnthropicMessagesPath(path: string): boolean {
   return path.includes("messages");
@@ -39,3 +40,13 @@ export function anthropicBypassStreamLine(line: string, info: RequestInfo): stri
   if (!isAnthropicMessagesPath(info.path)) return line;
   return stripToolPrefixFromLine(line);
 }
+
+const anthropicTransform: ProviderTransform = {
+  providerId: "anthropic",
+  transformHeaders: anthropicBypassHeaders,
+  transformBody: anthropicBypassBody,
+  transformResponse: anthropicBypassResponse,
+  transformStreamLine: anthropicBypassStreamLine,
+};
+
+ProviderTransforms.register(anthropicTransform);
