@@ -14,8 +14,7 @@ We aim to release security patches promptly. Users are encouraged to stay on the
 
 Instead, use one of these channels:
 
-- **Email**: security@example.com *(TODO: replace with a real address before first public release)*
-- **GitHub private security advisory**: [Report a vulnerability](https://github.com/<owner>/agent-cli-proxy/security/advisories/new)
+- **GitHub private security advisory**: [Report a vulnerability](https://github.com/INONONO66/agent-cli-proxy/security/advisories/new)
 
 Include in your report:
 
@@ -67,7 +66,7 @@ Do not expose the admin endpoints to the public internet without additional netw
 
 ### Provider credentials
 
-Provider API keys should be configured in CLIProxyAPI, not in this proxy. If you use custom providers with `auth.env`, make sure the referenced environment variables are set securely and not logged.
+Provider API keys should be configured in CLIProxyAPI, not in this proxy. If you use custom providers with `auth.env`, make sure the referenced environment variables are set securely and not logged. Replace the default `CLI_PROXY_API_KEY=proxy` placeholder before pointing `CLI_PROXY_API_URL` at a non-loopback upstream or exposing the proxy beyond loopback.
 
 ### Dashboard password
 

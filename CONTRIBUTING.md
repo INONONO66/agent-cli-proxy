@@ -5,7 +5,7 @@ Thanks for your interest in contributing. This guide covers everything you need 
 ## Local dev setup
 
 ```bash
-git clone https://github.com/<owner>/agent-cli-proxy.git
+git clone https://github.com/INONONO66/agent-cli-proxy.git
 cd agent-cli-proxy
 bun install
 ```
@@ -106,7 +106,7 @@ Key modules:
 
 ## Reporting issues
 
-Use the [GitHub issue tracker](https://github.com/<owner>/agent-cli-proxy/issues). Include:
+Use the [GitHub issue tracker](https://github.com/INONONO66/agent-cli-proxy/issues). Include:
 
 - A clear description of the problem
 - Steps to reproduce

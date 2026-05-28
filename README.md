@@ -28,7 +28,7 @@ agent-cli-proxy init
 ### From source
 
 ```bash
-git clone https://github.com/<owner>/agent-cli-proxy.git
+git clone https://github.com/INONONO66/agent-cli-proxy.git
 cd agent-cli-proxy
 bun install
 bun run build
@@ -222,7 +222,7 @@ Prefer `--admin-token-env` and `--cliproxy-mgmt-key-env` for non-interactive ins
 
 ## Admin Endpoints
 
-All `/admin/*` endpoints require `ADMIN_API_KEY` when the proxy is not bound to loopback.
+All `/admin/*` endpoints require `ADMIN_API_KEY` when the proxy is not bound to loopback. Exposed `/metrics` also uses admin auth; configure Prometheus or other scrapers to send `x-admin-token: $ADMIN_API_KEY` or `Authorization: Bearer $ADMIN_API_KEY`.
 
 | Method | Path | Description |
 |--------|------|-------------|
