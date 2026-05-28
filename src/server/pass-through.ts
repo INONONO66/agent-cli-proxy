@@ -9,6 +9,7 @@ import { UpstreamClient } from "../upstream/client";
 import { Logger } from "../util/logger";
 import type { Usage } from "../usage";
 import { Shutdown } from "../runtime/shutdown";
+import { PerfMetrics } from "./perf-metrics";
 
 const logger = Logger.fromConfig().child({ component: "pass-through" });
 const FINALIZE_ATTEMPTS = 3;
@@ -691,6 +692,7 @@ export namespace PassThroughProxy {
 
     lifecycle.finalizing = (async () => {
       const finishedAt = new Date().toISOString();
+      const durationMs = Date.now() - lifecycle.startTime;
       const usage = fields.parsed.usage;
       const model = fields.parsed.actualModel ?? lifecycle.model;
       const log: Omit<Usage.RequestLog, "id"> = {
@@ -713,7 +715,7 @@ export namespace PassThroughProxy {
         cost_usd: 0,
         incomplete: fields.lifecycleStatus === "completed" ? 0 : 1,
         error_code: fields.errorCode,
-        latency_ms: Date.now() - lifecycle.startTime,
+        latency_ms: durationMs,
         started_at: lifecycle.startedAt,
         finished_at: finishedAt,
         user_agent: lifecycle.userAgent,
@@ -725,6 +727,14 @@ export namespace PassThroughProxy {
         source: lifecycle.source,
         msg_id: lifecycle.msgId,
       };
+      PerfMetrics.observeProxyRequest({
+        provider: lifecycle.provider,
+        status: fields.status,
+        lifecycleStatus: fields.lifecycleStatus,
+        streamed: fields.isStreaming,
+        durationMs,
+      });
+
       try {
         const updated = await retryFinalize(() => usageService.finalizeUsage(lifecycle.id, log));
         lifecycle.finalized = true;
