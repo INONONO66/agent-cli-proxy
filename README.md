@@ -228,7 +228,7 @@ All `/admin/*` endpoints require `ADMIN_API_KEY` when the proxy is not bound to 
 |--------|------|-------------|
 | `GET` | `/health` | Liveness probe (always 200 if process alive) |
 | `GET` | `/ready` | Readiness probe (DB, pricing, upstream); 503 when failing |
-| `GET` | `/metrics` | Prometheus-format metrics |
+| `GET` | `/metrics` | Prometheus-format metrics, including usage counters and low-cardinality latency histograms |
 | `GET` | `/admin/usage/today` | Today's usage summary |
 | `GET` | `/admin/usage/range?from=&to=` | Usage by date range |
 | `GET` | `/admin/usage/models?day=` | Model breakdown for a day |
@@ -250,6 +250,8 @@ All `/admin/*` endpoints require `ADMIN_API_KEY` when the proxy is not bound to 
 | `GET` | `/admin/breakers` | List all circuit breaker states |
 | `GET` | `/admin/breakers/:providerId` | Single breaker state by provider |
 | `POST` | `/admin/breakers/:providerId/reset` | Reset a breaker to closed state |
+
+For repeatable local before/after timing, run `ADMIN_API_KEY="$ADMIN_API_KEY" bun run perf:baseline --url http://127.0.0.1:8317 --output perf-baseline.md`. See `docs/performance-baseline.md` for metric names and cautions.
 
 ## Health and Readiness
 
