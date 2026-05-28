@@ -121,3 +121,96 @@ test("fromConfig supports pretty mode", () => {
   logger.debug("pretty hello", { request_id: "req-pretty" });
   expect(capture.stdout[0]).toContain("DEBUG pretty hello event=configured request_id=req-pretty");
 });
+
+test("redacts sensitive substrings inside error objects", () => {
+  const capture = captureSink();
+  const logger = Logger.create({ sink: capture.sink });
+  const err = new Error("upstream rejected Authorization: Bearer secret-token and x-api-key=raw-key");
+  err.stack = "Error: token=stack-secret at test";
+
+  logger.error("failed with embedded secret", { err });
+
+  const parsed = JSON.parse(capture.stderr[0]);
+  expect(parsed.err.message).toContain("Authorization: [REDACTED]");
+  expect(parsed.err.message).toContain("x-api-key=[REDACTED]");
+  expect(parsed.err.message).not.toContain("secret-token");
+  expect(parsed.err.message).not.toContain("raw-key");
+  expect(parsed.err.stack).toContain("token=[REDACTED]");
+  expect(parsed.err.stack).not.toContain("stack-secret");
+});
+
+test("redacts cookie substrings inside error objects", () => {
+  const capture = captureSink();
+  const logger = Logger.create({ sink: capture.sink });
+  const err = new Error("Authorization: Basic dXNlcjpwYXNz Cookie: theme=dark; __dashboard_session=session-secret; Set-Cookie: __dashboard_session=next-secret; HttpOnly");
+
+  logger.error("failed with cookie", { err });
+
+  const parsed = JSON.parse(capture.stderr[0]);
+  expect(parsed.err.message).toContain("Authorization: [REDACTED]");
+  expect(parsed.err.message).toContain("Cookie: [REDACTED]");
+  expect(parsed.err.message).toContain("Set-Cookie: [REDACTED]");
+  expect(parsed.err.message).not.toContain("dXNlcjpwYXNz");
+  expect(parsed.err.message).not.toContain("theme=dark");
+  expect(parsed.err.message).not.toContain("session-secret");
+  expect(parsed.err.message).not.toContain("next-secret");
+});
+
+test("redacts all cookie pairs regardless of cookie name", () => {
+  const capture = captureSink();
+  const logger = Logger.create({ sink: capture.sink });
+  const err = new Error("Cookie: first=visible; second=also-visible; Set-Cookie: third=hidden; Path=/");
+
+  logger.error("failed with cookie", { err });
+
+  const parsed = JSON.parse(capture.stderr[0]);
+  expect(parsed.err.message).toContain("Cookie: [REDACTED]");
+  expect(parsed.err.message).toContain("Set-Cookie: [REDACTED]");
+  expect(parsed.err.message).not.toContain("first=visible");
+  expect(parsed.err.message).not.toContain("second=also-visible");
+  expect(parsed.err.message).not.toContain("third=hidden");
+});
+
+
+test("redacts JSON-style sensitive substrings inside error objects", () => {
+  const capture = captureSink();
+  const logger = Logger.create({ sink: capture.sink });
+  const err = new Error(JSON.stringify({
+    authorization: "Basic dXNlcjpwYXNz",
+    cookie: "theme=dark; __dashboard_session=session-secret",
+    "set-cookie": "__dashboard_session=next-secret; HttpOnly",
+    "x-api-key": "raw-key",
+    password: "raw-password",
+  }));
+
+  logger.error("failed with json", { err });
+
+  const parsed = JSON.parse(capture.stderr[0]);
+  expect(parsed.err.message).toContain('"authorization":"[REDACTED]"');
+  expect(parsed.err.message).toContain('"cookie":"[REDACTED]"');
+  expect(parsed.err.message).toContain('"set-cookie":"[REDACTED]"');
+  expect(parsed.err.message).toContain('"x-api-key":"[REDACTED]"');
+  expect(parsed.err.message).toContain('"password":"[REDACTED]"');
+  expect(parsed.err.message).not.toContain("dXNlcjpwYXNz");
+  expect(parsed.err.message).not.toContain("session-secret");
+  expect(parsed.err.message).not.toContain("next-secret");
+  expect(parsed.err.message).not.toContain("raw-key");
+  expect(parsed.err.message).not.toContain("raw-password");
+});
+
+
+test("redacts escaped JSON-style sensitive substrings", () => {
+  const capture = captureSink();
+  const logger = Logger.create({ sink: capture.sink });
+  const err = new Error(String.raw`{"authorization":"Basic dXNlcjpwYXNz","cookie":"session-secret","x-api-key":"raw-key"}`);
+
+  logger.error("failed with escaped json", { err });
+
+  const parsed = JSON.parse(capture.stderr[0]);
+  expect(parsed.err.message).toContain(String.raw`"authorization":"[REDACTED]"`);
+  expect(parsed.err.message).toContain(String.raw`"cookie":"[REDACTED]"`);
+  expect(parsed.err.message).toContain(String.raw`"x-api-key":"[REDACTED]"`);
+  expect(parsed.err.message).not.toContain("dXNlcjpwYXNz");
+  expect(parsed.err.message).not.toContain("session-secret");
+  expect(parsed.err.message).not.toContain("raw-key");
+});
