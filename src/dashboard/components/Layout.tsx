@@ -26,7 +26,7 @@ const NAV = [
 ];
 
 export function Layout({ children }: { children: React.ReactNode }) {
-  const { authenticated, setAuthenticated } = useContext(AuthContext);
+  const { setAuthenticated } = useContext(AuthContext);
   const [hash, setHash] = useState(window.location.hash);
 
   useEffect(() => {

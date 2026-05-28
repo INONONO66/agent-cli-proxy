@@ -11,7 +11,6 @@ import {
   ResponsiveContainer,
 } from "recharts";
 import {
-  getAccountSummary,
   getCostSummary,
   getModelBreakdown,
   getProviderBreakdown,
