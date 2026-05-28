@@ -183,6 +183,8 @@ export namespace PassThroughProxy {
     startTime: number,
     proxyApiKeyId: number | null,
   ): LifecycleContext | null {
+    if (!isLlmRequest(info)) return null;
+
     const requestId = crypto.randomUUID();
     info.requestId = requestId;
     const provider = providerForPath(info.path, info.model);
@@ -265,6 +267,16 @@ export namespace PassThroughProxy {
       finalizing: null,
       handle: registerLifecycleHandle(id, requestId),
     };
+  }
+
+  function isLlmRequest(info: RequestInfo): boolean {
+    if (info.method !== "POST") return false;
+    if (info.path === "/v1/images/generations") return false;
+    if (info.path === "/v1/chat/completions") return true;
+    if (info.path === "/v1/messages") return true;
+    if (info.path === "/v1/responses") return true;
+    if (info.path === "/api/chat") return true;
+    return info.model !== null && info.model.trim() !== "";
   }
 
   function registerLifecycleHandle(id: number, requestId: string): LifecycleHandle {

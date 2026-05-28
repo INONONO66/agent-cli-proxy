@@ -133,10 +133,9 @@ describe.if(MOCK_MODE)("E2E Proxy Tests (mock mode)", () => {
     expect(Array.isArray(body)).toBe(true);
   });
 
-  it("Unknown route → proxied (not 404)", async () => {
+  it("Unknown route → 404", async () => {
     const res = await fetch(`${BASE}/nonexistent`);
-    // Universal routing: unknown paths are proxied to upstream, not 404'd
-    expect(res.status).not.toBe(404);
+    expect(res.status).toBe(404);
   });
 
   it("GET /v1/models → proxied (not 404)", async () => {
@@ -162,7 +161,7 @@ describe.if(MOCK_MODE)("E2E Proxy Tests (mock mode)", () => {
     expect(res.status).not.toBe(404);
   });
 
-  it("Universal routed request writes thin log row", async () => {
+  it("non-LLM proxy request is forwarded without request log row", async () => {
     const path = "/api/thin-log";
     const res = await fetch(`${BASE}${path}`, {
       method: "POST",
@@ -176,12 +175,7 @@ describe.if(MOCK_MODE)("E2E Proxy Tests (mock mode)", () => {
     expect(logsRes.status).toBe(200);
     const logs = (await logsRes.json()) as Array<Record<string, unknown>>;
     const row = logs.find((log) => log.path === path);
-    expect(row).toBeDefined();
-    expect(row?.provider).toBe("generic");
-    expect(row?.model).toBe("unknown");
-    expect(row?.status).toBe(200);
-    expect(row?.lifecycle_status).toBe("completed");
-    expect(row?.total_tokens).toBe(0);
+    expect(row).toBeUndefined();
   });
 
   it("Anthropic request has Claude Code headers forwarded to mock", async () => {

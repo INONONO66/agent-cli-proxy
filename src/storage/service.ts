@@ -31,14 +31,14 @@ export namespace UsageService {
     }
 
     async function finalizeUsage(id: number, log: Omit<Usage.RequestLog, "id">): Promise<boolean> {
-      const cost = computeCost(log);
-      const logWithCost = { ...log, cost_usd: cost.cost_usd, cost_status: cost.cost_status };
-      const costProvider = logWithCost.cost_provider ?? logWithCost.provider;
-      const costModel = logWithCost.cost_model ?? logWithCost.model;
-      const costLog = { ...logWithCost, provider: costProvider, model: costModel };
-
       const txn = db.transaction(() => {
         const previous = RequestRepo.getById(db, id);
+        const mergedLog = mergeFinalizeTokenUsage(log, previous);
+        const cost = computeCost(mergedLog);
+        const logWithCost = { ...mergedLog, cost_usd: cost.cost_usd, cost_status: cost.cost_status };
+        const costProvider = logWithCost.cost_provider ?? logWithCost.provider;
+        const costModel = logWithCost.cost_model ?? logWithCost.model;
+        const costLog = { ...logWithCost, provider: costProvider, model: costModel };
         const updated = RequestRepo.updateFinalize(db, id, {
           provider: logWithCost.provider,
           model: logWithCost.model,
@@ -67,24 +67,43 @@ export namespace UsageService {
 
         insertCostAudit(id, costLog, previous, cost);
 
-        const day = logWithCost.started_at.slice(0, 10);
-        UsageRepo.upsertDaily(db, {
-          day,
-          provider: costProvider,
-          model: costModel,
-          request_count: 1,
-          prompt_tokens: logWithCost.prompt_tokens,
-          completion_tokens: logWithCost.completion_tokens,
-          cache_creation_tokens: logWithCost.cache_creation_tokens,
-          cache_read_tokens: logWithCost.cache_read_tokens,
-          total_tokens: logWithCost.total_tokens,
-          cost_usd: cost.cost_usd,
-        });
+        if ((logWithCost.lifecycle_status ?? "completed") === "completed") {
+          const day = logWithCost.started_at.slice(0, 10);
+          UsageRepo.upsertDaily(db, {
+            day,
+            provider: costProvider,
+            model: costModel,
+            request_count: 1,
+            prompt_tokens: logWithCost.prompt_tokens,
+            completion_tokens: logWithCost.completion_tokens,
+            cache_creation_tokens: logWithCost.cache_creation_tokens,
+            cache_read_tokens: logWithCost.cache_read_tokens,
+            total_tokens: logWithCost.total_tokens,
+            cost_usd: cost.cost_usd,
+          });
+        }
 
         return true;
       });
 
       return Storage.runWriteWithRetry(db, txn);
+    }
+
+    function mergeFinalizeTokenUsage(
+      incoming: Omit<Usage.RequestLog, "id">,
+      previous: Usage.RequestLog | null,
+    ): Omit<Usage.RequestLog, "id"> {
+      if (!previous) return incoming;
+      const reasoningTokens = Math.max(previous.reasoning_tokens ?? 0, incoming.reasoning_tokens ?? 0);
+      return {
+        ...incoming,
+        prompt_tokens: Math.max(previous.prompt_tokens, incoming.prompt_tokens),
+        completion_tokens: Math.max(previous.completion_tokens, incoming.completion_tokens),
+        cache_creation_tokens: Math.max(previous.cache_creation_tokens, incoming.cache_creation_tokens),
+        cache_read_tokens: Math.max(previous.cache_read_tokens, incoming.cache_read_tokens),
+        reasoning_tokens: reasoningTokens,
+        total_tokens: Math.max(previous.total_tokens, incoming.total_tokens),
+      };
     }
 
     async function markFinalizeFailed(id: number, fields: { finalizedAt: string; errorMessage: string }): Promise<boolean> {
@@ -193,7 +212,7 @@ export namespace UsageService {
       params.push(lastSeenId, maxCandidateId, limit);
 
       return db.query(`
-        SELECT id, provider, model, prompt_tokens, completion_tokens,
+        SELECT id, provider, model, lifecycle_status, prompt_tokens, completion_tokens,
                cache_creation_tokens, cache_read_tokens, reasoning_tokens,
                total_tokens, cost_usd, cost_status, started_at
         FROM request_logs
@@ -229,18 +248,20 @@ export namespace UsageService {
           if (row.cost_status === "pending" || row.cost_status === "unresolved") {
             const result = updateLog.run(cost.cost_usd, cost.cost_status, row.id, cost.cost_status, cost.cost_usd);
             if (result.changes > 0) {
-              UsageRepo.upsertDaily(db, {
-                day: row.started_at.slice(0, 10),
-                provider: row.provider,
-                model: row.model,
-                request_count: 0,
-                prompt_tokens: 0,
-                completion_tokens: 0,
-                cache_creation_tokens: 0,
-                cache_read_tokens: 0,
-                total_tokens: 0,
-                cost_usd: cost.cost_usd - row.cost_usd,
-              });
+              if (row.lifecycle_status === "completed") {
+                UsageRepo.upsertDaily(db, {
+                  day: row.started_at.slice(0, 10),
+                  provider: row.provider,
+                  model: row.model,
+                  request_count: 0,
+                  prompt_tokens: 0,
+                  completion_tokens: 0,
+                  cache_creation_tokens: 0,
+                  cache_read_tokens: 0,
+                  total_tokens: 0,
+                  cost_usd: cost.cost_usd - row.cost_usd,
+                });
+              }
               if (cost.cost_status === "ok") chunkUpdated += result.changes;
             }
           }
@@ -623,6 +644,7 @@ export namespace UsageService {
     id: number;
     provider: string;
     model: string;
+    lifecycle_status: Usage.LifecycleStatus;
     prompt_tokens: number;
     completion_tokens: number;
     cache_creation_tokens: number;
