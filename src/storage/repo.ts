@@ -712,6 +712,10 @@ export namespace QuotaRepo {
     return result.changes;
   }
 
+  export function deleteByProviderAccount(db: Database, provider: string, account: string): void {
+    db.prepare("DELETE FROM quota_snapshots WHERE provider = ? AND account = ?").run(provider, account);
+  }
+
   export function getLatest(db: Database): Usage.QuotaSnapshot[] {
     const stmt = db.prepare(`
       SELECT q.*

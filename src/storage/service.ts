@@ -510,6 +510,14 @@ export namespace UsageService {
             inserted += 1;
           }
         }
+
+        const currentPairs = new Set(accounts.map((account) => `${account.provider}|${account.account}`));
+        for (const snapshot of QuotaRepo.getLatest(db)) {
+          if (!currentPairs.has(`${snapshot.provider}|${snapshot.account}`)) {
+            QuotaRepo.deleteByProviderAccount(db, snapshot.provider, snapshot.account);
+          }
+        }
+
         return inserted;
       });
       const inserted = Storage.runWriteWithRetry(db, txn);
@@ -539,12 +547,11 @@ export namespace UsageService {
       }
 
       if (!authFileNames.some((name) => name.endsWith(".json"))) {
-        logger.info("quota background refresh skipped", {
-          event: "quota.refresh_skipped",
+        logger.info("quota background refresh starting without auth files", {
+          event: "quota.refresh_no_auth_files",
           reason: "no_auth_files",
           path: Config.cliproxyAuthDir,
         });
-        return null;
       }
 
       return Supervisor.run("quota-refresh", async () => {
