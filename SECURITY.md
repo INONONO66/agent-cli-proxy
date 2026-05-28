@@ -98,3 +98,7 @@ agent-cli-proxy service restart
 Check the CHANGELOG (when added) for breaking changes before upgrading across minor versions. Patch releases within 0.x are safe to apply without configuration changes.
 
 After upgrading, run `agent-cli-proxy doctor` to verify the configuration and database migrations are current.
+
+## Persistent state and secrets
+
+Production env files, SQLite databases, WAL/SHM sidecars, and pricing caches should live outside the deploy/runtime directory so replacing a release cannot wipe credentials or usage history. Recommended locations are `/etc/agent-cli-proxy/agent-cli-proxy.env`, `/var/lib/agent-cli-proxy/proxy.db`, and `/var/cache/agent-cli-proxy/pricing-cache.json` for system installs, or XDG config/data paths for user installs. See [Persistent config and data outside deploy artifacts](docs/deployment-state.md) for the copy-first migration runbook.

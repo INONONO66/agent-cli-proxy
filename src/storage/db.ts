@@ -1,6 +1,6 @@
 import { Database } from "bun:sqlite";
-import { readFileSync, readdirSync } from "fs";
-import { join } from "path";
+import { existsSync, mkdirSync, readFileSync, readdirSync } from "fs";
+import { dirname, join } from "path";
 import { Logger } from "../util/logger";
 
 const logger = Logger.fromConfig().child({ component: "storage-db" });
@@ -59,6 +59,7 @@ export namespace Storage {
   }
 
   export function initDb(dbPath: string): Database {
+    ensureDbParentDir(dbPath);
     const db = new Database(dbPath);
     db.exec("PRAGMA journal_mode = WAL");
     db.exec("PRAGMA synchronous = NORMAL");
@@ -295,6 +296,13 @@ export namespace Storage {
       }
     } catch {}
   }
+}
+
+function ensureDbParentDir(dbPath: string): void {
+  if (dbPath === ":memory:") return;
+  const dir = dirname(dbPath);
+  if (!dir || dir === "." || existsSync(dir)) return;
+  mkdirSync(dir, { recursive: true });
 }
 
 function isSqliteBusyError(err: unknown): boolean {

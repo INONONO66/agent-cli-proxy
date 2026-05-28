@@ -161,3 +161,61 @@ test("providers show masks auth values", async () => {
   expect(result.stdout).toContain("[redacted]");
   expect(result.stdout).toContain("IGNORED_SECRET_ENV");
 });
+
+test("paths command reports external XDG state defaults", async () => {
+  const configHome = join(tempDir("agent-cli-proxy-config-home-"), "config");
+  const dataHome = join(tempDir("agent-cli-proxy-data-home-"), "data");
+
+  const result = await runCli(["paths"], testEnv({
+    XDG_CONFIG_HOME: configHome,
+    XDG_DATA_HOME: dataHome,
+  }));
+
+  expect(result.exitCode).toBe(0);
+  const paths = JSON.parse(result.stdout);
+  expect(paths.envPath).toBe(join(configHome, "agent-cli-proxy", ".env"));
+  expect(paths.dbPath).toBe(join(dataHome, "agent-cli-proxy", "proxy.db"));
+  expect(paths.pricingCachePath).toBe(join(dataHome, "agent-cli-proxy", "pricing-cache.json"));
+  expect(paths.runtimeDir).toBe(join(dataHome, "agent-cli-proxy", "runtime"));
+});
+
+
+test("paths command honors explicit agent-cli-proxy state environment", async () => {
+  const configHome = join(tempDir("agent-cli-proxy-config-home-"), "config");
+  const dataDir = join(tempDir("agent-cli-proxy-data-dir-"), "state");
+  const runtimeDir = join(tempDir("agent-cli-proxy-runtime-dir-"), "runtime");
+  const envPath = join(configHome, "custom.env");
+
+  const result = await runCli(["paths"], testEnv({
+    XDG_CONFIG_HOME: configHome,
+    AGENT_CLI_PROXY_ENV: envPath,
+    AGENT_CLI_PROXY_DATA_DIR: dataDir,
+    AGENT_CLI_PROXY_RUNTIME_DIR: runtimeDir,
+  }));
+
+  expect(result.exitCode).toBe(0);
+  const paths = JSON.parse(result.stdout);
+  expect(paths.envPath).toBe(envPath);
+  expect(paths.dataDir).toBe(dataDir);
+  expect(paths.dbPath).toBe(join(dataDir, "proxy.db"));
+  expect(paths.pricingCachePath).toBe(join(dataDir, "pricing-cache.json"));
+  expect(paths.runtimeDir).toBe(runtimeDir);
+});
+
+
+test("db init uses AGENT_CLI_PROXY_DATA_DIR from env file when DB_PATH is omitted", async () => {
+  const dir = tempDir("agent-cli-proxy-db-init-data-dir-");
+  const envPath = join(dir, ".env");
+  const dataDir = join(dir, "state");
+  await Bun.write(envPath, [
+    "CLI_PROXY_API_URL=http://localhost:8317",
+    "PROXY_LOCAL_OK=1",
+    `AGENT_CLI_PROXY_DATA_DIR=${dataDir}`,
+  ].join("\n"));
+
+  const result = await runCli(["db", "init", "--env", envPath], testEnv());
+
+  expect(result.exitCode).toBe(0);
+  expect(result.stdout).toContain(join(dataDir, "proxy.db"));
+  expect(existsSync(join(dataDir, "proxy.db"))).toBe(true);
+});

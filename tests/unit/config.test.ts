@@ -223,3 +223,86 @@ test("IPv6 loopback upstream keeps local placeholder warning suppressed", () => 
 
   expect(warnings.map((warning) => warning.path)).not.toContain("CLI_PROXY_API_KEY");
 });
+
+test("default mutable state paths use the external XDG data directory", () => {
+  const config = Config.validate(baseEnv({
+    HOME: "/home/example",
+    XDG_DATA_HOME: "/tmp/agent-cli-proxy-data",
+  }));
+
+  expect(config.dbPath).toBe("/tmp/agent-cli-proxy-data/agent-cli-proxy/proxy.db");
+  expect(config.pricingCachePath).toBe("/tmp/agent-cli-proxy-data/agent-cli-proxy/pricing-cache.json");
+});
+
+test("AGENT_CLI_PROXY_DATA_DIR overrides default mutable state paths", () => {
+  const config = Config.validate(baseEnv({
+    AGENT_CLI_PROXY_DATA_DIR: "/srv/agent-cli-proxy-state",
+    XDG_DATA_HOME: "/tmp/ignored-data-home",
+  }));
+
+  expect(config.dbPath).toBe("/srv/agent-cli-proxy-state/proxy.db");
+  expect(config.pricingCachePath).toBe("/srv/agent-cli-proxy-state/pricing-cache.json");
+});
+
+test("relative mutable state paths emit deployment safety warnings", () => {
+  const warnings: Config.Issue[] = [];
+
+  Config.validate(baseEnv({
+    DB_PATH: "data/proxy.db",
+    PRICING_CACHE_PATH: "data/pricing-cache.json",
+  }), { onWarning: (issue) => warnings.push(issue) });
+
+  expect(warnings).toEqual(expect.arrayContaining([
+    {
+      path: "DB_PATH",
+      message: "should be an absolute path outside the deploy/runtime directory to survive releases",
+    },
+    {
+      path: "PRICING_CACHE_PATH",
+      message: "should be an absolute path outside the deploy/runtime directory to survive releases",
+    },
+  ]));
+});
+
+test(":memory: DB skips deploy path warning", () => {
+  const warnings: Config.Issue[] = [];
+
+  Config.validate(baseEnv({
+    DB_PATH: ":memory:",
+    PRICING_CACHE_PATH: "/tmp/agent-cli-proxy/pricing-cache.json",
+  }), { onWarning: (issue) => warnings.push(issue) });
+
+  expect(warnings.map((warning) => warning.path)).not.toContain("DB_PATH");
+});
+
+
+test("absolute mutable state paths under deploy directories emit warnings", () => {
+  const warnings: Config.Issue[] = [];
+
+  Config.validate(baseEnv({
+    DB_PATH: "/opt/agent-cli-proxy/data/proxy.db",
+    PRICING_CACHE_PATH: "/opt/agent-cli-proxy/data/pricing-cache.json",
+  }), { onWarning: (issue) => warnings.push(issue) });
+
+  expect(warnings.map((warning) => warning.path)).toEqual(expect.arrayContaining([
+    "DB_PATH",
+    "PRICING_CACHE_PATH",
+  ]));
+  expect(warnings.map((warning) => warning.message).join(" ")).toContain("/opt/agent-cli-proxy");
+});
+
+test("absolute mutable state paths under configured runtime dir emit warnings", () => {
+  const warnings: Config.Issue[] = [];
+
+  Config.validate(baseEnv({
+    AGENT_CLI_PROXY_RUNTIME_DIR: "/srv/agent-cli-proxy/runtime",
+    DB_PATH: "/srv/agent-cli-proxy/runtime/data/proxy.db",
+    PRICING_CACHE_PATH: "/var/cache/agent-cli-proxy/pricing-cache.json",
+  }), { onWarning: (issue) => warnings.push(issue) });
+
+  expect(warnings).toContainEqual({
+    path: "DB_PATH",
+    message: "should be outside deploy/runtime directory /srv/agent-cli-proxy/runtime to survive releases",
+  });
+  expect(warnings.map((warning) => warning.path)).not.toContain("PRICING_CACHE_PATH");
+});
