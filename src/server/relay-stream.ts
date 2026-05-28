@@ -10,7 +10,12 @@ const MAX_SSE_LINE_BYTES = 1_048_576;
 
 export namespace RelayStream {
   export interface Options {
-    onUsage: (usage: TokenUsage) => void;
+    /**
+     * Best-effort usage observer. RelayStream does not wait for this callback
+     * before delivering or closing the stream; sync and async failures are
+     * logged and never affect stream delivery.
+     */
+    onUsage: (usage: TokenUsage) => void | Promise<void>;
     transformLine?: (line: string) => string;
     provider: "anthropic" | "openai";
   }
@@ -65,7 +70,42 @@ export namespace RelayStream {
         provider === "anthropic"
           ? finalizeUsage(anthropicAcc, incomplete)
           : finalizeOpenAIUsage(openaiUsage, incomplete);
-      onUsage(usage);
+      try {
+        void Promise.resolve(onUsage(usage)).catch(logUsageCallbackError);
+      } catch (err) {
+        logUsageCallbackError(err);
+      }
+    }
+
+    function logUsageCallbackError(err: unknown): void {
+      logger.error("RelayStream usage callback failed", {
+        event: "relay.usage_callback_failed",
+        err: normalizeUsageCallbackError(err),
+      });
+    }
+
+    function normalizeUsageCallbackError(err: unknown): Error {
+      if (err instanceof Error) return err;
+      return new Error(`Non-Error usage callback failure: ${safeStringifyUnknown(err)}`);
+    }
+
+    function safeStringifyUnknown(value: unknown): string {
+      const seen = new WeakSet<object>();
+      try {
+        const stringified = JSON.stringify(value, (_key, nested) => {
+          if (typeof nested === "bigint" || typeof nested === "symbol" || typeof nested === "function") {
+            return String(nested);
+          }
+          if (nested && typeof nested === "object") {
+            if (seen.has(nested)) return "[Circular]";
+            seen.add(nested);
+          }
+          return nested;
+        });
+        return stringified ?? String(value);
+      } catch {
+        return String(value);
+      }
     }
 
     const upstreamBody = upstreamResponse.body;
