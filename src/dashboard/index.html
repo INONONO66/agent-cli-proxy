@@ -1,0 +1,68 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>agent-cli-proxy dashboard</title>
+    <link rel="stylesheet" href="/styles.css" />
+  </head>
+  <body>
+    <main class="container">
+      <section id="login-view" class="auth-card card">
+        <div class="card-header">
+          <h1>Admin login</h1>
+          <p>Sign in to view local proxy usage.</p>
+        </div>
+        <form id="login-form" class="form">
+          <label for="password">Password</label>
+          <input id="password" name="password" type="password" autocomplete="current-password" required />
+          <button type="submit">Sign in</button>
+        </form>
+        <p id="login-error" class="error hidden"></p>
+      </section>
+
+      <section id="dashboard-view" class="hidden">
+        <header class="page-header">
+          <div>
+            <h1>agent-cli-proxy</h1>
+            <p>Internal dashboard</p>
+          </div>
+          <div class="actions">
+            <button id="refresh" type="button" class="secondary">Refresh</button>
+            <button id="logout" type="button" class="secondary">Logout</button>
+          </div>
+        </header>
+
+        <p id="alert" class="error hidden"></p>
+
+        <section class="grid stats" aria-label="Key metrics">
+          <article class="card"><span>Requests today</span><strong id="today-requests">--</strong><small id="total-requests">-- total</small></article>
+          <article class="card"><span>Tokens today</span><strong id="today-tokens">--</strong><small id="total-tokens">-- total</small></article>
+          <article class="card"><span>Cost today</span><strong id="today-cost">--</strong><small id="total-cost">-- total</small></article>
+          <article class="card"><span>Readiness</span><strong id="ready-state">--</strong><small id="ready-detail">waiting</small></article>
+        </section>
+
+        <section class="grid panels">
+          <article class="card">
+            <div class="card-header"><h2>Usage trend</h2><p id="trend-total">--</p></div>
+            <div id="trend-chart" class="bars" aria-label="Usage trend chart"></div>
+          </article>
+          <article class="card">
+            <div class="card-header"><h2>Providers</h2><p>Today</p></div>
+            <div id="provider-list" class="stack"></div>
+          </article>
+          <article class="card wide">
+            <div class="card-header"><h2>Recent requests</h2><p>Latest 12</p></div>
+            <div class="table-wrap">
+              <table>
+                <thead><tr><th>Time</th><th>Tool</th><th>Provider</th><th>Model</th><th>Status</th><th>Cost</th></tr></thead>
+                <tbody id="request-log"></tbody>
+              </table>
+            </div>
+          </article>
+        </section>
+      </section>
+    </main>
+    <script type="module" src="/assets/app.js"></script>
+  </body>
+</html>
