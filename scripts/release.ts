@@ -3,7 +3,12 @@
 import { readFileSync, writeFileSync } from "node:fs";
 import { resolve } from "node:path";
 
-type BumpType = "patch" | "minor" | "major";
+export type BumpType = "patch" | "minor" | "major";
+
+interface ReleaseArgs {
+  explicitBump?: BumpType;
+  dryRun: boolean;
+}
 
 interface Commit {
   hash: string;
@@ -175,15 +180,35 @@ function today(): string {
   return new Date().toISOString().slice(0, 10);
 }
 
-async function run(): Promise<void> {
-  const args = process.argv.slice(2);
-  const explicitBump = args[0] as BumpType | undefined;
-  const dryRun = args.includes("--dry-run");
+export function parseReleaseArgs(args: string[]): ReleaseArgs {
+  let explicitBump: BumpType | undefined;
+  let dryRun = false;
 
-  if (explicitBump && !["patch", "minor", "major"].includes(explicitBump)) {
-    console.error(`Usage: bun run scripts/release.ts [patch|minor|major] [--dry-run]`);
+  for (const arg of args) {
+    if (arg === "--dry-run") {
+      dryRun = true;
+      continue;
+    }
+    if (["patch", "minor", "major"].includes(arg)) {
+      if (explicitBump) throw new Error("Only one bump type may be provided.");
+      explicitBump = arg as BumpType;
+      continue;
+    }
+    throw new Error("Usage: bun run scripts/release.ts [patch|minor|major] [--dry-run]");
+  }
+
+  return { explicitBump, dryRun };
+}
+
+async function run(): Promise<void> {
+  let releaseArgs: ReleaseArgs;
+  try {
+    releaseArgs = parseReleaseArgs(process.argv.slice(2));
+  } catch (err) {
+    console.error(err instanceof Error ? err.message : String(err));
     process.exit(1);
   }
+  const { explicitBump, dryRun } = releaseArgs;
 
   const status = await gitExec(["status", "--porcelain"]);
   if (status) {
@@ -248,4 +273,6 @@ async function run(): Promise<void> {
   console.log(`\nDone. To publish:\n  git push origin main --follow-tags`);
 }
 
-run();
+if (import.meta.main) {
+  run();
+}
