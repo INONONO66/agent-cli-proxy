@@ -66,12 +66,14 @@ describe("admin auth and deployment security", () => {
     }, "token-key");
 
     expect(tokenRes.status).toBe(201);
+    expect(tokenRes.headers.get("cache-control")).toBe("no-store");
 
     const cookie = await loginCookie();
     const missingCsrfRes = await createApiKey({
       cookie,
     }, "cookie-no-csrf");
     expect(missingCsrfRes.status).toBe(403);
+    expect(missingCsrfRes.headers.get("cache-control")).toBe("no-store");
     expect(await missingCsrfRes.json()).toMatchObject({ code: "CSRF_REQUIRED" });
 
     const csrfRes = await createApiKey({
@@ -79,6 +81,15 @@ describe("admin auth and deployment security", () => {
       "x-csrf": "1",
     }, "cookie-with-csrf");
     expect(csrfRes.status).toBe(201);
+  });
+
+  it("marks unauthenticated admin JSON failures as no-store", async () => {
+    const res = await handleRequest(new Request("http://proxy.example.test/admin/usage/today"));
+
+    expect(res.status).toBe(403);
+    expect(res.headers.get("content-type")).toContain("application/json");
+    expect(res.headers.get("cache-control")).toBe("no-store");
+    expect(await res.json()).toMatchObject({ code: "UNAUTHORIZED" });
   });
 
   it("does not emit HSTS for plain HTTP solely because host is non-loopback", async () => {
@@ -140,6 +151,22 @@ describe("admin auth and deployment security", () => {
 
     expect(res.status).toBe(200);
     expect(res.headers.get("set-cookie")).toContain("Secure");
+  });
+
+  it("protects metrics off loopback while preserving admin token access", async () => {
+    const unauthorized = await handlerModule.Handler.create(serviceModule.UsageService.create(db), {
+      securityConfig: { adminApiKey: ADMIN_TOKEN, host: "0.0.0.0", trustProxyHeaders: false },
+    })(new Request("http://proxy.example.test/metrics"));
+    expect(unauthorized.status).toBe(403);
+    expect(unauthorized.headers.get("cache-control")).toBe("no-store");
+
+    const authorized = await handlerModule.Handler.create(serviceModule.UsageService.create(db), {
+      securityConfig: { adminApiKey: ADMIN_TOKEN, host: "0.0.0.0", trustProxyHeaders: false },
+    })(new Request("http://proxy.example.test/metrics", {
+      headers: { "x-admin-token": ADMIN_TOKEN },
+    }));
+    expect(authorized.status).toBe(200);
+    expect(authorized.headers.get("content-type")).toContain("text/plain");
   });
 });
 

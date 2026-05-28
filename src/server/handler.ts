@@ -14,6 +14,7 @@ import { isRequestSecure } from "../util/proxy-headers";
 
 const logger = Logger.fromConfig().child({ component: "handler" });
 const readyLogger = logger.child({ component: "handler.ready" });
+const encoder = new TextEncoder();
 
 type ReadyStatus = "pass" | "warn" | "fail";
 
@@ -118,6 +119,13 @@ export namespace Handler {
       }
 
       if (path === "/metrics" && method === "GET") {
+        const auth = await isAdminAuthorized(req, sessionConfig, securityConfig);
+        if (!auth.authorized) {
+          return withSecurityHeaders(req, securityConfig, new Response(JSON.stringify({ error: "Forbidden", code: "UNAUTHORIZED" }), {
+            status: 403,
+            headers: { "content-type": "application/json", "cache-control": "no-store" },
+          }));
+        }
         return withSecurityHeaders(req, securityConfig, new Response(Metrics.render(usageService.db), {
           status: 200,
           headers: { "content-type": "text/plain; version=0.0.4; charset=utf-8" },
@@ -143,7 +151,7 @@ export namespace Handler {
             }
             return withSecurityHeaders(req, securityConfig, new Response(JSON.stringify({ error: "Unauthorized", code: "UNAUTHORIZED" }), {
               status: 401,
-              headers: { "content-type": "application/json" },
+              headers: { "content-type": "application/json", "cache-control": "no-store" },
             }));
           }
           return withSecurityHeaders(req, securityConfig, dashboardHandler(req));
@@ -159,13 +167,13 @@ export namespace Handler {
           if (!auth.authorized) {
             return withSecurityHeaders(req, securityConfig, new Response(JSON.stringify({ error: "Forbidden", code: "UNAUTHORIZED" }), {
               status: 403,
-              headers: { "content-type": "application/json" },
+              headers: { "content-type": "application/json", "cache-control": "no-store" },
             }));
           }
           if (auth.viaCookie && requiresCsrf(req)) {
             return withSecurityHeaders(req, securityConfig, new Response(JSON.stringify({ error: "Forbidden", code: "CSRF_REQUIRED" }), {
               status: 403,
-              headers: { "content-type": "application/json" },
+              headers: { "content-type": "application/json", "cache-control": "no-store" },
             }));
           }
           const adminResponse = await adminRouter(req);
@@ -189,7 +197,7 @@ export namespace Handler {
             logger.warn("proxy request rejected: no API key", { event: "proxy.auth.rejected", path });
             return withSecurityHeaders(req, securityConfig, new Response(JSON.stringify({ error: "API key required. Set x-proxy-key or Authorization header." }), {
               status: 401,
-              headers: { "content-type": "application/json" },
+              headers: { "content-type": "application/json", "cache-control": "no-store" },
             }));
           }
         }
@@ -199,7 +207,7 @@ export namespace Handler {
         const bounded = needsBodyLimit ? enforceRequestBodyLimit(req, maxRequestBodyBytes) : req;
         if (bounded instanceof Response) return withSecurityHeaders(req, securityConfig, bounded);
         const info = await RequestInspector.inspect(bounded);
-        return passThrough(bounded, info);
+        return withSecurityHeaders(req, securityConfig, passThrough(bounded, info));
       } catch (err) {
         if (isRequestBodyTooLargeError(err)) {
           return withSecurityHeaders(req, securityConfig, payloadTooLargeResponse(maxRequestBodyBytes));
@@ -224,7 +232,7 @@ export namespace Handler {
 
     const bearer = req.headers.get("authorization")?.replace(/^Bearer\s+/i, "").trim();
     const token = req.headers.get("x-admin-token")?.trim() || bearer;
-    if (token) return { authorized: token === securityConfig.adminApiKey, viaCookie: false };
+    if (token) return { authorized: constantTimeEqual(token, securityConfig.adminApiKey), viaCookie: false };
 
     const authorized = await Session.extractSession(req, sessionConfig.secret, sessionConfig.ttlMs);
     return { authorized, viaCookie: authorized };
@@ -281,6 +289,8 @@ export namespace Handler {
     res.headers.set("X-Content-Type-Options", "nosniff");
     res.headers.set("Referrer-Policy", "strict-origin-when-cross-origin");
     res.headers.set("Permissions-Policy", "camera=(), microphone=(), geolocation=()");
+    res.headers.set("Cross-Origin-Opener-Policy", "same-origin");
+    res.headers.set("X-Permitted-Cross-Domain-Policies", "none");
     if (isRequestSecure(req, securityConfig)) {
       res.headers.set("Strict-Transport-Security", "max-age=31536000; includeSubDomains");
     }
@@ -289,6 +299,17 @@ export namespace Handler {
 
   function isLoopbackHost(host: string): boolean {
     return host === "127.0.0.1" || host === "localhost" || host === "::1";
+  }
+
+  function constantTimeEqual(left: string, right: string): boolean {
+    const leftBytes = encoder.encode(left);
+    const rightBytes = encoder.encode(right);
+    let diff = leftBytes.length ^ rightBytes.length;
+    const length = Math.max(leftBytes.length, rightBytes.length);
+    for (let i = 0; i < length; i++) {
+      diff |= (leftBytes[i] ?? 0) ^ (rightBytes[i] ?? 0);
+    }
+    return diff === 0;
   }
 
   function payloadTooLargeResponse(limit: number): Response {

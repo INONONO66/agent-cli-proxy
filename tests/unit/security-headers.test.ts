@@ -10,6 +10,8 @@ describe("security headers and proxy headers", () => {
       assert(res.headers.get("x-content-type-options") === "nosniff", "missing X-Content-Type-Options");
       assert(res.headers.get("referrer-policy") === "strict-origin-when-cross-origin", "missing Referrer-Policy");
       assert(res.headers.get("permissions-policy") === "camera=(), microphone=(), geolocation=()", "missing Permissions-Policy");
+      assert(res.headers.get("cross-origin-opener-policy") === "same-origin", "missing Cross-Origin-Opener-Policy");
+      assert(res.headers.get("x-permitted-cross-domain-policies") === "none", "missing X-Permitted-Cross-Domain-Policies");
     `);
   });
 
@@ -70,6 +72,20 @@ describe("security headers and proxy headers", () => {
       assert(cookie.includes("Secure"), "trusted forwarded proto should set Secure cookie");
     `, { TRUST_PROXY_HEADERS: "true", DASHBOARD_PASSWORD_HASH: passwordHash, DASHBOARD_SESSION_SECRET: "test-session-secret" });
   });
+
+
+  test("marks missing proxy API key JSON failures as no-store", async () => {
+    await runIsolatedCheck(`
+      const res = await handle(new Request("http://proxy.test/v1/models"));
+      assert(res.status === 401, "expected missing proxy key to be rejected");
+      assert(res.headers.get("content-type").includes("application/json"), "expected JSON error");
+      assert(res.headers.get("cache-control") === "no-store", "missing no-store on proxy auth error");
+    `, { PROXY_REQUIRE_API_KEY: "true" });
+  });
+
+  test("adds baseline security headers to proxied API responses", async () => {
+    await runIsolatedProxyCheck();
+  });
 });
 
 async function runIsolatedCheck(check: string, env: Record<string, string> = {}): Promise<void> {
@@ -90,6 +106,58 @@ async function runIsolatedCheck(check: string, env: Record<string, string> = {})
   const proc = Bun.spawn(["bun", "--eval", script], {
     cwd: process.cwd(),
     env: { ...process.env, ...env, PROXY_LOCAL_OK: "1", LOG_LEVEL: "error", PLANS_JSON: "" },
+    stdout: "pipe",
+    stderr: "pipe",
+  });
+  const [exitCode, stdoutText, stderrText] = await Promise.all([
+    proc.exited,
+    new Response(proc.stdout).text(),
+    new Response(proc.stderr).text(),
+  ]);
+
+  expect(`${stdoutText}${stderrText}`).toBe("");
+  expect(exitCode).toBe(0);
+}
+
+async function runIsolatedProxyCheck(): Promise<void> {
+  const script = `
+    process.env.PROXY_LOCAL_OK = "1";
+    process.env.LOG_LEVEL = "error";
+    const upstream = Bun.serve({
+      hostname: "127.0.0.1",
+      port: 0,
+      fetch() {
+        return new Response(JSON.stringify({ model: "gpt-4o", usage: { prompt_tokens: 1, completion_tokens: 1, total_tokens: 2 } }), {
+          headers: { "content-type": "application/json" },
+        });
+      },
+    });
+    process.env.CLI_PROXY_API_URL = "http://127.0.0.1:" + upstream.port;
+    const { Handler } = await import("./src/server/handler.ts");
+    const { Storage } = await import("./src/storage/db.ts");
+    const { UsageService } = await import("./src/storage/service.ts");
+    const db = Storage.initDb(":memory:");
+    const handle = Handler.create(UsageService.create(db));
+    try {
+      const res = await handle(new Request("http://proxy.test/v1/chat/completions", {
+        method: "POST",
+        headers: { "content-type": "application/json", "user-agent": "opencode/1.0" },
+        body: JSON.stringify({ model: "gpt-4o", messages: [{ role: "user", content: "hi" }] }),
+      }));
+      if (res.status !== 200) throw new Error("expected proxied response");
+      if (res.headers.get("x-frame-options") !== "DENY") throw new Error("missing X-Frame-Options");
+      if (res.headers.get("x-content-type-options") !== "nosniff") throw new Error("missing X-Content-Type-Options");
+      if (res.headers.get("referrer-policy") !== "strict-origin-when-cross-origin") throw new Error("missing Referrer-Policy");
+      if (res.headers.get("cross-origin-opener-policy") !== "same-origin") throw new Error("missing Cross-Origin-Opener-Policy");
+      await res.text();
+    } finally {
+      upstream.stop(true);
+      db.close();
+    }
+  `;
+  const proc = Bun.spawn(["bun", "--eval", script], {
+    cwd: process.cwd(),
+    env: { ...process.env, PROXY_LOCAL_OK: "1", LOG_LEVEL: "error", PLANS_JSON: "" },
     stdout: "pipe",
     stderr: "pipe",
   });
