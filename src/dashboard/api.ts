@@ -429,3 +429,170 @@ export function revokeApiKey(id: number): Promise<{ revokedAt: string | null }> 
 export function fetchApiKeyUsage(id: number): Promise<ApiKeyUsageResponse> {
   return api<ApiKeyUsageResponse>(`/admin/api-keys/${id}/usage`);
 }
+
+export interface ProviderInfo {
+  id: string;
+  type: string;
+  paths: string[];
+  models: string[];
+  hasCustomUpstream: boolean;
+}
+
+export interface ProvidersResponse {
+  providers: ProviderInfo[];
+  source: unknown;
+}
+
+export interface PricingInfo {
+  loaded: boolean;
+  fetchedAt: string | null;
+  ageMs: number | null;
+  cachePath: string;
+}
+
+export interface ConfigResponse {
+  proxy: {
+    host: string;
+    port: number;
+    proxyRequireApiKey: boolean;
+    trustProxyHeaders: boolean;
+  };
+  upstream: {
+    cliProxyApiUrl: string;
+    timeoutMs: number;
+    connectTimeoutMs: number;
+    maxRetries: number;
+  };
+  intervals: {
+    pricingRefreshMs: number;
+    costBackfillMs: number;
+    quotaRefreshMs: number;
+  };
+  features: {
+    hasAdminApiKey: boolean;
+    hasMgmtKey: boolean;
+    hasAuthDir: boolean;
+    hasDashboardPassword: boolean;
+  };
+}
+
+export interface CostAuditEntry {
+  id: number;
+  model: string | null;
+  provider: string | null;
+  source: string | null;
+  baseCostUsd: number | null;
+  calcAt: string;
+}
+
+export interface CostAuditResponse {
+  requestLogId: number;
+  audits: CostAuditEntry[];
+}
+
+export interface QuotaProbesResponse {
+  probes: string[];
+}
+
+export interface ReadyCheck {
+  status: string;
+  responseTime?: number;
+  ageMs?: number;
+  loops?: string[];
+}
+
+export interface ReadyResponse {
+  status: "pass" | "warn" | "fail";
+  checks: {
+    database: ReadyCheck;
+    pricing: ReadyCheck;
+    upstream: ReadyCheck;
+    supervisor: ReadyCheck;
+  };
+}
+
+export interface HealthResponse {
+  status: "ok";
+}
+
+export interface AccountUsageWindow {
+  since: string;
+  requests: number;
+  total_tokens: number;
+  cost_usd: number;
+}
+
+export interface AccountQuotaReport {
+  provider: string;
+  account: string;
+  auth_index?: string;
+  status: string;
+  unavailable: boolean;
+  disabled: boolean;
+  plan?: string;
+  refreshed_at?: string;
+  error?: string;
+  windows: Usage.QuotaSnapshot[];
+  local_usage: {
+    five_hour: AccountUsageWindow;
+    seven_day: AccountUsageWindow;
+  };
+}
+
+export interface QuotaRefreshDetailResponse {
+  timestamp: string;
+  accounts: AccountQuotaReport[];
+  inserted: number;
+}
+
+export function getProviders(): Promise<ProvidersResponse> {
+  return api<ProvidersResponse>("/admin/providers");
+}
+
+export function getPricing(): Promise<PricingInfo> {
+  return api<PricingInfo>("/admin/pricing");
+}
+
+export function getConfig(): Promise<ConfigResponse> {
+  return api<ConfigResponse>("/admin/config");
+}
+
+export function getCostAudit(requestLogId: number): Promise<CostAuditResponse> {
+  return api<CostAuditResponse>(`/admin/logs/${requestLogId}/cost-audit`);
+}
+
+export function getQuotaProbes(): Promise<QuotaProbesResponse> {
+  return api<QuotaProbesResponse>("/admin/quotas/probes");
+}
+
+export function getHealth(): Promise<HealthResponse> {
+  return api<HealthResponse>("/health");
+}
+
+export function getReady(): Promise<ReadyResponse> {
+  return api<ReadyResponse>("/ready");
+}
+
+export function getAccountUsage(day?: string): Promise<Usage.DailyAccountUsage[]> {
+  const params = new URLSearchParams();
+  if (day) params.set("day", day);
+  const qs = params.toString();
+  return api<Usage.DailyAccountUsage[]>(`/admin/usage/accounts${qs ? `?${qs}` : ""}`);
+}
+
+export function getAccountUsageRange(from: string, to: string): Promise<Usage.DailyAccountUsage[]> {
+  return api<Usage.DailyAccountUsage[]>(
+    `/admin/usage/accounts/range?from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}`,
+  );
+}
+
+export function refreshQuotasDetail(): Promise<QuotaRefreshDetailResponse> {
+  return api<QuotaRefreshDetailResponse>("/admin/quotas/refresh");
+}
+
+export function resetBreaker(providerId: string): Promise<{ ok: boolean; providerId: string }> {
+  return api<{ ok: boolean; providerId: string }>(
+    `/admin/breakers/${encodeURIComponent(providerId)}/reset`,
+    { method: "POST" },
+  );
+}
