@@ -1,4 +1,4 @@
-import { afterEach, expect, test } from "bun:test";
+import { afterEach, beforeEach, expect, test } from "bun:test";
 import type { Database } from "bun:sqlite";
 import { unlinkSync } from "node:fs";
 import { join } from "node:path";
@@ -89,6 +89,10 @@ function requireController(controller: ReadableStreamDefaultController<Uint8Arra
   if (!controller) throw new Error("upstream stream did not start");
   return controller;
 }
+
+beforeEach(() => {
+  Shutdown.registerActiveLifecycleHandlesProvider(PassThroughProxy.activeLifecycleHandlesSnapshot);
+});
 
 afterEach(() => {
   Shutdown.__resetForTests();
