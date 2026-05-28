@@ -1,7 +1,7 @@
 {
   "name": "agent-cli-proxy",
   "version": "0.1.0",
-  "description": "Self-hosted AI API proxy with per-tool usage monitoring, usage attribution, cost tracking, and subscription metadata for OpenAI/Anthropic-compatible APIs.",
+  "description": "Self-hosted AI API proxy with per-tool usage monitoring, account attribution, and cost tracking for OpenAI/Anthropic-compatible APIs.",
   "module": "./dist/index.js",
   "type": "module",
   "private": false,
