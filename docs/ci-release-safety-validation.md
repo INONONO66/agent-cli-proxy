@@ -17,7 +17,7 @@ This change tightens CI and release guardrails without changing release semantic
 
 ## Covered behavior
 
-- CI workflow uses read-only repository permissions, cancels stale branch/PR runs, enforces a timeout, avoids persisted checkout credentials, and installs with `bun install --frozen-lockfile`.
-- Release workflow keeps `contents: write`, avoids concurrent publishes for the same tag, enforces a timeout sized for the existing explicit check plus npm lifecycle check, verifies `${GITHUB_REF_NAME}` matches `v${package.json.version}`, avoids persisted checkout credentials, installs with `--frozen-lockfile`, and writes npm auth through `NODE_AUTH_TOKEN` with restricted `.npmrc` permissions.
+- CI workflow uses read-only repository permissions, cancels stale branch/PR runs, enforces a timeout, pins third-party actions to immutable commit SHAs, avoids persisted checkout credentials, and installs with `bun install --frozen-lockfile`.
+- Release workflow keeps `contents: write`, avoids concurrent publishes for the same tag, enforces a timeout sized for the existing explicit check plus npm lifecycle check, pins third-party actions to immutable commit SHAs, verifies `${GITHUB_REF_NAME}` matches `v${package.json.version}`, avoids persisted checkout credentials, installs with `--frozen-lockfile`, and writes npm auth through `NODE_AUTH_TOKEN` with restricted `.npmrc` permissions.
 - `release:dry-run` accepts `--dry-run` without incorrectly treating it as a bump type.
 - Published package metadata points `module` at the built artifact included in the package.
