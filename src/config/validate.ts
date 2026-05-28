@@ -140,8 +140,8 @@ export namespace Config {
       breakerHalfOpenAfterMs: readPositiveNumber(env, "UPSTREAM_CIRCUIT_BREAKER_HALF_OPEN_AFTER_MS", 30_000, issues),
       breakerEvictAfterMs: readPositiveNumber(env, "UPSTREAM_CIRCUIT_BREAKER_EVICT_AFTER_MS", 300_000, issues),
       rateLimitMaxRetries: readPositiveInteger(env, "RATE_LIMIT_MAX_RETRIES", 3, 20, issues),
-      proxyRequireApiKey: readBoolean(env, "PROXY_REQUIRE_API_KEY", !isLoopbackHost(host)),
-      trustProxyHeaders: readBoolean(env, "TRUST_PROXY_HEADERS", false),
+      proxyRequireApiKey: readBoolean(env, "PROXY_REQUIRE_API_KEY", !isLoopbackHost(host), issues),
+      trustProxyHeaders: readBoolean(env, "TRUST_PROXY_HEADERS", false, issues),
       loginRateLimitWindowMs: readPositiveNumber(env, "LOGIN_RATE_LIMIT_WINDOW_MS", 60_000, issues),
       loginRateLimitMaxAttempts: readPositiveInteger(env, "LOGIN_RATE_LIMIT_MAX_ATTEMPTS", 5, 100, issues),
     };
@@ -152,6 +152,11 @@ export namespace Config {
         message: "is required when PROXY_HOST is not loopback",
       });
     }
+
+    warnForWeakSecret(warnings, "ADMIN_API_KEY", config.adminApiKey);
+    warnForWeakSecret(warnings, "CLIPROXY_MGMT_KEY", config.cliproxyMgmtKey);
+    warnForWeakSecret(warnings, "DASHBOARD_SESSION_SECRET", config.dashboardSessionSecret);
+    if (!isLoopbackHost(config.host) || !isLoopbackUrl(config.cliProxyApiUrl)) warnForWeakSecret(warnings, "CLI_PROXY_API_KEY", config.cliProxyApiKey);
 
     validateProviderConfig(env, issues);
 
@@ -169,11 +174,14 @@ function readString(env: EnvLike, key: string, fallback: string): string {
   return value === undefined ? fallback : value;
 }
 
-function readBoolean(env: EnvLike, key: string, fallback: boolean): boolean {
+function readBoolean(env: EnvLike, key: string, fallback: boolean, issues: ConfigIssue[]): boolean {
   const value = env[key];
   if (value === undefined) return fallback;
   const lower = value.trim().toLowerCase();
-  return lower === "1" || lower === "true" || lower === "yes";
+  if (lower === "1" || lower === "true" || lower === "yes") return true;
+  if (lower === "0" || lower === "false" || lower === "no") return false;
+  issues.push({ path: key, message: "must be a boolean (true/false, yes/no, or 1/0)" });
+  return fallback;
 }
 
 function readPort(env: EnvLike, issues: ConfigIssue[]): number {
@@ -326,5 +334,21 @@ function validateProviderJson(raw: string, basePath: string, issues: ConfigIssue
 }
 
 function isLoopbackHost(host: string): boolean {
-  return LOOPBACK_HOSTS.has(host.trim().toLowerCase());
+  return LOOPBACK_HOSTS.has(host.trim().toLowerCase().replace(/^\[(.*)]$/, "$1"));
+}
+
+function isLoopbackUrl(raw: string): boolean {
+  try {
+    return isLoopbackHost(new URL(raw).hostname);
+  } catch {
+    return false;
+  }
+}
+
+const WEAK_SECRET_VALUES = new Set(["admin", "changeme", "change-me", "default", "example", "password", "proxy", "secret", "token"]);
+
+function warnForWeakSecret(warnings: ConfigIssue[], path: string, value: string): void {
+  const normalized = value.trim().toLowerCase();
+  if (!normalized || !WEAK_SECRET_VALUES.has(normalized)) return;
+  warnings.push({ path, message: "uses a placeholder value; replace it with a unique random secret before exposure" });
 }
