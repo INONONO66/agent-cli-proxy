@@ -253,6 +253,8 @@ All `/admin/*` endpoints require `ADMIN_API_KEY` when the proxy is not bound to 
 
 For repeatable local before/after timing, run `ADMIN_API_KEY="$ADMIN_API_KEY" bun run perf:baseline --url http://127.0.0.1:8317 --output perf-baseline.md`. See `docs/performance-baseline.md` for metric names and cautions.
 
+For Cloudflare exposure planning, see `docs/cloudflare-exposure-plan.md` before publishing the proxy outside a private network.
+
 ## Health and Readiness
 
 `/health` is a cheap liveness probe. It returns `200 {"status":"ok"}` as long as the process is alive, with no dependency checks.

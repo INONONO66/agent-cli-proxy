@@ -52,6 +52,8 @@ PROXY_HOST=0.0.0.0
 ADMIN_API_KEY=a-long-random-secret
 ```
 
+Before publishing through Cloudflare, review `docs/cloudflare-exposure-plan.md`; keep the origin private, separate admin auth from proxy API keys, path-allowlist public API routes, and require managed `x-proxy-key` for externally reachable LLM endpoints that need attribution/provider scoping.
+
 Do not expose the admin endpoints to the public internet without additional network controls (firewall, reverse proxy with TLS, etc.).
 
 ### Management key
