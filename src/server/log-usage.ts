@@ -1,6 +1,7 @@
 import type { TokenUsage } from "../usage";
 import type { RequestContext } from "./request-context";
 import { Logger } from "../util/logger";
+import { getTrustedClientIp } from "../util/proxy-headers";
 
 const logger = Logger.fromConfig().child({ component: "log-usage" });
 
@@ -25,8 +26,7 @@ export namespace LogUsage {
       }
 
       const userAgent = req.headers.get("user-agent") ?? undefined;
-      const sourceIp =
-        req.headers.get("x-forwarded-for")?.split(",")[0]?.trim() ?? undefined;
+      const sourceIp = getTrustedClientIp(req) ?? undefined;
 
       const startedAt = new Date(ctx.startedAt).toISOString();
       let responseStatus = 0;

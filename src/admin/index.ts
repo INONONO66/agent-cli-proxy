@@ -22,6 +22,7 @@ export namespace Admin {
     readonly passwordHash: string;
     readonly secret: string;
     readonly ttlMs: number;
+    readonly trustProxyHeaders?: boolean;
   }
 
   export interface OAuthConfig {
@@ -33,7 +34,7 @@ export namespace Admin {
 
   export function createRouter(
     usageService: UsageService.UsageService,
-    sessionConfig: SessionConfig = { passwordHash: "", secret: "", ttlMs: 604800000 },
+    sessionConfig: SessionConfig = { passwordHash: "", secret: "", ttlMs: 604800000, trustProxyHeaders: Config.trustProxyHeaders },
     oauthConfig: OAuthConfig = { authDir: "", binaryPath: "", configPath: "", timeoutMs: 300000 },
   ) {
     const oauthRouter = OAuthAdmin.createRouter(oauthConfig);
@@ -69,7 +70,7 @@ export namespace Admin {
         }
 
         if (path === "/admin/session/logout" && req.method === "POST") {
-          return Session.handleLogout(req);
+          return Session.handleLogout(req, sessionConfig);
         }
 
         if (path === "/admin/session" && req.method === "GET") {

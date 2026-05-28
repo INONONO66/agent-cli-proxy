@@ -47,6 +47,7 @@ export interface ValidatedConfig {
   breakerEvictAfterMs: number;
   rateLimitMaxRetries: number;
   proxyRequireApiKey: boolean;
+  trustProxyHeaders: boolean;
   loginRateLimitWindowMs: number;
   loginRateLimitMaxAttempts: number;
 }
@@ -140,6 +141,7 @@ export namespace Config {
       breakerEvictAfterMs: readPositiveNumber(env, "UPSTREAM_CIRCUIT_BREAKER_EVICT_AFTER_MS", 300_000, issues),
       rateLimitMaxRetries: readPositiveInteger(env, "RATE_LIMIT_MAX_RETRIES", 3, 20, issues),
       proxyRequireApiKey: readBoolean(env, "PROXY_REQUIRE_API_KEY", !isLoopbackHost(host)),
+      trustProxyHeaders: readBoolean(env, "TRUST_PROXY_HEADERS", false),
       loginRateLimitWindowMs: readPositiveNumber(env, "LOGIN_RATE_LIMIT_WINDOW_MS", 60_000, issues),
       loginRateLimitMaxAttempts: readPositiveInteger(env, "LOGIN_RATE_LIMIT_MAX_ATTEMPTS", 5, 100, issues),
     };

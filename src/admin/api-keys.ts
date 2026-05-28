@@ -12,9 +12,6 @@ export namespace ApiKeysAdmin {
       }
 
       if (path === "/admin/api-keys" && req.method === "POST") {
-        const csrf = requireCsrf(req);
-        if (csrf) return csrf;
-
         const body = await readCreateBody(req);
         if (!body) return json({ error: "Invalid request body" }, 400);
         const name = body.name.trim();
@@ -33,9 +30,6 @@ export namespace ApiKeysAdmin {
 
       const keyMatch = path.match(/^\/admin\/api-keys\/(\d+)$/);
       if (keyMatch && req.method === "PATCH") {
-        const csrf = requireCsrf(req);
-        if (csrf) return csrf;
-
         const body = await readUpdateBody(req);
         if (!body) return json({ error: "Invalid request body" }, 400);
 
@@ -48,9 +42,6 @@ export namespace ApiKeysAdmin {
       }
 
       if (keyMatch && req.method === "DELETE") {
-        const csrf = requireCsrf(req);
-        if (csrf) return csrf;
-
         const id = Number(keyMatch[1]);
         if (!ApiKeyRepo.revoke(db, id)) return json({ error: "Not found" }, 404);
         return json({ revokedAt: getRevokedAt(db, id) });
@@ -86,11 +77,6 @@ export namespace ApiKeysAdmin {
     readonly requestCount: number;
     readonly totalTokens: number;
     readonly totalCostUsd: number;
-  }
-
-  function requireCsrf(req: Request): Response | null {
-    if (req.headers.get("x-csrf") === "1") return null;
-    return json({ error: "Forbidden" }, 403);
   }
 
   async function readCreateBody(req: Request): Promise<CreateBody | null> {
