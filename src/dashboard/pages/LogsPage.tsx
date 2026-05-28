@@ -217,10 +217,10 @@ function LogListView() {
     };
   }, [limit, offset, tool, clientId, model, provider, status, lifecycle]);
 
-  const { data: logs, isLoading, error } = useLogs(query);
+  const { data, isLoading, error } = useLogs(query);
+  const logs = data ?? [];
 
   const tools = useMemo(() => {
-    if (!logs) return [];
     const set = new Set<string>();
     for (const log of logs) set.add(log.tool);
     return Array.from(set).sort();
@@ -298,7 +298,7 @@ function LogListView() {
             </TableRow>
           </TableHeader>
           <TableBody>
-            {isLoading && (!logs || logs.length === 0) && (
+            {isLoading && logs.length === 0 && (
               Array.from({ length: 5 }).map((_, i) => (
                 <TableRow key={`skel-${i}`}>
                   {Array.from({ length: 9 }).map((__, j) => (
