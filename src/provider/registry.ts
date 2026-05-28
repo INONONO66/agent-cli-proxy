@@ -54,10 +54,6 @@ export namespace ProviderRegistry {
     return loadProviders();
   }
 
-  export function handlesPath(path: string): boolean {
-    return loadProviders().some((provider) => provider.paths.includes(path));
-  }
-
   export function resolve(input: ResolveInput): ProviderDefinition | null {
     const providers = loadProviders();
 
@@ -79,7 +75,7 @@ export namespace ProviderRegistry {
     return loadProviders({ force: true });
   }
 
-  export function configPath(): string | undefined {
+  function configPath(): string | undefined {
     return process.env.PROVIDERS_CONFIG_PATH?.trim() || undefined;
   }
 

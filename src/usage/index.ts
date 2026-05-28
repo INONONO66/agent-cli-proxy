@@ -31,7 +31,6 @@ export namespace Usage {
     status?: number;
     lifecycle_status?: LifecycleStatus;
     cost_status?: CostStatus;
-    subscription_code?: string;
     finalized_at?: string;
     error_message?: string;
     prompt_tokens: number;

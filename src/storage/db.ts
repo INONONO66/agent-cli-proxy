@@ -124,7 +124,6 @@ export namespace Storage {
       "cost_status",
       "TEXT NOT NULL DEFAULT 'unresolved' CHECK(cost_status IN ('unresolved', 'ok', 'pending', 'unsupported'))",
     );
-    ensureColumn(db, "request_logs", "subscription_code", "TEXT");
     ensureColumn(db, "request_logs", "finalized_at", "TEXT");
     ensureColumn(db, "request_logs", "error_message", "TEXT");
 
@@ -164,10 +163,6 @@ export namespace Storage {
     db.exec(
       "CREATE INDEX IF NOT EXISTS idx_request_logs_cost_status ON request_logs(cost_status)",
     );
-    db.exec(
-      "CREATE INDEX IF NOT EXISTS idx_request_logs_subscription_code ON request_logs(subscription_code) WHERE subscription_code IS NOT NULL",
-    );
-
     db.exec(`
       CREATE TABLE IF NOT EXISTS cost_audit (
         id INTEGER PRIMARY KEY AUTOINCREMENT,

@@ -61,7 +61,6 @@ export namespace UsageService {
           finalized_at: logWithCost.finalized_at ?? logWithCost.finished_at ?? new Date().toISOString(),
           error_message: logWithCost.error_message,
           cost_status: cost.cost_status,
-          subscription_code: logWithCost.subscription_code,
         });
 
         if (updated === 0) return false;

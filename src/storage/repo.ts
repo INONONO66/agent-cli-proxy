@@ -53,8 +53,8 @@ export namespace RequestRepo {
         total_tokens, cost_usd, incomplete, error_code, latency_ms,
         started_at, finished_at, meta_json, user_agent, source_ip,
         agent, source, msg_id, lifecycle_status, cost_status,
-        subscription_code, finalized_at, error_message
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        finalized_at, error_message
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `);
 
     const result = stmt.run(
@@ -88,7 +88,6 @@ export namespace RequestRepo {
       log.msg_id ?? null,
       lifecycleStatus,
       costStatus,
-      log.subscription_code ?? null,
       finalizedAt,
       log.error_message ?? null,
     );
@@ -342,7 +341,6 @@ export namespace RequestRepo {
       finalized_at?: string;
       error_message?: string;
       cost_status?: Usage.CostStatus;
-      subscription_code?: string;
     },
   ): void {
     const stmt = db.prepare(`
@@ -350,8 +348,7 @@ export namespace RequestRepo {
       SET lifecycle_status = COALESCE(?, lifecycle_status),
           finalized_at = COALESCE(?, finalized_at),
           error_message = COALESCE(?, error_message),
-          cost_status = COALESCE(?, cost_status),
-          subscription_code = COALESCE(?, subscription_code)
+          cost_status = COALESCE(?, cost_status)
       WHERE id = ?
     `);
     stmt.run(
@@ -359,7 +356,6 @@ export namespace RequestRepo {
       fields.finalized_at ?? null,
       fields.error_message ?? null,
       fields.cost_status ?? null,
-      fields.subscription_code ?? null,
       id,
     );
   }
@@ -390,7 +386,6 @@ export namespace RequestRepo {
       finalized_at: string;
       error_message?: string;
       cost_status: Usage.CostStatus;
-      subscription_code?: string;
     },
   ): number {
     const stmt = db.prepare(`
@@ -416,8 +411,7 @@ export namespace RequestRepo {
           lifecycle_status = ?,
           finalized_at = ?,
           error_message = COALESCE(?, error_message),
-          cost_status = ?,
-          subscription_code = COALESCE(?, subscription_code)
+          cost_status = ?
       WHERE id = ? AND lifecycle_status = 'pending'
     `);
     const result = stmt.run(
@@ -443,7 +437,6 @@ export namespace RequestRepo {
       fields.finalized_at,
       fields.error_message ?? null,
       fields.cost_status,
-      fields.subscription_code ?? null,
       id,
     );
     return result.changes;
@@ -496,12 +489,6 @@ function parseLifecycleStatus(value: unknown): Usage.LifecycleStatus {
 }
 
 export namespace UsageRepo {
-  export interface DailyBucket {
-    day: string;
-    provider: string;
-    model: string;
-  }
-
   export function upsertDaily(db: Database, usage: Usage.DailyUsage): void {
     const stmt = db.prepare(`
       INSERT INTO daily_usage (
@@ -531,30 +518,6 @@ export namespace UsageRepo {
       usage.total_tokens,
       usage.cost_usd,
     );
-  }
-
-  export function refreshDailyBucket(db: Database, bucket: DailyBucket): void {
-    db.prepare("DELETE FROM daily_usage WHERE day = ? AND provider = ? AND model = ?")
-      .run(bucket.day, bucket.provider, bucket.model);
-
-    db.prepare(`
-      INSERT INTO daily_usage (
-        day, provider, model, request_count, prompt_tokens,
-        completion_tokens, cache_creation_tokens, cache_read_tokens,
-        total_tokens, cost_usd
-      )
-      SELECT
-        substr(started_at, 1, 10), provider, model, COUNT(*),
-        COALESCE(SUM(prompt_tokens), 0), COALESCE(SUM(completion_tokens), 0),
-        COALESCE(SUM(cache_creation_tokens), 0), COALESCE(SUM(cache_read_tokens), 0),
-        COALESCE(SUM(total_tokens), 0), COALESCE(SUM(cost_usd), 0)
-      FROM request_logs
-      WHERE lifecycle_status IN ('completed', 'error')
-        AND substr(started_at, 1, 10) = ?
-        AND provider = ?
-        AND model = ?
-      GROUP BY substr(started_at, 1, 10), provider, model
-    `).run(bucket.day, bucket.provider, bucket.model);
   }
 
   export function upsertDailyAccount(

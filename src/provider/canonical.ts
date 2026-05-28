@@ -64,11 +64,6 @@ export namespace CanonicalProvider {
     return cachedRules;
   }
 
-  /** Invalidate cached rules. Call after ProviderRegistry.forceReload(). */
-  export function invalidate(): void {
-    cachedRules = null;
-  }
-
   /**
    * Resolve canonical provider id from a model name.
    * Uses longest-prefix matching against default + registry-derived rules.

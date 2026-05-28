@@ -19,14 +19,6 @@ export namespace ProviderTransforms {
     return registry.get(providerId) ?? null;
   }
 
-  export function has(providerId: string): boolean {
-    return registry.has(providerId);
-  }
-
-  export function all(): ProviderTransform[] {
-    return Array.from(registry.values());
-  }
-
   export function applyHeaders(providerId: string, headers: Headers, info: RequestInfo): Headers {
     const transform = registry.get(providerId);
     return transform?.transformHeaders ? transform.transformHeaders(headers, info) : headers;

@@ -212,7 +212,6 @@ test("RequestRepo lifecycle updates and cost audit inserts are available", () =>
     finalized_at: "2026-05-04T10:00:02.000Z",
     error_message: "client disconnected",
     cost_status: "unsupported",
-    subscription_code: "pro-weekly",
   });
   const auditId = RequestRepo.insertCostAudit(db, {
     request_log_id: id,
@@ -228,7 +227,6 @@ test("RequestRepo lifecycle updates and cost audit inserts are available", () =>
     finalized_at: "2026-05-04T10:00:02.000Z",
     error_message: "client disconnected",
     cost_status: "unsupported",
-    subscription_code: "pro-weekly",
   });
   expect(db.query("SELECT * FROM cost_audit WHERE id = ?").get(auditId)).toMatchObject({
     request_log_id: id,

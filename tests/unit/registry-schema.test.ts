@@ -111,7 +111,7 @@ test("registry drops corrupt custom entries while retaining built-ins and valid 
 
   expect(ids).toEqual(expect.arrayContaining(["anthropic", "openai", "local"]));
   expect(ids).not.toContain("corrupt");
-  expect(ProviderRegistry.handlesPath("/v1/messages")).toBe(true);
+  expect(ProviderRegistry.resolve({ path: "/v1/messages" })?.id).toBe("anthropic");
   expect(ProviderRegistry.resolve({ path: "/v1/chat/completions", provider: "local" })?.id).toBe("local");
 });
 
