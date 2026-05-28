@@ -55,6 +55,7 @@ describe("admin auth and deployment security", () => {
       securityConfig: {
         adminApiKey: ADMIN_TOKEN,
         host: "0.0.0.0",
+        proxyRequireApiKey: true,
         trustProxyHeaders: false,
       },
     });
@@ -116,6 +117,7 @@ describe("admin auth and deployment security", () => {
       securityConfig: {
         adminApiKey: ADMIN_TOKEN,
         host: "0.0.0.0",
+        proxyRequireApiKey: true,
         trustProxyHeaders: true,
       },
     });
@@ -136,6 +138,7 @@ describe("admin auth and deployment security", () => {
       securityConfig: {
         adminApiKey: ADMIN_TOKEN,
         host: "0.0.0.0",
+        proxyRequireApiKey: true,
         trustProxyHeaders: true,
       },
     });
@@ -155,18 +158,29 @@ describe("admin auth and deployment security", () => {
 
   it("protects metrics off loopback while preserving admin token access", async () => {
     const unauthorized = await handlerModule.Handler.create(serviceModule.UsageService.create(db), {
-      securityConfig: { adminApiKey: ADMIN_TOKEN, host: "0.0.0.0", trustProxyHeaders: false },
+      securityConfig: { adminApiKey: ADMIN_TOKEN, host: "0.0.0.0", proxyRequireApiKey: true, trustProxyHeaders: false },
     })(new Request("http://proxy.example.test/metrics"));
     expect(unauthorized.status).toBe(403);
     expect(unauthorized.headers.get("cache-control")).toBe("no-store");
 
     const authorized = await handlerModule.Handler.create(serviceModule.UsageService.create(db), {
-      securityConfig: { adminApiKey: ADMIN_TOKEN, host: "0.0.0.0", trustProxyHeaders: false },
+      securityConfig: { adminApiKey: ADMIN_TOKEN, host: "0.0.0.0", proxyRequireApiKey: true, trustProxyHeaders: false },
     })(new Request("http://proxy.example.test/metrics", {
       headers: { "x-admin-token": ADMIN_TOKEN },
     }));
     expect(authorized.status).toBe(200);
     expect(authorized.headers.get("content-type")).toContain("text/plain");
+  });
+
+  it("rejects handler security overrides that disable proxy keys off loopback", () => {
+    expect(() => handlerModule.Handler.create(serviceModule.UsageService.create(db), {
+      securityConfig: {
+        adminApiKey: ADMIN_TOKEN,
+        host: "0.0.0.0",
+        proxyRequireApiKey: false,
+        trustProxyHeaders: false,
+      },
+    })).toThrow("PROXY_REQUIRE_API_KEY must be true when PROXY_HOST is not loopback");
   });
 });
 

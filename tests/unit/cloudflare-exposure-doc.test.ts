@@ -14,7 +14,7 @@ describe("Cloudflare exposure design doc", () => {
       "Cf-Access-Jwt-Assertion",
       "PROXY_REQUIRE_API_KEY=true",
       "managed `x-proxy-key`",
-      "compatibility presence gates",
+      "do not satisfy this application-level key check",
       "deny `/admin/*`, `/dashboard/*`, and `/metrics`",
       "provenance-header normalization",
       "stripped/overwritten before origin",

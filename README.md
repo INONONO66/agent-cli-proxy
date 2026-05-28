@@ -93,6 +93,7 @@ Provider API keys are intentionally **not** stored by this proxy. The proxy rout
 | `PROXY_HOST` | `127.0.0.1` | Bind host. Keep loopback unless you add auth/network controls. |
 | `TRUST_PROXY_HEADERS` | `false` | Trust reverse-proxy headers such as `X-Forwarded-Proto`/Cloudflare visitor scheme for HTTPS-only decisions. Enable only behind a trusted proxy. |
 | `ADMIN_API_KEY` | | Required when `PROXY_HOST` is not loopback. Token for `/admin/*` endpoints. |
+| `PROXY_REQUIRE_API_KEY` | `false` on loopback, `true` off loopback | Require a valid managed `x-proxy-key` for `/v1/*` and `/api/*` requests. Keep enabled for any externally reachable deployment. |
 | `CLI_PROXY_API_URL` | `http://localhost:8317` | Upstream CLIProxyAPI URL (required unless `PROXY_LOCAL_OK=1`) |
 | `CLI_PROXY_API_KEY` | `proxy` | Proxy auth key sent to CLIProxyAPI |
 | `CLAUDE_CODE_VERSION` | `2.1.87` | Claude Code version for bypass headers |
@@ -122,6 +123,19 @@ Provider API keys are intentionally **not** stored by this proxy. The proxy rout
 | `UPSTREAM_CIRCUIT_BREAKER_OPEN_AFTER_FAILURES` | `5` | Consecutive upstream failures before the circuit breaker opens |
 | `UPSTREAM_CIRCUIT_BREAKER_HALF_OPEN_AFTER_MS` | `30000` | Delay before a half-open probe is allowed (30s) |
 | `UPSTREAM_CIRCUIT_BREAKER_EVICT_AFTER_MS` | `300000` | Idle time before a healthy breaker is evicted (5m) |
+
+### Public proxy API keys
+
+When the proxy binds to a non-loopback host, `PROXY_REQUIRE_API_KEY` defaults to
+`true`. In that mode, every LLM proxy request under `/v1/*` and `/api/*` must
+include a valid managed `x-proxy-key`. Upstream-style `Authorization` and
+`x-api-key` headers do not satisfy this application-level check. Non-loopback
+binds cannot disable this requirement; keep `PROXY_HOST` on loopback for local
+development without proxy client keys.
+
+Create and manage client proxy keys from the dashboard **API Keys** page or the
+`/admin/api-keys` API. These keys remain separate from `ADMIN_API_KEY` and from
+the upstream `CLI_PROXY_API_KEY`.
 
 ## Custom Providers
 

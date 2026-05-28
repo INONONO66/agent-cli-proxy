@@ -83,6 +83,30 @@ describe("security headers and proxy headers", () => {
     `, { PROXY_REQUIRE_API_KEY: "true" });
   });
 
+  test("public proxy mode requires a managed x-proxy-key", async () => {
+    await runIsolatedCheck(`
+      const authorizationOnly = await handle(new Request("http://proxy.test/v1/models", {
+        headers: { authorization: "Bearer upstream-token" },
+      }));
+      assert(authorizationOnly.status === 401, "Authorization must not satisfy public proxy key enforcement");
+
+      const xApiKeyOnly = await handle(new Request("http://proxy.test/v1/models", {
+        headers: { "x-api-key": "upstream-token" },
+      }));
+      assert(xApiKeyOnly.status === 401, "x-api-key must not satisfy public proxy key enforcement");
+
+      const invalidProxyKey = await handle(new Request("http://proxy.test/v1/models", {
+        headers: { "x-proxy-key": "invalid-key" },
+      }));
+      assert(invalidProxyKey.status === 401, "unknown x-proxy-key must be rejected");
+      assert(invalidProxyKey.headers.get("cache-control") === "no-store", "proxy auth failures must not be cached");
+    `, { PROXY_HOST: "0.0.0.0", ADMIN_API_KEY: "admin-token" });
+  });
+
+  test("managed x-proxy-key satisfies required public proxy auth", async () => {
+    await runIsolatedManagedProxyKeyCheck();
+  });
+
   test("adds baseline security headers to proxied API responses", async () => {
     await runIsolatedProxyCheck();
   });
@@ -150,6 +174,65 @@ async function runIsolatedProxyCheck(): Promise<void> {
       if (res.headers.get("referrer-policy") !== "strict-origin-when-cross-origin") throw new Error("missing Referrer-Policy");
       if (res.headers.get("cross-origin-opener-policy") !== "same-origin") throw new Error("missing Cross-Origin-Opener-Policy");
       await res.text();
+    } finally {
+      upstream.stop(true);
+      db.close();
+    }
+  `;
+  const proc = Bun.spawn(["bun", "--eval", script], {
+    cwd: process.cwd(),
+    env: { ...process.env, PROXY_LOCAL_OK: "1", LOG_LEVEL: "error", PLANS_JSON: "" },
+    stdout: "pipe",
+    stderr: "pipe",
+  });
+  const [exitCode, stdoutText, stderrText] = await Promise.all([
+    proc.exited,
+    new Response(proc.stdout).text(),
+    new Response(proc.stderr).text(),
+  ]);
+
+  expect(`${stdoutText}${stderrText}`).toBe("");
+  expect(exitCode).toBe(0);
+}
+
+async function runIsolatedManagedProxyKeyCheck(): Promise<void> {
+  const script = `
+    process.env.PROXY_LOCAL_OK = "1";
+    process.env.LOG_LEVEL = "error";
+    process.env.PROXY_HOST = "0.0.0.0";
+    process.env.ADMIN_API_KEY = "admin-token";
+    const upstream = Bun.serve({
+      hostname: "127.0.0.1",
+      port: 0,
+      fetch(req) {
+        if (req.headers.has("x-proxy-key")) throw new Error("x-proxy-key leaked upstream");
+        return new Response(JSON.stringify({ model: "gpt-4o", usage: { prompt_tokens: 1, completion_tokens: 1, total_tokens: 2 } }), {
+          headers: { "content-type": "application/json" },
+        });
+      },
+    });
+    process.env.CLI_PROXY_API_URL = "http://127.0.0.1:" + upstream.port;
+    const { Handler } = await import("./src/server/handler.ts");
+    const { Storage } = await import("./src/storage/db.ts");
+    const { UsageService } = await import("./src/storage/service.ts");
+    const { ApiKeyRepo } = await import("./src/storage/api-keys.ts");
+    const db = Storage.initDb(":memory:");
+    const apiKey = await ApiKeyRepo.create(db, "public-client");
+    const handle = Handler.create(UsageService.create(db));
+    try {
+      const res = await handle(new Request("http://proxy.test/v1/chat/completions", {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          "user-agent": "opencode/1.0",
+          "x-proxy-key": apiKey.key,
+        },
+        body: JSON.stringify({ model: "gpt-4o", messages: [{ role: "user", content: "hi" }] }),
+      }));
+      if (res.status !== 200) throw new Error("expected valid managed x-proxy-key to proxy, got " + res.status);
+      await res.text();
+      const found = ApiKeyRepo.list(db).find((key) => key.id === apiKey.id);
+      if (!found?.lastUsedAt) throw new Error("expected proxy key last_used_at to be updated by pass-through");
     } finally {
       upstream.stop(true);
       db.close();
