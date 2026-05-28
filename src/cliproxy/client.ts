@@ -3,6 +3,7 @@ import { UpstreamClient } from "../upstream/client";
 import { Logger } from "../util/logger";
 
 const logger = Logger.fromConfig().child({ component: "cliproxy-client" });
+let usageEndpointUnsupported = false;
 
 export namespace CLIProxyClient {
   export interface UsageDetail {
@@ -46,10 +47,12 @@ export namespace CLIProxyClient {
   }
 
   export async function fetchUsage(): Promise<UsageResponse | null> {
-    const key = Config.cliproxyMgmtKey;
-    if (!key) return null;
+    return await fetchUsageFrom(`${Config.cliProxyApiUrl}/v0/management/usage`, Config.cliproxyMgmtKey);
+  }
 
-    const url = `${Config.cliProxyApiUrl}/v0/management/usage`;
+  export async function fetchUsageFrom(url: string, key: string): Promise<UsageResponse | null> {
+    if (!key || usageEndpointUnsupported) return null;
+
     try {
       const res = await UpstreamClient.fetch({
         method: "GET",
@@ -62,6 +65,11 @@ export namespace CLIProxyClient {
         await res.text().catch((err) => {
           logger.debug("usage fetch error body read failed", { err, status: res.status });
         });
+        if (res.status === 404) {
+          usageEndpointUnsupported = true;
+          logger.warn("usage fetch endpoint unavailable, disabling correlation", { status: res.status, status_text: res.statusText });
+          return null;
+        }
         logger.error("usage fetch failed", { status: res.status, status_text: res.statusText });
         return null;
       }
@@ -70,6 +78,10 @@ export namespace CLIProxyClient {
       logger.error("usage fetch error", { err });
       return null;
     }
+  }
+
+  export function resetUsageEndpointSupportForTests(): void {
+    usageEndpointUnsupported = false;
   }
 
   export function flattenDetails(
