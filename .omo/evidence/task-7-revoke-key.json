@@ -1,6 +1,0 @@
-{
-  "note": "revoke returns {revokedAt} set",
-  "route": "DELETE /admin/api-keys/:id",
-  "csrfRequired": true,
-  "revokedAtSet": true
-}

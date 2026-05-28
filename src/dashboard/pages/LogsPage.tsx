@@ -150,9 +150,7 @@ export function LogsPage() {
     return () => window.removeEventListener("hashchange", onHashChange);
   }, []);
 
-  useEffect(() => {
-    refresh();
-  }, [appliedTool, appliedClientId, appliedModel, appliedProvider, appliedStatus, appliedLifecycle, limit, offset, refresh]);
+
 
   const tools = useMemo(() => {
     if (!logs) return [];

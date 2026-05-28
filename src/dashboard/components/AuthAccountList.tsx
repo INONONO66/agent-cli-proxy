@@ -89,7 +89,7 @@ export function AuthAccountList({ accounts, onRefresh }: AuthAccountListProps) {
               const email = account.email ?? "Unknown";
               const lastRefresh = account.last_refresh ?? account.refreshed_at;
               return (
-                <Card key={i}>
+                <Card key={account.email ?? i}>
                   <CardContent className="flex items-center justify-between gap-3 flex-wrap p-4">
                     <div className="flex-1 min-w-0">
                       <div className="text-sm font-medium">{email}</div>

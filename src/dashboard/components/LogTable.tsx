@@ -81,7 +81,7 @@ export function LogTable({ logs, loading, limit, offset, onLimitChange, onOffset
                 {Array.from({ length: 5 }).map((_, i) => (
                   <TableRow key={`skel-${i}`}>
                     {Array.from({ length: 10 }).map((__, j) => (
-                      <TableCell key={j}><Skeleton className="h-3" style={{ width: `${60 + Math.random() * 40}%` }} /></TableCell>
+                      <TableCell key={j}><Skeleton className="h-3" style={{ width: `${60 + ((i * 10 + j) % 40)}%` }} /></TableCell>
                     ))}
                   </TableRow>
                 ))}

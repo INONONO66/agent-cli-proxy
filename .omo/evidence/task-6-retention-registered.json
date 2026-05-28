@@ -1,6 +1,0 @@
-{
-  "task": "task-6-retention-registered",
-  "status": "done",
-  "note": "quota-retention loop registered in supervisor with 24h interval",
-  "timestamp": "2026-05-26T00:00:00Z"
-}

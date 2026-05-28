@@ -55,7 +55,9 @@ export function ApiKeysPage() {
           .filter((account): account is string => typeof account === "string" && account.length > 0);
         setAccountOptions(Array.from(new Set([...fallbackAccounts, ...accounts])));
       })
-      .catch(() => undefined);
+      .catch((err) => {
+        console.warn("failed to load quota accounts for API key options", err);
+      });
     return () => {
       cancelled = true;
     };

@@ -15,7 +15,7 @@ export function QuotasPage() {
 
   const handleRefresh = useCallback(async () => {
     await getQuotas(true);
-    refresh();
+    await refresh();
   }, [refresh]);
 
   const groups = useMemo(() => {

@@ -1,4 +1,5 @@
 import { useCallback, useState } from "react";
+import React from "react";
 import { getOAuthAccounts, startOAuthLogin } from "../api";
 import { usePolling } from "../hooks/usePolling";
 import { AuthAccountList } from "../components/AuthAccountList";
@@ -8,7 +9,8 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 
 export function OAuthPage() {
-  const { data, loading, error, refresh } = usePolling(getOAuthAccounts, 30000);
+  const fetchAccounts = useCallback(() => getOAuthAccounts(), []);
+  const { data, loading, error, refresh } = usePolling(fetchAccounts, 30000);
   const [activeJob, setActiveJob] = useState<OAuthStartResponse | null>(null);
 
   const handleRefresh = useCallback(

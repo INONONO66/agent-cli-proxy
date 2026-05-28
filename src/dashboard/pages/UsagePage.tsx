@@ -98,36 +98,26 @@ export function UsagePage() {
     return Math.max(1, (to.getTime() - from.getTime()) / (1000 * 60 * 60));
   }, [timeRange, effectiveFrom, effectiveTo]);
 
-  const { data: today } = usePolling(getTodayUsage, 30000);
-  const { data: range } = usePolling(
-    useCallback(() => getUsageRange(effectiveFrom, effectiveTo), [effectiveFrom, effectiveTo]),
-    30000,
-  );
-  const { data: modelBreakdown } = usePolling(
-    useCallback(() => getModelBreakdown(undefined, effectiveFrom, effectiveTo), [effectiveFrom, effectiveTo]),
-    30000,
-  );
-  const { data: providerBreakdown } = usePolling(
-    useCallback(() => getProviderBreakdown(undefined, effectiveFrom, effectiveTo), [effectiveFrom, effectiveTo]),
-    30000,
-  );
-  const { data: stats } = usePolling(getStats, 30000);
-  const { data: costSummary } = usePolling(
-    useCallback(() => getCostSummary(month), [month]),
-    30000,
+  const fetchRange = useCallback(() => getUsageRange(effectiveFrom, effectiveTo), [effectiveFrom, effectiveTo]);
+  const fetchModels = useCallback(() => getModelBreakdown(undefined, effectiveFrom, effectiveTo), [effectiveFrom, effectiveTo]);
+  const fetchProviders = useCallback(() => getProviderBreakdown(undefined, effectiveFrom, effectiveTo), [effectiveFrom, effectiveTo]);
+  const fetchCost = useCallback(() => getCostSummary(month), [month]);
+  const fetchTrend = useCallback(
+    () => fetchUsageTrend(
+      typeof timeRange === "number" ? timeRange : undefined,
+      typeof timeRange === "number" ? undefined : effectiveFrom,
+      typeof timeRange === "number" ? undefined : effectiveTo,
+    ),
+    [timeRange, effectiveFrom, effectiveTo],
   );
 
-  const { data: usageTrend, loading: usageTrendLoading, error: usageTrendError } = usePolling(
-    useCallback(
-      () => fetchUsageTrend(
-        typeof timeRange === "number" ? timeRange : undefined,
-        typeof timeRange === "number" ? undefined : effectiveFrom,
-        typeof timeRange === "number" ? undefined : effectiveTo,
-      ),
-      [timeRange, effectiveFrom, effectiveTo],
-    ),
-    30000,
-  );
+  const { data: today } = usePolling(getTodayUsage, 30000);
+  const { data: range } = usePolling(fetchRange, 30000);
+  const { data: modelBreakdown } = usePolling(fetchModels, 30000);
+  const { data: providerBreakdown } = usePolling(fetchProviders, 30000);
+  const { data: stats } = usePolling(getStats, 30000);
+  const { data: costSummary } = usePolling(fetchCost, 30000);
+  const { data: usageTrend, loading: usageTrendLoading, error: usageTrendError } = usePolling(fetchTrend, 30000);
 
   const maxModelTokens = useMemo(
     () => Math.max(1, ...(modelBreakdown ?? []).map((m) => m.total_tokens)),
