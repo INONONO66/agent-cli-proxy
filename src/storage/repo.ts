@@ -2,13 +2,6 @@ import { Database } from "bun:sqlite";
 import { Usage } from "../usage";
 
 export namespace RequestRepo {
-  export interface MonthlyAccountCost {
-    cliproxy_account: string;
-    subscription_code: string | null;
-    total_requests: number;
-    total_cost_usd: number;
-  }
-
   export interface AccountRecentUsage {
     started_at: string;
     model: string;
@@ -208,39 +201,6 @@ export namespace RequestRepo {
     return (stmt.get(id) as Usage.RequestLog) || null;
   }
 
-  export function aggregateByAccountForMonth(
-    db: Database,
-    monthStart: string,
-    monthEnd: string,
-  ): MonthlyAccountCost[] {
-    const stmt = db.prepare(`
-      SELECT
-        rl.cliproxy_account AS cliproxy_account,
-        sub.subscription_code AS subscription_code,
-        COUNT(*) AS total_requests,
-        COALESCE(SUM(rl.cost_usd), 0) AS total_cost_usd
-      FROM request_logs rl
-      LEFT JOIN account_subscriptions sub
-        ON sub.cliproxy_account = rl.cliproxy_account
-      WHERE rl.lifecycle_status = 'completed'
-        AND rl.started_at >= ?
-        AND rl.started_at < ?
-        AND rl.cliproxy_account IS NOT NULL
-        AND rl.cliproxy_account <> ''
-      GROUP BY rl.cliproxy_account, sub.subscription_code
-      ORDER BY total_cost_usd DESC, rl.cliproxy_account ASC
-    `);
-    return stmt.all(monthStart, monthEnd).map((row) => {
-      const record = row as Record<string, unknown>;
-      return {
-        cliproxy_account: String(record.cliproxy_account),
-        subscription_code: typeof record.subscription_code === "string" ? record.subscription_code : null,
-        total_requests: Number(record.total_requests ?? 0),
-        total_cost_usd: Number(record.total_cost_usd ?? 0),
-      };
-    });
-  }
-
   export function getRecentByAccount(
     db: Database,
     cliproxyAccount: string,
@@ -408,15 +368,6 @@ export namespace RequestRepo {
       fields.subscription_code ?? null,
       id,
     );
-  }
-
-  export function applySubscription(
-    db: Database,
-    id: number,
-    subscriptionCode: string,
-  ): void {
-    db.prepare("UPDATE request_logs SET subscription_code = ? WHERE id = ?")
-      .run(subscriptionCode, id);
   }
 
   export function updateFinalize(

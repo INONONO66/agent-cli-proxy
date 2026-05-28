@@ -130,16 +130,6 @@ test("doctor returns 1 on broken config", async () => {
   expect(report.checks.config.issues.join(" ")).toContain("CLI_PROXY_API_URL");
 });
 
-test("plans path returns configured source", async () => {
-  const path = join(tempDir("agent-cli-proxy-plans-path-"), "plans.json");
-  await Bun.write(path, JSON.stringify({ plans: [] }));
-
-  const result = await runCli(["plans", "path"], testEnv({ PLANS_PATH: path }));
-
-  expect(result.exitCode).toBe(0);
-  expect(result.stdout.trim()).toBe(path);
-});
-
 test("providers show masks auth values", async () => {
   const providers = JSON.stringify({
     providers: [{

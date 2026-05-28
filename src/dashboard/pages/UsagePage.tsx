@@ -11,7 +11,6 @@ import {
   ResponsiveContainer,
 } from "recharts";
 import {
-  getCostSummary,
   getModelBreakdown,
   getProviderBreakdown,
   getStats,
@@ -32,10 +31,6 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 
 function todayIso(): string {
   return new Date().toISOString().slice(0, 10);
-}
-
-function currentMonth(): string {
-  return new Date().toISOString().slice(0, 7);
 }
 
 function formatAxisTime(hours: number, timestamp: string): string {
@@ -88,7 +83,7 @@ function BarTrack({ pct }: { pct: number }) {
 export function UsagePage() {
   const [customFrom, setCustomFrom] = useState(todayIso());
   const [customTo, setCustomTo] = useState(todayIso());
-  const [month, setMonth] = useState(currentMonth());
+
   const [timeRange, setTimeRange] = useState<TimeRange>(24);
 
   const [effectiveFrom, setEffectiveFrom] = useState(todayIso());
@@ -104,7 +99,6 @@ export function UsagePage() {
   const fetchRange = useCallback(() => getUsageRange(effectiveFrom, effectiveTo), [effectiveFrom, effectiveTo]);
   const fetchModels = useCallback(() => getModelBreakdown(undefined, effectiveFrom, effectiveTo), [effectiveFrom, effectiveTo]);
   const fetchProviders = useCallback(() => getProviderBreakdown(undefined, effectiveFrom, effectiveTo), [effectiveFrom, effectiveTo]);
-  const fetchCost = useCallback(() => getCostSummary(month), [month]);
   const fetchTrend = useCallback(
     () => fetchUsageTrend(
       typeof timeRange === "number" ? timeRange : undefined,
@@ -119,7 +113,6 @@ export function UsagePage() {
   const { data: modelBreakdown } = usePolling(fetchModels, 30000);
   const { data: providerBreakdown } = usePolling(fetchProviders, 30000);
   const { data: stats } = usePolling(getStats, 30000);
-  const { data: costSummary } = usePolling(fetchCost, 30000);
   const { data: usageTrend, loading: usageTrendLoading, error: usageTrendError } = usePolling(fetchTrend, 30000);
 
   const maxModelTokens = useMemo(
@@ -369,65 +362,6 @@ export function UsagePage() {
               </Table>
             </CardContent>
           </Card>
-        </div>
-      )}
-
-      <div className="mb-6">
-        <h3 className="text-sm font-semibold mb-3">Monthly Cost Summary</h3>
-        <div className="flex gap-2 items-center flex-wrap">
-          <Label className="text-xs">Month</Label>
-          <Input type="month" className="h-8 text-xs w-auto" value={month} onChange={(e) => setMonth(e.target.value)} />
-        </div>
-      </div>
-
-      {costSummary && (
-        <div className="mb-6">
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-4">
-            <StatBox label="Accounts"><Num value={costSummary.totals.accounts} /></StatBox>
-            <StatBox label="Requests"><Num value={costSummary.totals.total_requests} /></StatBox>
-            <StatBox label="Total Cost"><Num value={costSummary.totals.total_cost_usd} format="cost" /></StatBox>
-            <Card>
-              <CardContent className="p-4">
-                <div className="text-[11px] uppercase tracking-wider text-muted-foreground mb-1.5">Overage</div>
-                <div className={`font-mono text-xl font-semibold ${costSummary.totals.total_overage_usd > 0 ? "text-destructive" : ""}`}>
-                  <Num value={costSummary.totals.total_overage_usd} format="cost" />
-                </div>
-              </CardContent>
-            </Card>
-          </div>
-
-          {costSummary.rows.length > 0 && (
-            <Card>
-              <CardContent className="p-0">
-                <Table>
-                  <TableHeader>
-                    <TableRow>
-                      <TableHead>Account</TableHead>
-                      <TableHead>Plan</TableHead>
-                      <TableHead className="text-right">Monthly Price</TableHead>
-                      <TableHead className="text-right">Requests</TableHead>
-                      <TableHead className="text-right">Cost</TableHead>
-                      <TableHead className="text-right">Overage</TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {costSummary.rows.map((row) => (
-                      <TableRow key={row.cliproxy_account}>
-                        <TableCell>{row.cliproxy_account}</TableCell>
-                        <TableCell>{row.subscription_code ?? "—"}</TableCell>
-                        <TableCell className="text-right"><Num value={row.monthly_price_usd} format="cost" /></TableCell>
-                        <TableCell className="text-right"><Num value={row.total_requests} /></TableCell>
-                        <TableCell className="text-right"><Num value={row.total_cost_usd} format="cost" /></TableCell>
-                        <TableCell className={`text-right ${row.computed_overage_usd > 0 ? "text-destructive" : ""}`}>
-                          <Num value={row.computed_overage_usd} format="cost" />
-                        </TableCell>
-                      </TableRow>
-                    ))}
-                  </TableBody>
-                </Table>
-              </CardContent>
-            </Card>
-          )}
         </div>
       )}
 

@@ -1,6 +1,6 @@
 import type { Database } from "bun:sqlite";
 import { readdir } from "node:fs/promises";
-import { AccountSubscriptionRepo } from "./account-subscriptions";
+
 import { Storage } from "./db";
 import { QuotaRepo, RequestRepo, UsageRepo } from "./repo";
 import { Pricing } from "./pricing";
@@ -13,7 +13,7 @@ import { Supervisor } from "../runtime/supervisor";
 
 const logger = Logger.fromConfig().child({ component: "usage-service" });
 const costBackfillLogger = Logger.fromConfig().child({ component: "cost" });
-export const unmappedSubscriptionWarnings = new Map<string, true>();
+
 
 export namespace UsageService {
   export interface CreateOptions {
@@ -432,14 +432,6 @@ export namespace UsageService {
         if (updated !== 1) return;
 
         if (fields.cliproxy_account) {
-          applySubscriptionAttribution(
-            db,
-            id,
-            fields.cliproxy_account,
-            serviceLogger,
-            now,
-          );
-
           UsageRepo.upsertDailyAccount(db, {
             day: log.started_at.slice(0, 10),
             provider: log.provider,
@@ -458,26 +450,6 @@ export namespace UsageService {
         }
       });
       Storage.runWriteWithRetry(db, txn);
-    }
-
-    function applySubscriptionAttribution(
-      database: Database,
-      requestLogId: number,
-      cliproxyAccount: string,
-      targetLogger: Logger.Logger,
-      currentDate: () => Date,
-    ): void {
-      const binding = AccountSubscriptionRepo.get(database, cliproxyAccount);
-      if (binding) {
-        RequestRepo.applySubscription(
-          database,
-          requestLogId,
-          binding.subscription_code,
-        );
-        return;
-      }
-
-      warnUnmappedSubscription(targetLogger, cliproxyAccount, currentDate());
     }
 
     function getAccountSummary(from: string, to: string): Usage.AccountSummary[] {
@@ -604,32 +576,6 @@ export namespace UsageService {
   }
 
   export type UsageService = ReturnType<typeof create>;
-
-  function pruneStaleWarnings(today: string): void {
-    for (const key of unmappedSubscriptionWarnings.keys()) {
-      const day = key.slice(key.lastIndexOf(":") + 1);
-      if (day !== today) {
-        unmappedSubscriptionWarnings.delete(key);
-      }
-    }
-  }
-
-  export function warnUnmappedSubscription(
-    targetLogger: Logger.Logger,
-    cliproxyAccount: string,
-    date: Date = new Date(),
-  ): void {
-    const day = date.toISOString().slice(0, 10);
-    pruneStaleWarnings(day);
-    const key = `${cliproxyAccount}:${day}`;
-    if (unmappedSubscriptionWarnings.has(key)) return;
-
-    unmappedSubscriptionWarnings.set(key, true);
-    targetLogger.warn("plans unmapped", {
-      event: "plans.unmapped",
-      cliproxy_account: cliproxyAccount,
-    });
-  }
 
   export interface BackfillCostsResult {
     scanned: number;

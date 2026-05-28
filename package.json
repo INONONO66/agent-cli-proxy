@@ -41,7 +41,7 @@
   ],
   "scripts": {
     "dev": "bun run --watch src/index.ts",
-    "build": "bun build src/index.ts src/cli.ts --target=bun --outdir=./dist && rm -rf dist/dashboard && bunx vite build --config src/dashboard/vite.config.ts && rm -rf dist/migrations && cp -R src/storage/migrations dist/migrations && mkdir -p dist/data && cp data/plans.default.json dist/data/plans.default.json && bun run scripts/post-build.ts",
+    "build": "bun build src/index.ts src/cli.ts --target=bun --outdir=./dist && rm -rf dist/dashboard && bunx vite build --config src/dashboard/vite.config.ts && rm -rf dist/migrations && cp -R src/storage/migrations dist/migrations && bun run scripts/post-build.ts",
     "build:dashboard": "bunx vite build --config src/dashboard/vite.config.ts",
     "dev:dashboard": "bunx vite --config src/dashboard/vite.config.ts",
     "typecheck": "bunx tsc --noEmit",

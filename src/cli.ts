@@ -5,9 +5,6 @@ import { dirname, join, resolve } from "node:path";
 import { homedir, platform } from "node:os";
 import { createInterface } from "node:readline/promises";
 import { stdin as input, stdout as output } from "node:process";
-import defaultPlansDocument from "../data/plans.default.json";
-import { Plans } from "./plans";
-import { AccountSubscriptionRepo } from "./storage/account-subscriptions";
 import { Storage } from "./storage/db";
 import { Config, ConfigError, type ConfigIssue, type ValidatedConfig } from "./config/validate";
 import { Logger } from "./util/logger";
@@ -47,7 +44,6 @@ const defaultRuntimeDir = process.env.AGENT_CLI_PROXY_RUNTIME_DIR ?? join(defaul
 const defaultEnvPath = process.env.AGENT_CLI_PROXY_ENV ?? join(defaultConfigDir, ".env");
 const defaultDbPath = join(defaultDataDir, "proxy.db");
 const defaultPricingCachePath = join(defaultDataDir, "pricing-cache.json");
-const defaultPlansPath = join(defaultConfigDir, "plans.json");
 const defaultProvidersPath = join(defaultConfigDir, "providers.json");
 
 const packageRoot = resolve(dirname(Bun.fileURLToPath(import.meta.url)), "..");
@@ -133,9 +129,6 @@ export async function runCli(argv: string[]): Promise<number> {
         return await serviceCommand(ctx, subcommand);
       case "backfill-costs":
         await backfillCostsCommand(ctx);
-        return 0;
-      case "plans":
-        await plansCommand(ctx, subcommand);
         return 0;
       case "providers":
         await providersCommand(ctx, subcommand);
@@ -362,7 +355,6 @@ async function collectDoctorReport(ctx: CommandContext): Promise<{ status: "PASS
 
   const dbPath = config?.dbPath ?? env.DB_PATH ?? defaultDbPath;
   checks.database = databaseCheck(dbPath);
-  checks.plans = plansCheck();
   checks.providers = await providersCheck(Boolean(config));
   checks.pricingCache = await pricingCacheCheck(config?.pricingCachePath ?? env.PRICING_CACHE_PATH ?? defaultPricingCachePath);
   checks.upstream = config ? await upstreamCheck(config) : { status: "FAIL", issues: ["skipped because config is invalid"] };
@@ -405,25 +397,6 @@ function databaseCheck(dbPath: string): CheckResult {
     return { status: "FAIL", issues: [errorMessage(err)], details: { path: dbPath } };
   } finally {
     db?.close();
-  }
-}
-
-function plansCheck(): CheckResult {
-  try {
-    Plans.reload();
-    const plans = Plans.list();
-    const source = resolvePlansSource();
-    return {
-      status: "PASS",
-      issues: [],
-      details: {
-        count: plans.length,
-        source: source.kind,
-        path: source.path ?? null,
-      },
-    };
-  } catch (err) {
-    return { status: "FAIL", issues: [errorMessage(err)] };
   }
 }
 
@@ -512,82 +485,6 @@ function printDoctorReport(report: { status: "PASS" | "FAIL"; checks: Record<str
     }
     if (check.details !== undefined) writeOut(`  ${JSON.stringify(check.details)}`);
   }
-}
-
-async function plansCommand(ctx: CommandContext, subcommand: string): Promise<void> {
-  const planArgs = ctx.args.positional.slice(2);
-  const [accountArg = "", codeArg = ""] = planArgs;
-
-  switch (subcommand) {
-    case "show": {
-      Plans.reload();
-      const plans = Plans.list();
-      if (hasFlag(ctx.args, "--json")) writeOut(JSON.stringify(plans, null, 2));
-      else printPlansTable(plans);
-      return;
-    }
-    case "path": {
-      const source = resolvePlansSource();
-      writeOut(source.path ?? source.label);
-      return;
-    }
-    case "init": {
-      await initPlansFile(hasFlag(ctx.args, "--force"));
-      return;
-    }
-    case "edit": {
-      const path = await ensureEditablePlansFile(hasFlag(ctx.args, "--force"));
-      await openEditor(path);
-      return;
-    }
-    case "bind": {
-      const { account, code } = Plans.validateBindingInput(accountArg, codeArg);
-      const db = await openConfiguredDb(ctx);
-      try {
-        AccountSubscriptionRepo.bind(db, account, code);
-      } finally {
-        db.close();
-      }
-      writeOut(`Bound ${account} → ${code}`);
-      return;
-    }
-    case "unbind": {
-      const account = accountArg.trim();
-      if (!account) throw new Error("Account must be a non-empty string");
-      const db = await openConfiguredDb(ctx);
-      try {
-        AccountSubscriptionRepo.unbind(db, account);
-      } finally {
-        db.close();
-      }
-      writeOut(`Unbound ${account}`);
-      return;
-    }
-    case "list": {
-      const db = await openConfiguredDb(ctx);
-      try {
-        writeOut("Plans:");
-        for (const plan of Plans.list()) {
-          writeOut(`  ${plan.code} - ${plan.display_name}`);
-        }
-        writeOut("Bindings:");
-        const bindings = AccountSubscriptionRepo.list(db);
-        if (bindings.length === 0) {
-          writeOut("  (none)");
-        } else {
-          for (const binding of bindings) {
-            writeOut(`  ${binding.cliproxy_account} → ${binding.subscription_code} (${binding.bound_at})`);
-          }
-        }
-      } finally {
-        db.close();
-      }
-      return;
-    }
-  }
-
-  writeErr("Usage: agent-cli-proxy plans <show|edit|path|init|bind|unbind|list>");
-  throw new Error("invalid plans subcommand");
 }
 
 async function providersCommand(ctx: CommandContext, subcommand: string): Promise<void> {
@@ -917,7 +814,6 @@ function printPaths(): void {
     envPath: defaultEnvPath,
     dbPath: defaultDbPath,
     pricingCachePath: defaultPricingCachePath,
-    plansPath: defaultPlansPath,
     providersPath: defaultProvidersPath,
   }, null, 2));
 }
@@ -934,11 +830,6 @@ Usage:
   agent-cli-proxy service start|stop|restart|status
   agent-cli-proxy service logs [--follow]
   agent-cli-proxy backfill-costs [--all] [--limit N]
-  agent-cli-proxy plans show [--json]
-  agent-cli-proxy plans edit|path|init [--force]
-  agent-cli-proxy plans bind <account> <code> [--env PATH]
-  agent-cli-proxy plans unbind <account> [--env PATH]
-  agent-cli-proxy plans list [--env PATH]
   agent-cli-proxy providers show [--json]
   agent-cli-proxy providers reload|path|init [--force]
   agent-cli-proxy paths
@@ -955,41 +846,6 @@ function formatConfigIssue(issue: ConfigIssue): string {
 
 function errorMessage(err: unknown): string {
   return err instanceof Error ? err.message : String(err);
-}
-
-function resolvePlansSource(): { kind: string; path?: string; label: string } {
-  if (process.env.PLANS_JSON?.trim()) return { kind: "PLANS_JSON", label: "PLANS_JSON inline" };
-  const envPath = process.env.PLANS_PATH?.trim();
-  if (envPath) return { kind: "PLANS_PATH", path: envPath, label: envPath };
-  if (existsSync(defaultPlansPath)) return { kind: "XDG_CONFIG_HOME", path: defaultPlansPath, label: defaultPlansPath };
-  return { kind: "packaged", label: "packaged default" };
-}
-
-async function initPlansFile(force: boolean): Promise<void> {
-  await writeJsonAtomic(defaultPlansPath, defaultPlansDocument as JsonValue, { force });
-  writeOut(`Created plans config: ${defaultPlansPath}`);
-}
-
-async function ensureEditablePlansFile(force: boolean): Promise<string> {
-  const source = resolvePlansSource();
-  if (source.path && source.kind !== "packaged") return source.path;
-  if (existsSync(defaultPlansPath) && !force) return defaultPlansPath;
-  await writeJsonAtomic(defaultPlansPath, defaultPlansDocument as JsonValue, { force: force || !existsSync(defaultPlansPath) });
-  return defaultPlansPath;
-}
-
-async function openEditor(path: string): Promise<void> {
-  const editor = process.env.EDITOR?.trim() || "vi";
-  const proc = Bun.spawn([editor, path], { stdout: "inherit", stderr: "inherit", stdin: "inherit" });
-  const exitCode = await proc.exited;
-  if (exitCode !== 0) throw new Error(`${editor} exited with ${exitCode}`);
-}
-
-function printPlansTable(plans: Plans.Plan[]): void {
-  writeOut("code\tprovider\tprice\tdisplay_name");
-  for (const plan of plans) {
-    writeOut(`${plan.code}\t${plan.provider}\t${plan.monthly_price_usd} ${plan.currency}/${plan.billing_period_days}d\t${plan.display_name}`);
-  }
 }
 
 function printProvidersTable(providers: ProviderDefinition[]): void {

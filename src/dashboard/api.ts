@@ -96,26 +96,7 @@ export interface BreakerSnapshot {
   lastFailureAt?: string;
 }
 
-export interface CostSummaryResponse {
-  month: string;
-  rows: CostSummaryRow[];
-  totals: {
-    accounts: number;
-    total_requests: number;
-    total_cost_usd: number;
-    total_monthly_price_usd: number;
-    total_overage_usd: number;
-  };
-}
 
-export interface CostSummaryRow {
-  cliproxy_account: string;
-  subscription_code: string | null;
-  monthly_price_usd: number;
-  total_requests: number;
-  total_cost_usd: number;
-  computed_overage_usd: number;
-}
 
 export interface ApiKey {
   id: number;
@@ -359,12 +340,6 @@ export function getLogById(id: number): Promise<Usage.RequestLog | null> {
 export function getQuotas(refresh?: boolean): Promise<QuotaListResponse> {
   const qs = refresh ? "?refresh=true" : "";
   return api<QuotaListResponse>(`/admin/quotas${qs}`);
-}
-
-export function getCostSummary(month: string): Promise<CostSummaryResponse> {
-  return api<CostSummaryResponse>(
-    `/admin/plans/cost-summary?month=${encodeURIComponent(month)}`,
-  );
 }
 
 export function getBreakers(): Promise<BreakerListResponse> {
