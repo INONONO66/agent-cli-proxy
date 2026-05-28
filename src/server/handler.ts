@@ -1,3 +1,4 @@
+import { timingSafeEqual } from "node:crypto";
 import { RequestBodyTooLargeError, RequestInspector, isRequestBodyTooLargeError } from "./request-inspector";
 import { PassThroughProxy } from "./pass-through";
 import { Metrics } from "./metrics";
@@ -304,12 +305,8 @@ export namespace Handler {
   function constantTimeEqual(left: string, right: string): boolean {
     const leftBytes = encoder.encode(left);
     const rightBytes = encoder.encode(right);
-    let diff = leftBytes.length ^ rightBytes.length;
-    const length = Math.max(leftBytes.length, rightBytes.length);
-    for (let i = 0; i < length; i++) {
-      diff |= (leftBytes[i] ?? 0) ^ (rightBytes[i] ?? 0);
-    }
-    return diff === 0;
+    if (leftBytes.length !== rightBytes.length) return false;
+    return timingSafeEqual(leftBytes, rightBytes);
   }
 
   function payloadTooLargeResponse(limit: number): Response {

@@ -202,14 +202,14 @@ test("redacts JSON-style sensitive substrings inside error objects", () => {
 test("redacts escaped JSON-style sensitive substrings", () => {
   const capture = captureSink();
   const logger = Logger.create({ sink: capture.sink });
-  const err = new Error(String.raw`{"authorization":"Basic dXNlcjpwYXNz","cookie":"session-secret","x-api-key":"raw-key"}`);
+  const err = new Error(String.raw`{\"authorization\":\"Basic dXNlcjpwYXNz\",\"cookie\":\"session-secret\",\"x-api-key\":\"raw-key\"}`);
 
   logger.error("failed with escaped json", { err });
 
   const parsed = JSON.parse(capture.stderr[0]);
-  expect(parsed.err.message).toContain(String.raw`"authorization":"[REDACTED]"`);
-  expect(parsed.err.message).toContain(String.raw`"cookie":"[REDACTED]"`);
-  expect(parsed.err.message).toContain(String.raw`"x-api-key":"[REDACTED]"`);
+  expect(parsed.err.message).toContain(String.raw`\"authorization\":\"[REDACTED]\"`);
+  expect(parsed.err.message).toContain(String.raw`\"cookie\":\"[REDACTED]\"`);
+  expect(parsed.err.message).toContain(String.raw`\"x-api-key\":\"[REDACTED]\"`);
   expect(parsed.err.message).not.toContain("dXNlcjpwYXNz");
   expect(parsed.err.message).not.toContain("session-secret");
   expect(parsed.err.message).not.toContain("raw-key");

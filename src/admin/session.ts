@@ -1,5 +1,6 @@
-import { chmod, mkdir, writeFile } from "node:fs/promises";
-import { dirname, join } from "node:path";
+// Node fs promises are used here for exclusive-create, fsync, and atomic rename semantics for secret files.
+import { chmod, mkdir, open, rename, rm, writeFile } from "node:fs/promises";
+import { basename, dirname, join } from "node:path";
 import { Logger } from "../util/logger";
 import { Config } from "../config";
 import { getClientIp, isRequestSecure } from "../util/proxy-headers";
@@ -43,8 +44,7 @@ export namespace Session {
       if (!isAlreadyExistsError(err)) throw err;
       const raced = await readSecretFile(secretPath);
       if (raced) return raced;
-      await writeFile(secretPath, `${secret}\n`, { mode: 0o600, flag: "w" });
-      await chmodSecretFile(secretPath);
+      await replaceEmptySecretFile(secretPath, secret);
     }
     logger.info("dashboard session secret generated", { event: "dashboard.session_secret.generated" });
     return secret;
@@ -214,6 +214,26 @@ async function readSecretFile(path: string): Promise<string | null> {
   const value = (await file.text()).trim();
   await chmodSecretFile(path);
   return value || null;
+}
+
+async function replaceEmptySecretFile(secretPath: string, secret: string): Promise<void> {
+  const existing = await readSecretFile(secretPath);
+  if (existing) return;
+
+  const tempPath = join(dirname(secretPath), `.${basename(secretPath)}.${randomHex(8)}.tmp`);
+  let handle: Awaited<ReturnType<typeof open>> | null = null;
+  try {
+    handle = await open(tempPath, "wx", 0o600);
+    await handle.writeFile(`${secret}\n`, "utf8");
+    await handle.sync();
+    await handle.close();
+    handle = null;
+    await rename(tempPath, secretPath);
+  } catch (err) {
+    if (handle) await handle.close().catch(() => undefined);
+    await rm(tempPath, { force: true }).catch(() => undefined);
+    throw err;
+  }
 }
 
 async function chmodSecretFile(path: string): Promise<void> {
