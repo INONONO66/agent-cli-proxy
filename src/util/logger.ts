@@ -178,18 +178,38 @@ export namespace Logger {
   }
 
   function isSensitiveKey(key: string): boolean {
-    return /authorization|x[-_]?api[-_]?key|api[-_]?key|token|password|secret/i.test(key);
+    return /authorization|cookie|set-cookie|x[-_]?api[-_]?key|api[-_]?key|x[-_]?proxy[-_]?key|proxy[-_]?key|x[-_]?admin[-_]?token|admin[-_]?token|token|password|secret/i.test(key);
+  }
+
+  const SENSITIVE_LABEL = "authorization|cookie|set-cookie|api[_-]?key|x[_-]?api[_-]?key|x[_-]?proxy[_-]?key|proxy[_-]?key|x[_-]?admin[_-]?token|admin[_-]?token|token|password|secret";
+  const quotedSensitiveValuePattern = new RegExp(`(["'](?:${SENSITIVE_LABEL})["']\\s*[:=]\\s*)(["'])(?:\\\\.|(?!\\2).)*\\2`, "gi");
+  const escapedQuotedSensitiveValuePattern = new RegExp(`(\\\\["'](?:${SENSITIVE_LABEL})\\\\["']\\s*[:=]\\s*\\\\["'])(?:(?!\\\\["']).)*(\\\\["'])`, "gi");
+
+  function redactString(value: string): string {
+    return value
+      .replace(quotedSensitiveValuePattern, "$1$2[REDACTED]$2")
+      .replace(escapedQuotedSensitiveValuePattern, "$1[REDACTED]$2")
+      .replace(/(bearer\s+)[A-Za-z0-9._~+\/-]+=*/gi, "$1[REDACTED]")
+      .replace(/(authorization\s*[:=]\s*)(?:bearer\s+)?(?:["'])?[^\s,;&"']+(?:\s+[^\s,;&"']+)?(?:["'])?/gi, "$1[REDACTED]")
+      .replace(/(cookie\s*[:=]\s*)(?:(?!\sset-cookie\s*[:=])[^\r\n])+/gi, redactHeaderValue)
+      .replace(/(set-cookie\s*[:=]\s*)([^\r\n]+)/gi, redactHeaderValue)
+      .replace(/((?:api[_-]?key|x[_-]?api[_-]?key|x[_-]?proxy[_-]?key|proxy[_-]?key|x[_-]?admin[_-]?token|admin[_-]?token|token|password|secret)\s*[:=]\s*)(?:["'])?([^\s,;&"']+)(?:["'])?/gi, "$1[REDACTED]");
+  }
+
+  function redactHeaderValue(_match: string, prefix: string): string {
+    return `${prefix}[REDACTED]`;
   }
 
   function redact(value: unknown, seen = new WeakSet<object>()): unknown {
     if (value === null || value === undefined) return value;
+    if (typeof value === "string") return redactString(value);
     if (typeof value !== "object") return value;
 
     if (value instanceof Error) {
       return {
         name: value.name,
-        message: value.message,
-        stack: value.stack,
+        message: redactString(value.message),
+        stack: value.stack ? redactString(value.stack) : undefined,
       };
     }
 
@@ -203,7 +223,7 @@ export namespace Logger {
     if (value instanceof Headers) {
       const out: Fields = {};
       for (const [key, headerValue] of value.entries()) {
-        out[key] = isSensitiveKey(key) ? REDACTED : headerValue;
+        out[key] = isSensitiveKey(key) ? REDACTED : redactString(headerValue);
       }
       return out;
     }
