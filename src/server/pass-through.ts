@@ -99,7 +99,7 @@ export namespace PassThroughProxy {
 
       try {
         const providerId = lifecycle?.provider ?? providerForPath(requestInfo.path, requestInfo.model);
-        if (!isProviderAllowed(providerId, proxyApiKey?.allowedProviders ?? null)) {
+        if (requiresProviderAuthorization(requestInfo.path) && !isProviderAllowed(providerId, proxyApiKey?.allowedProviders ?? null)) {
           await finalizeOnce(usageService, lifecycle, {
             parsed: { actualModel: null, usage: null },
             status: 403,
@@ -868,19 +868,30 @@ export namespace PassThroughProxy {
     return false;
   }
 
+  function requiresProviderAuthorization(path: string): boolean {
+    return path !== "/v1/models";
+  }
+
   function isProviderAllowed(providerId: string, allowedProviders: readonly string[] | null): boolean {
     if (!allowedProviders || allowedProviders.length === 0) return true;
     return allowedProviders.includes(providerId);
   }
 
   async function resolveProxyApiKey(headers: Headers, db: UsageService.UsageService["db"]): Promise<ResolvedProxyApiKey | null> {
-    const proxyApiKey = headers.get("x-proxy-key");
+    const proxyApiKey = extractBearerToken(headers);
     if (!proxyApiKey) return null;
 
     const found = await ApiKeyRepo.findByKeyFull(db, proxyApiKey);
     if (!found) return null;
 
     return { id: found.id, allowedProviders: found.allowedProviders, allowedAccounts: found.allowedAccounts };
+  }
+
+  function extractBearerToken(headers: Headers): string | null {
+    const authorization = headers.get("authorization")?.trim();
+    const match = authorization?.match(/^Bearer\s+(.+)$/i);
+    const token = match?.[1]?.trim();
+    return token || null;
   }
 
   function touchProxyApiKeyLastUsed(usageService: UsageService.UsageService, id: number): void {

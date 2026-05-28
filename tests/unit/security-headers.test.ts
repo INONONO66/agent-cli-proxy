@@ -1,11 +1,11 @@
 import { describe, expect, test } from "bun:test";
 
 describe("security headers and proxy headers", () => {
-  test("adds baseline security headers to dashboard redirects", async () => {
+  test("dashboard routes are not served by the proxy", async () => {
     await runIsolatedCheck(`
       const res = await handle(new Request("http://proxy.test/dashboard"));
-      assert(res.status === 302, "expected dashboard redirect");
-      assert(res.headers.get("location") === "/dashboard/", "expected dashboard redirect location");
+      assert(res.status === 404, "expected dashboard to be detached from proxy");
+      assert(res.headers.get("content-type").includes("application/json"), "expected JSON not found");
       assert(res.headers.get("x-frame-options") === "DENY", "missing X-Frame-Options");
       assert(res.headers.get("x-content-type-options") === "nosniff", "missing X-Content-Type-Options");
       assert(res.headers.get("referrer-policy") === "strict-origin-when-cross-origin", "missing Referrer-Policy");
@@ -44,7 +44,7 @@ describe("security headers and proxy headers", () => {
     const passwordHash = await Bun.password.hash("secret-password");
 
     await runIsolatedCheck(`
-      const res = await handle(new Request("http://proxy.test/admin/session/login", {
+      const res = await handle(new Request("http://127.0.0.1/admin/session/login", {
         method: "POST",
         headers: {
           "content-type": "application/json",
@@ -59,7 +59,7 @@ describe("security headers and proxy headers", () => {
     `, { DASHBOARD_PASSWORD_HASH: passwordHash, DASHBOARD_SESSION_SECRET: "test-session-secret" });
 
     await runIsolatedCheck(`
-      const res = await handle(new Request("http://proxy.test/admin/session/login", {
+      const res = await handle(new Request("http://127.0.0.1/admin/session/login", {
         method: "POST",
         headers: {
           "content-type": "application/json",
@@ -83,27 +83,27 @@ describe("security headers and proxy headers", () => {
     `, { PROXY_REQUIRE_API_KEY: "true" });
   });
 
-  test("public proxy mode requires a managed x-proxy-key", async () => {
+  test("public proxy mode requires a managed Bearer token", async () => {
     await runIsolatedCheck(`
-      const authorizationOnly = await handle(new Request("http://proxy.test/v1/models", {
-        headers: { authorization: "Bearer upstream-token" },
+      const invalidBearer = await handle(new Request("http://proxy.test/v1/models", {
+        headers: { authorization: "Bearer invalid-key" },
       }));
-      assert(authorizationOnly.status === 401, "Authorization must not satisfy public proxy key enforcement");
+      assert(invalidBearer.status === 401, "unknown Bearer token must be rejected");
 
       const xApiKeyOnly = await handle(new Request("http://proxy.test/v1/models", {
         headers: { "x-api-key": "upstream-token" },
       }));
       assert(xApiKeyOnly.status === 401, "x-api-key must not satisfy public proxy key enforcement");
 
-      const invalidProxyKey = await handle(new Request("http://proxy.test/v1/models", {
+      const legacyProxyKey = await handle(new Request("http://proxy.test/v1/models", {
         headers: { "x-proxy-key": "invalid-key" },
       }));
-      assert(invalidProxyKey.status === 401, "unknown x-proxy-key must be rejected");
-      assert(invalidProxyKey.headers.get("cache-control") === "no-store", "proxy auth failures must not be cached");
+      assert(legacyProxyKey.status === 401, "x-proxy-key must not satisfy public proxy key enforcement");
+      assert(invalidBearer.headers.get("cache-control") === "no-store", "proxy auth failures must not be cached");
     `, { PROXY_HOST: "0.0.0.0", ADMIN_API_KEY: "admin-token" });
   });
 
-  test("managed x-proxy-key satisfies required public proxy auth", async () => {
+  test("managed Bearer token satisfies required public proxy auth", async () => {
     await runIsolatedManagedProxyKeyCheck();
   });
 
@@ -121,7 +121,9 @@ async function runIsolatedCheck(check: string, env: Record<string, string> = {})
     const { Storage } = await import("./src/storage/db.ts");
     const { UsageService } = await import("./src/storage/service.ts");
     const db = Storage.initDb(":memory:");
-    const handle = Handler.create(UsageService.create(db));
+    const rawHandle = Handler.create(UsageService.create(db));
+    const localContext = { requestIP: () => ({ address: "127.0.0.1", port: 54321, family: "IPv4" }) };
+    const handle = (req, context = localContext) => rawHandle(req, context);
     function assert(condition, message) {
       if (!condition) throw new Error(message);
     }
@@ -205,6 +207,7 @@ async function runIsolatedManagedProxyKeyCheck(): Promise<void> {
       hostname: "127.0.0.1",
       port: 0,
       fetch(req) {
+        if (req.headers.get("authorization") !== "Bearer proxy") throw new Error("client Bearer token leaked upstream");
         if (req.headers.has("x-proxy-key")) throw new Error("x-proxy-key leaked upstream");
         return new Response(JSON.stringify({ model: "gpt-4o", usage: { prompt_tokens: 1, completion_tokens: 1, total_tokens: 2 } }), {
           headers: { "content-type": "application/json" },
@@ -224,15 +227,22 @@ async function runIsolatedManagedProxyKeyCheck(): Promise<void> {
         method: "POST",
         headers: {
           "content-type": "application/json",
-          "user-agent": "opencode/1.0",
-          "x-proxy-key": apiKey.key,
+          authorization: "Bearer " + apiKey.key,
         },
         body: JSON.stringify({ model: "gpt-4o", messages: [{ role: "user", content: "hi" }] }),
       }));
-      if (res.status !== 200) throw new Error("expected valid managed x-proxy-key to proxy, got " + res.status);
+      if (res.status !== 200) throw new Error("expected valid managed Bearer token to proxy, got " + res.status);
       await res.text();
       const found = ApiKeyRepo.list(db).find((key) => key.id === apiKey.id);
       if (!found?.lastUsedAt) throw new Error("expected proxy key last_used_at to be updated by pass-through");
+      const log = db.query("SELECT client_id FROM request_logs ORDER BY id DESC LIMIT 1").get();
+      if (log.client_id.includes(apiKey.key.slice(0, 8))) throw new Error("proxy key prefix leaked into client_id");
+
+      const modelsRes = await handle(new Request("http://proxy.test/v1/models", {
+        headers: { authorization: "Bearer " + apiKey.key },
+      }));
+      if (modelsRes.status === 401 || modelsRes.status === 403) throw new Error("expected valid managed Bearer token to pass model listing auth, got " + modelsRes.status);
+      await modelsRes.text();
     } finally {
       upstream.stop(true);
       db.close();

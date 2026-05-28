@@ -35,6 +35,32 @@ bun run build
 bun run src/cli.ts init
 ```
 
+### Server install from GitHub Release
+
+Install or update a server directly from the latest GitHub Release asset:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/INONONO66/agent-cli-proxy/main/scripts/install-release.sh | bash
+```
+
+Install a specific version and register the user service in one command:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/INONONO66/agent-cli-proxy/main/scripts/install-release.sh | \
+  AGENT_CLI_PROXY_VERSION=v0.2.0 \
+  AGENT_CLI_PROXY_SERVICE=1 \
+  AGENT_CLI_PROXY_INIT=1 \
+  AGENT_CLI_PROXY_ENV=$HOME/.config/agent-cli-proxy/.env \
+  CLI_PROXY_API_URL=http://localhost:8317 \
+  bash
+```
+
+The script requires Bun, downloads `agent-cli-proxy.tar.gz` from GitHub Releases,
+installs the runtime under `~/.local/share/agent-cli-proxy/runtime`, and writes a
+`~/.local/bin/agent-cli-proxy` wrapper. Set `AGENT_CLI_PROXY_INIT=1` to run
+non-interactive initialization during install. Release tarball installs require
+`v0.2.0` or newer because earlier tags do not include runtime assets.
+
 ## Quickstart
 
 1. **Initialize** — creates config, database, and prompts for optional features:
@@ -78,8 +104,8 @@ The installer creates OS-appropriate local paths by default:
 
 Optional features prompted during init:
 
-- Dashboard login (`DASHBOARD_PASSWORD_HASH`)
-- Admin API token (`ADMIN_API_KEY`) when exposing beyond loopback
+- Local admin session login (`DASHBOARD_PASSWORD_HASH`)
+- Admin API token (`ADMIN_API_KEY`) for local admin endpoints
 - CLIProxyAPI account correlation (`CLIPROXY_MGMT_KEY`)
 - SQLite/pricing cache paths
 
@@ -92,8 +118,8 @@ Provider API keys are intentionally **not** stored by this proxy. The proxy rout
 | `PROXY_PORT` | `3100` | Proxy server port |
 | `PROXY_HOST` | `127.0.0.1` | Bind host. Keep loopback unless you add auth/network controls. |
 | `TRUST_PROXY_HEADERS` | `false` | Trust reverse-proxy headers such as `X-Forwarded-Proto`/Cloudflare visitor scheme for HTTPS-only decisions. Enable only behind a trusted proxy. |
-| `ADMIN_API_KEY` | | Required when `PROXY_HOST` is not loopback. Token for `/admin/*` endpoints. |
-| `PROXY_REQUIRE_API_KEY` | `false` on loopback, `true` off loopback | Require a valid managed `x-proxy-key` for `/v1/*` and `/api/*` requests. Keep enabled for any externally reachable deployment. |
+| `ADMIN_API_KEY` | | Optional token for local-only `/admin/*` and `/metrics` endpoints. |
+| `PROXY_REQUIRE_API_KEY` | `false` on loopback, `true` off loopback | Require a valid managed `Authorization: Bearer <proxy-key>` token for `/v1/*` and `/api/*` requests. Keep enabled for any externally reachable deployment. |
 | `CLI_PROXY_API_URL` | `http://localhost:8317` | Upstream CLIProxyAPI URL (required unless `PROXY_LOCAL_OK=1`) |
 | `CLI_PROXY_API_KEY` | `proxy` | Proxy auth key sent to CLIProxyAPI |
 | `CLAUDE_CODE_VERSION` | `2.1.87` | Claude Code version for bypass headers |
@@ -147,14 +173,14 @@ emits configuration warnings because they are deploy-directory dependent.
 
 When the proxy binds to a non-loopback host, `PROXY_REQUIRE_API_KEY` defaults to
 `true`. In that mode, every LLM proxy request under `/v1/*` and `/api/*` must
-include a valid managed `x-proxy-key`. Upstream-style `Authorization` and
-`x-api-key` headers do not satisfy this application-level check. Non-loopback
-binds cannot disable this requirement; keep `PROXY_HOST` on loopback for local
-development without proxy client keys.
+include a valid managed proxy key as `Authorization: Bearer <proxy-key>`.
+`x-api-key` and legacy `x-proxy-key` headers do not satisfy this
+application-level check. Non-loopback binds cannot disable this requirement;
+keep `PROXY_HOST` on loopback for local development without proxy client keys.
 
-Create and manage client proxy keys from the dashboard **API Keys** page or the
-`/admin/api-keys` API. These keys remain separate from `ADMIN_API_KEY` and from
-the upstream `CLI_PROXY_API_KEY`.
+Create and manage client proxy keys from the local-only `/admin/api-keys` API.
+These keys remain separate from `ADMIN_API_KEY` and from the upstream
+`CLI_PROXY_API_KEY`.
 
 ## Custom Providers
 
@@ -216,7 +242,35 @@ Prefer `--admin-token-env` and `--cliproxy-mgmt-key-env` for non-interactive ins
 
 ## Admin Endpoints
 
-All `/admin/*` endpoints require `ADMIN_API_KEY` when the proxy is not bound to loopback. Exposed `/metrics` also uses admin auth; configure Prometheus or other scrapers to send `x-admin-token: $ADMIN_API_KEY` or `Authorization: Bearer $ADMIN_API_KEY`.
+`/admin/*` and `/metrics` are only available to loopback clients
+(`127.0.0.1`, `::1`). When `ADMIN_API_KEY` is set, local callers must send
+`x-admin-token: $ADMIN_API_KEY` or `Authorization: Bearer $ADMIN_API_KEY`.
+The proxy no longer serves a bundled dashboard; build a dashboard as a separate
+client that talks to these local admin APIs.
+
+## Local Dashboard
+
+Run the dashboard as a separate loopback-only Bun process:
+
+```bash
+bun run dashboard:dev
+```
+
+It listens on `http://127.0.0.1:3200` by default and proxies browser requests to
+`DASHBOARD_PROXY_URL` (`http://127.0.0.1:3100` by default). If the proxy has
+`ADMIN_API_KEY` configured, start the dashboard with the same environment value
+so the dashboard server can attach `x-admin-token` to local admin requests.
+
+```bash
+ADMIN_API_KEY=... bun run dashboard:dev
+```
+
+For a static production bundle:
+
+```bash
+bun run dashboard:build
+NODE_ENV=production bun run dashboard:start
+```
 
 | Method | Path | Description |
 |--------|------|-------------|
@@ -343,11 +397,11 @@ On Linux this proxies to `journalctl --user -u agent-cli-proxy.service -f`; on m
 **Common errors:**
 
 - `CLI_PROXY_API_URL is required` — set `CLI_PROXY_API_URL` in your `.env` or pass `PROXY_LOCAL_OK=1` to allow the local default.
-- `ADMIN_API_KEY is required when PROXY_HOST is not loopback` — set `ADMIN_API_KEY` before exposing the proxy beyond `127.0.0.1`.
+- `PROXY_REQUIRE_API_KEY must be true when PROXY_HOST is not loopback` — public proxy binds require managed `Authorization: Bearer <proxy-key>` authentication for `/v1/*` and `/api/*` requests.
 
 ## Releasing
 
-For maintainers: run `bun run release-check` to verify the build and package contents before tagging. Push a `v*` tag and the `.github/workflows/release.yml` GitHub Actions workflow runs `bun publish --access public --tolerate-republish` against the npm registry using the `NPM_TOKEN` repository secret.
+For maintainers: run `bun run release-check` to verify the build and package contents before tagging. Push a `v*` tag and the `.github/workflows/release.yml` GitHub Actions workflow runs `bun publish --access public --tolerate-republish` against the npm registry using the `NPM_TOKEN` repository secret, then creates a GitHub Release with `agent-cli-proxy.tar.gz` runtime assets for server installs.
 
 ## Contributing
 
