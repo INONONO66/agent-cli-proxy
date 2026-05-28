@@ -1,5 +1,6 @@
 export { Anthropic } from "./anthropic";
 export type { OpenAI } from "./openai";
+export { CanonicalProvider } from "./canonical";
 export { ProviderRegistry } from "./registry";
 export {
   ProviderSchemaError,

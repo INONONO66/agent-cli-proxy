@@ -7,6 +7,7 @@ import { Pricing } from "./pricing";
 import { Cost } from "./cost";
 import { Usage } from "../usage";
 import { QuotaProbe } from "../cliproxy/quota";
+import { CanonicalProvider } from "../provider/canonical";
 import { Logger } from "../util/logger";
 import { Config } from "../config";
 import { Supervisor } from "../runtime/supervisor";
@@ -470,7 +471,7 @@ export namespace UsageService {
       const now = Date.now();
       const fiveHourSince = new Date(now - 5 * 60 * 60 * 1000).toISOString();
       const sevenDaySince = new Date(now - 7 * 24 * 60 * 60 * 1000).toISOString();
-      const localProvider = report.provider === "claude" ? "anthropic" : "openai";
+      const localProvider = CanonicalProvider.fromAuthType(report.provider);
       return {
         ...report,
         local_usage: {

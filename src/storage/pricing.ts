@@ -1,6 +1,7 @@
 import { dirname } from "node:path";
 import { mkdir } from "node:fs/promises";
 import { Config } from "../config";
+import { CanonicalProvider } from "../provider/canonical";
 import { Logger } from "../util/logger";
 import { Supervisor } from "../runtime/supervisor";
 
@@ -146,7 +147,7 @@ export namespace Pricing {
     pricing: ModelPricing,
     provider?: string,
   ): number {
-    if (provider && normalizeKey(provider) === "openai") {
+    if (provider && CanonicalProvider.billingSemantics(provider) === "openai") {
       const billableInputTokens = Math.max(usage.prompt_tokens - usage.cache_read_tokens, 0);
       return (
         billableInputTokens * pricing.input +

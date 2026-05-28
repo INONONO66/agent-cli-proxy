@@ -4,6 +4,9 @@ import { QuotaRepo, RequestRepo } from "../storage/repo";
 import { Storage } from "../storage/db";
 import { Logger } from "../util/logger";
 import { UpstreamClient } from "../upstream/client";
+import { ProviderRegistry } from "../provider/registry";
+import { CanonicalProvider } from "../provider/canonical";
+import { Pricing } from "../storage/pricing";
 import { Session } from "./session";
 import { OAuthAdmin } from "./oauth";
 import { ApiKeysAdmin } from "./api-keys";
@@ -189,6 +192,55 @@ export namespace Admin {
 
         if (path === "/admin/stats") {
           return json(usageService.getTotalStats());
+        }
+
+        if (path === "/admin/providers") {
+          const providers = ProviderRegistry.all().map((p) => ({
+            id: p.id,
+            type: p.type,
+            paths: p.paths,
+            models: p.models ?? [],
+            hasCustomUpstream: p.upstreamBaseUrl !== Config.cliProxyApiUrl,
+          }));
+          return json({ providers, source: ProviderRegistry.sourceInfo() });
+        }
+
+        if (path === "/admin/pricing") {
+          const freshness = await Pricing.getPricingFreshness();
+          return json({
+            loaded: freshness !== null,
+            fetchedAt: freshness?.fetchedAt ?? null,
+            ageMs: freshness?.ageMs ?? null,
+            cachePath: Config.pricingCachePath,
+          });
+        }
+
+        if (path === "/admin/config") {
+          return json({
+            proxy: {
+              host: Config.host,
+              port: Config.port,
+              proxyRequireApiKey: Config.proxyRequireApiKey,
+              trustProxyHeaders: Config.trustProxyHeaders,
+            },
+            upstream: {
+              cliProxyApiUrl: Config.cliProxyApiUrl,
+              timeoutMs: Config.upstreamTimeoutMs,
+              connectTimeoutMs: Config.upstreamConnectTimeoutMs,
+              maxRetries: Config.upstreamMaxRetries,
+            },
+            intervals: {
+              pricingRefreshMs: Config.pricingRefreshIntervalMs,
+              costBackfillMs: Config.costBackfillIntervalMs,
+              quotaRefreshMs: Config.quotaRefreshIntervalMs,
+            },
+            features: {
+              hasAdminApiKey: Boolean(Config.adminApiKey),
+              hasMgmtKey: Boolean(Config.cliproxyMgmtKey),
+              hasAuthDir: Boolean(Config.cliproxyAuthDir),
+              hasDashboardPassword: Boolean(Config.dashboardPasswordHash),
+            },
+          });
         }
 
         if (path === "/admin/logs") {
