@@ -2,6 +2,7 @@ import type { Usage } from "../usage";
 
 export interface SessionCheck {
   authenticated: boolean;
+  loginConfigured?: boolean;
 }
 
 export interface LoginBody {
@@ -156,10 +157,21 @@ export interface ApiKeyListResponse {
 
 const BASE = "";
 
+export type AuthErrorCode = "unauthorized" | "forbidden" | "login_not_configured";
+
 export class AuthError extends Error {
-  constructor() {
-    super("unauthorized");
+  readonly status: number;
+  readonly code: AuthErrorCode;
+
+  constructor(
+    message = "unauthorized",
+    status = 401,
+    code: AuthErrorCode = status === 403 ? "forbidden" : "unauthorized",
+  ) {
+    super(message);
     this.name = "AuthError";
+    this.status = status;
+    this.code = code;
   }
 }
 
@@ -179,10 +191,62 @@ export async function api<T>(path: string, options?: RequestInit): Promise<T> {
     },
   });
   if (res.status === 401 || res.status === 403) {
-    throw new AuthError();
+    const payload = await readErrorPayload(res);
+    const code = inferAuthErrorCode(res.status, payload);
+    throw new AuthError(authErrorMessage(code, payload), res.status, code);
   }
   if (!res.ok) throw new Error(`API error: ${res.status}`);
   return res.json();
+}
+
+interface ApiErrorPayload {
+  readonly error?: unknown;
+  readonly code?: unknown;
+  readonly message?: unknown;
+}
+
+async function readErrorPayload(res: Response): Promise<ApiErrorPayload | null> {
+  try {
+    const parsed: unknown = await res.clone().json();
+    return parsed && typeof parsed === "object" ? parsed as ApiErrorPayload : null;
+  } catch {
+    return null;
+  }
+}
+
+function inferAuthErrorCode(status: number, payload: ApiErrorPayload | null): AuthErrorCode {
+  const rawCode = extractString(payload?.code) ?? extractNestedString(payload?.error, "code");
+  const normalizedCode = rawCode?.toLowerCase().replace(/[ -]/g, "_");
+  if (normalizedCode === "login_not_configured" || normalizedCode === "dashboard_login_not_configured") {
+    return "login_not_configured";
+  }
+
+  const message = extractErrorText(payload)?.toLowerCase() ?? "";
+  if (message.includes("login not configured")) return "login_not_configured";
+  return status === 403 ? "forbidden" : "unauthorized";
+}
+
+function authErrorMessage(code: AuthErrorCode, payload: ApiErrorPayload | null): string {
+  if (code === "login_not_configured") {
+    return "Dashboard login is not configured. Set DASHBOARD_PASSWORD_HASH to enable dashboard access.";
+  }
+  return extractErrorText(payload) ?? (code === "forbidden" ? "forbidden" : "unauthorized");
+}
+
+function extractErrorText(payload: ApiErrorPayload | null): string | null {
+  return extractString(payload?.message)
+    ?? extractString(payload?.error)
+    ?? extractNestedString(payload?.error, "message")
+    ?? null;
+}
+
+function extractNestedString(value: unknown, key: string): string | null {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  return extractString((value as Record<string, unknown>)[key]);
+}
+
+function extractString(value: unknown): string | null {
+  return typeof value === "string" && value.trim() ? value : null;
 }
 
 export function getSession(): Promise<SessionCheck> {

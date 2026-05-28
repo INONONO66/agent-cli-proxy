@@ -12,7 +12,7 @@ import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 
 export function LoginForm() {
-  const { setAuthenticated } = useContext(AuthContext);
+  const { setAuthenticated, loginConfigured } = useContext(AuthContext);
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
   const [submitting, setSubmitting] = useState(false);
@@ -44,10 +44,17 @@ export function LoginForm() {
       <Card className="w-full max-w-sm">
         <CardHeader>
           <CardTitle>Dashboard Login</CardTitle>
-          <CardDescription>Enter your admin password</CardDescription>
+          <CardDescription>
+            {loginConfigured ? "Enter your admin password" : "Dashboard password login is not configured"}
+          </CardDescription>
         </CardHeader>
         <CardContent>
           <form onSubmit={handleSubmit} className="space-y-4">
+            {!loginConfigured && (
+              <p className="text-sm text-muted-foreground">
+                Set DASHBOARD_PASSWORD_HASH on the server to enable browser login.
+              </p>
+            )}
             {error && <p className="text-sm text-destructive">{error}</p>}
             <Input
               type="password"
@@ -55,9 +62,10 @@ export function LoginForm() {
               value={password}
               onChange={(e) => setPassword(e.target.value)}
               autoFocus
+              disabled={!loginConfigured}
             />
             <Button
-              disabled={submitting || !password}
+              disabled={submitting || !password || !loginConfigured}
               className="w-full"
               type="submit"
             >
