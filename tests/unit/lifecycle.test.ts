@@ -159,6 +159,37 @@ test("upstream 502 finalizes the pre-log row as error", async () => {
   expect(latest(db).error_message).toContain("upstream HTTP 502");
 });
 
+test("non-LLM proxy requests are forwarded without request log rows", async () => {
+  const { db, handle } = createHarness(async () => new Response(JSON.stringify({ data: [] }), {
+    status: 200,
+    headers: { "content-type": "application/json" },
+  }));
+
+  const req = request("/v1/models", {});
+  const res = await handle(req, await inspect(req));
+  const body = await res.json() as { data: unknown[] };
+
+  expect(res.status).toBe(200);
+  expect(body.data).toEqual([]);
+  expect(allLogs(db)).toHaveLength(0);
+});
+
+test("failed LLM requests do not increment daily usage totals", async () => {
+  const { db, handle } = createHarness(async () => new Response(JSON.stringify({ error: "bad gateway" }), {
+    status: 502,
+    headers: { "content-type": "application/json" },
+  }));
+
+  const req = request("/v1/chat/completions", { model: "gpt-4o", messages: [{ role: "user", content: "hi" }] });
+  const res = await handle(req, await inspect(req));
+  await res.text();
+
+  const daily = db.query("SELECT COUNT(*) AS count FROM daily_usage").get() as { count: number };
+  expect(res.status).toBe(502);
+  expect(latest(db).lifecycle_status).toBe("error");
+  expect(daily.count).toBe(0);
+});
+
 test("client abort during streaming finalizes one row as aborted", async () => {
   const upstream = new ReadableStream<Uint8Array>({
     start(controller) {
