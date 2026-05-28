@@ -1,3 +1,5 @@
+import { getTrustedClientIp } from "../util/proxy-headers";
+
 export interface RequestInfo {
   model: string | null;
   agentName: string | null;
@@ -43,10 +45,7 @@ export namespace RequestInspector {
     const apiKey = req.headers.get("authorization")?.replace("Bearer ", "").trim()
       || req.headers.get("x-api-key");
 
-    const forwarded = req.headers.get("x-forwarded-for");
-    const clientIp = forwarded
-      ? forwarded.split(",")[0]?.trim()
-      : null;
+    const clientIp = getTrustedClientIp(req);
 
     let model: string | null = null;
     let isStreaming = false;

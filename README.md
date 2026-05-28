@@ -91,6 +91,7 @@ Provider API keys are intentionally **not** stored by this proxy. The proxy rout
 |----------|---------|-------------|
 | `PROXY_PORT` | `3100` | Proxy server port |
 | `PROXY_HOST` | `127.0.0.1` | Bind host. Keep loopback unless you add auth/network controls. |
+| `TRUST_PROXY_HEADERS` | `false` | Trust reverse-proxy headers such as `X-Forwarded-Proto`/Cloudflare visitor scheme for HTTPS-only decisions. Enable only behind a trusted proxy. |
 | `ADMIN_API_KEY` | | Required when `PROXY_HOST` is not loopback. Token for `/admin/*` endpoints. |
 | `CLI_PROXY_API_URL` | `http://localhost:8317` | Upstream CLIProxyAPI URL (required unless `PROXY_LOCAL_OK=1`) |
 | `CLI_PROXY_API_KEY` | `proxy` | Proxy auth key sent to CLIProxyAPI |

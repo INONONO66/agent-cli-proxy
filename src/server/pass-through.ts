@@ -303,6 +303,16 @@ export namespace PassThroughProxy {
     }
   }
 
+
+  function stripSpoofableProxyHeaders(headers: Headers): void {
+    for (const name of Array.from(headers.keys())) {
+      const lower = name.toLowerCase();
+      if (lower === "forwarded" || lower.startsWith("x-forwarded-") || lower.startsWith("cf-")) {
+        headers.delete(name);
+      }
+    }
+  }
+
   export function buildHeaders(headers: Headers, info: RequestInfo, plugin: AgentPlugin, bodyRewritten = false): Headers {
     const result = new Headers(headers);
     result.set("authorization", `Bearer ${Config.cliProxyApiKey}`);
@@ -311,6 +321,7 @@ export namespace PassThroughProxy {
     result.delete("content-length");
     result.delete("content-encoding");
     result.delete("accept-encoding");
+    stripSpoofableProxyHeaders(result);
     const transformed = plugin.transformHeaders(result, info);
     if (bodyRewritten) transformed.set("content-type", "application/json");
     return transformed;

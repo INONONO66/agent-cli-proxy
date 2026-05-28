@@ -10,6 +10,7 @@ import { UpstreamClient } from "../upstream/client";
 import { Supervisor } from "../runtime/supervisor";
 import { Session } from "../admin/session";
 import { Dashboard } from "./dashboard";
+import { isRequestSecure } from "../util/proxy-headers";
 
 const logger = Logger.fromConfig().child({ component: "handler" });
 const readyLogger = logger.child({ component: "handler.ready" });
@@ -59,6 +60,13 @@ export namespace Handler {
     maxRequestBodyBytes?: number;
     sessionConfig?: Admin.SessionConfig;
     oauthConfig?: Admin.OAuthConfig;
+    securityConfig?: Partial<SecurityConfig>;
+  }
+
+  interface SecurityConfig {
+    adminApiKey: string;
+    host: string;
+    trustProxyHeaders: boolean;
   }
 
   export function __clearReadyCacheForTests(): void {
@@ -68,10 +76,19 @@ export namespace Handler {
 
   export function create(usageService: UsageService.UsageService, options: Options = {}) {
     const passThrough = PassThroughProxy.create(usageService);
-    const sessionConfig = options.sessionConfig ?? {
-      passwordHash: Config.dashboardPasswordHash,
-      secret: Config.dashboardSessionSecret,
-      ttlMs: Config.dashboardSessionTtlMs,
+    const securityConfig: SecurityConfig = {
+      adminApiKey: Config.adminApiKey,
+      host: Config.host,
+      trustProxyHeaders: Config.trustProxyHeaders,
+      ...options.securityConfig,
+    };
+    const sessionConfig: Admin.SessionConfig = {
+      ...(options.sessionConfig ?? {
+        passwordHash: Config.dashboardPasswordHash,
+        secret: Config.dashboardSessionSecret,
+        ttlMs: Config.dashboardSessionTtlMs,
+      }),
+      trustProxyHeaders: options.sessionConfig?.trustProxyHeaders ?? securityConfig.trustProxyHeaders,
     };
     const oauthConfig = options.oauthConfig ?? {
       authDir: Config.cliproxyAuthDir,
@@ -89,7 +106,7 @@ export namespace Handler {
       const method = req.method;
 
       if (path === "/health" && method === "GET") {
-        return withSecurityHeaders(new Response(JSON.stringify({ status: "ok" }), {
+        return withSecurityHeaders(req, securityConfig, new Response(JSON.stringify({ status: "ok" }), {
           status: 200,
           headers: { "content-type": "application/json" },
         }));
@@ -97,11 +114,11 @@ export namespace Handler {
 
       if (path === "/ready" && method === "GET") {
         const result = await getReadyResult(usageService);
-        return withSecurityHeaders(readyResponse(result));
+        return withSecurityHeaders(req, securityConfig, readyResponse(result));
       }
 
       if (path === "/metrics" && method === "GET") {
-        return withSecurityHeaders(new Response(Metrics.render(usageService.db), {
+        return withSecurityHeaders(req, securityConfig, new Response(Metrics.render(usageService.db), {
           status: 200,
           headers: { "content-type": "text/plain; version=0.0.4; charset=utf-8" },
         }));
@@ -109,55 +126,55 @@ export namespace Handler {
 
       try {
         if (path === "/dashboard") {
-          return new Response(null, { status: 302, headers: { location: "/dashboard/" } });
+          return withSecurityHeaders(req, securityConfig, new Response(null, { status: 302, headers: { location: "/dashboard/" } }));
         }
 
         if (path.startsWith("/dashboard/")) {
           // Dashboard requires session auth or admin API key
-          const dashboardAuth = await isAdminAuthorized(req, sessionConfig);
+          const dashboardAuth = await isAdminAuthorized(req, sessionConfig, securityConfig);
           if (!dashboardAuth.authorized) {
             // Serve login page for unauthenticated HTML requests (SPA will show login form)
             if (path === "/dashboard/" || path.endsWith(".html")) {
-              return withSecurityHeaders(dashboardHandler(req));
+              return withSecurityHeaders(req, securityConfig, dashboardHandler(req));
             }
             // Serve static assets (JS/CSS) so login page can render
             if (path.endsWith(".js") || path.endsWith(".css") || path.endsWith(".svg") || path.endsWith(".png")) {
-              return withSecurityHeaders(dashboardHandler(req));
+              return withSecurityHeaders(req, securityConfig, dashboardHandler(req));
             }
-            return withSecurityHeaders(new Response(JSON.stringify({ error: "Unauthorized" }), {
+            return withSecurityHeaders(req, securityConfig, new Response(JSON.stringify({ error: "Unauthorized", code: "UNAUTHORIZED" }), {
               status: 401,
               headers: { "content-type": "application/json" },
             }));
           }
-          return withSecurityHeaders(dashboardHandler(req));
+          return withSecurityHeaders(req, securityConfig, dashboardHandler(req));
         }
 
         if (path.startsWith("/admin/")) {
           if (isSessionRoute(path)) {
             const sessionResponse = await adminRouter(req);
-            if (sessionResponse) return withSecurityHeaders(sessionResponse);
+            if (sessionResponse) return withSecurityHeaders(req, securityConfig, sessionResponse);
           }
 
-          const auth = await isAdminAuthorized(req, sessionConfig);
+          const auth = await isAdminAuthorized(req, sessionConfig, securityConfig);
           if (!auth.authorized) {
-            return withSecurityHeaders(new Response(JSON.stringify({ error: "Forbidden" }), {
+            return withSecurityHeaders(req, securityConfig, new Response(JSON.stringify({ error: "Forbidden", code: "UNAUTHORIZED" }), {
               status: 403,
               headers: { "content-type": "application/json" },
             }));
           }
           if (auth.viaCookie && requiresCsrf(req)) {
-            return withSecurityHeaders(new Response(JSON.stringify({ error: "Forbidden" }), {
+            return withSecurityHeaders(req, securityConfig, new Response(JSON.stringify({ error: "Forbidden", code: "CSRF_REQUIRED" }), {
               status: 403,
               headers: { "content-type": "application/json" },
             }));
           }
           const adminResponse = await adminRouter(req);
-          if (adminResponse) return withSecurityHeaders(adminResponse);
-          return withSecurityHeaders(new Response("Not Found", { status: 404 }));
+          if (adminResponse) return withSecurityHeaders(req, securityConfig, adminResponse);
+          return withSecurityHeaders(req, securityConfig, new Response("Not Found", { status: 404 }));
         }
 
         if (!path.startsWith("/v1/") && !path.startsWith("/api/")) {
-          return withSecurityHeaders(new Response(JSON.stringify({ error: "not found" }), {
+          return withSecurityHeaders(req, securityConfig, new Response(JSON.stringify({ error: "not found" }), {
             status: 404,
             headers: { "Content-Type": "application/json" },
           }));
@@ -170,7 +187,7 @@ export namespace Handler {
             || req.headers.has("x-api-key");
           if (!hasKey) {
             logger.warn("proxy request rejected: no API key", { event: "proxy.auth.rejected", path });
-            return withSecurityHeaders(new Response(JSON.stringify({ error: "API key required. Set x-proxy-key or Authorization header." }), {
+            return withSecurityHeaders(req, securityConfig, new Response(JSON.stringify({ error: "API key required. Set x-proxy-key or Authorization header." }), {
               status: 401,
               headers: { "content-type": "application/json" },
             }));
@@ -180,15 +197,15 @@ export namespace Handler {
         // Body limit enforcement only for methods that carry a body
         const needsBodyLimit = method === "POST" || method === "PUT" || method === "PATCH";
         const bounded = needsBodyLimit ? enforceRequestBodyLimit(req, maxRequestBodyBytes) : req;
-        if (bounded instanceof Response) return withSecurityHeaders(bounded);
+        if (bounded instanceof Response) return withSecurityHeaders(req, securityConfig, bounded);
         const info = await RequestInspector.inspect(bounded);
         return passThrough(bounded, info);
       } catch (err) {
         if (isRequestBodyTooLargeError(err)) {
-          return withSecurityHeaders(payloadTooLargeResponse(maxRequestBodyBytes));
+          return withSecurityHeaders(req, securityConfig, payloadTooLargeResponse(maxRequestBodyBytes));
         }
         logger.error("request handler failed", { err, path, method });
-        return withSecurityHeaders(new Response(JSON.stringify({ error: "Internal server error" }), {
+        return withSecurityHeaders(req, securityConfig, new Response(JSON.stringify({ error: "Internal server error" }), {
           status: 500,
           headers: { "content-type": "application/json" },
         }));
@@ -196,14 +213,18 @@ export namespace Handler {
     };
   }
 
-  async function isAdminAuthorized(req: Request, sessionConfig: Admin.SessionConfig): Promise<{ authorized: boolean; viaCookie: boolean }> {
-    if (!Config.adminApiKey) {
-      return { authorized: Config.host === "127.0.0.1" || Config.host === "localhost" || Config.host === "::1", viaCookie: false };
+  async function isAdminAuthorized(
+    req: Request,
+    sessionConfig: Admin.SessionConfig,
+    securityConfig: SecurityConfig,
+  ): Promise<{ authorized: boolean; viaCookie: boolean }> {
+    if (!securityConfig.adminApiKey) {
+      return { authorized: isLoopbackHost(securityConfig.host), viaCookie: false };
     }
 
     const bearer = req.headers.get("authorization")?.replace(/^Bearer\s+/i, "").trim();
     const token = req.headers.get("x-admin-token")?.trim() || bearer;
-    if (token) return { authorized: token === Config.adminApiKey, viaCookie: false };
+    if (token) return { authorized: token === securityConfig.adminApiKey, viaCookie: false };
 
     const authorized = await Session.extractSession(req, sessionConfig.secret, sessionConfig.ttlMs);
     return { authorized, viaCookie: authorized };
@@ -248,16 +269,26 @@ export namespace Handler {
     });
   }
 
-  function withSecurityHeaders(res: Response | Promise<Response>): Response | Promise<Response> {
-    if (res instanceof Promise) return res.then(withSecurityHeaders) as Promise<Response>;
+  function withSecurityHeaders(
+    req: Request,
+    securityConfig: SecurityConfig,
+    res: Response | Promise<Response>,
+  ): Response | Promise<Response> {
+    if (res instanceof Promise) {
+      return res.then((resolved) => withSecurityHeaders(req, securityConfig, resolved)) as Promise<Response>;
+    }
     res.headers.set("X-Frame-Options", "DENY");
     res.headers.set("X-Content-Type-Options", "nosniff");
     res.headers.set("Referrer-Policy", "strict-origin-when-cross-origin");
     res.headers.set("Permissions-Policy", "camera=(), microphone=(), geolocation=()");
-    if (Config.host !== "127.0.0.1" && Config.host !== "localhost" && Config.host !== "::1") {
+    if (isRequestSecure(req, securityConfig)) {
       res.headers.set("Strict-Transport-Security", "max-age=31536000; includeSubDomains");
     }
     return res;
+  }
+
+  function isLoopbackHost(host: string): boolean {
+    return host === "127.0.0.1" || host === "localhost" || host === "::1";
   }
 
   function payloadTooLargeResponse(limit: number): Response {
