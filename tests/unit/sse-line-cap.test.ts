@@ -26,6 +26,20 @@ function readAll(response: Response): Promise<string> {
   })();
 }
 
+async function withUnhandledRejectionCapture<T>(fn: (unhandled: unknown[]) => Promise<T>): Promise<T> {
+  const unhandled: unknown[] = [];
+  const onUnhandled = (reason: unknown) => {
+    unhandled.push(reason);
+  };
+
+  process.on("unhandledRejection", onUnhandled);
+  try {
+    return await fn(unhandled);
+  } finally {
+    process.off("unhandledRejection", onUnhandled);
+  }
+}
+
 test("RelayStream truncates oversized partial line and continues streaming", async () => {
   const oversizedChunk = "x".repeat(MAX_SSE_LINE_BYTES * 2);
   const validChunk = "data: hello\n\n";
@@ -67,4 +81,108 @@ test("RelayStream truncates exactly at boundary and continues", async () => {
 
   const output = await readAll(relayed);
   expect(output).toContain("data: after");
+});
+
+test("RelayStream consumes async onUsage rejections", async () => {
+  const upstream = new Response(createStream(["data: [DONE]\n\n"]));
+  const usages: Array<{ incomplete: boolean }> = [];
+
+  await withUnhandledRejectionCapture(async (unhandled) => {
+    const relayed = RelayStream.relay(upstream, {
+      provider: "openai",
+      onUsage: async (usage) => {
+        usages.push(usage);
+        throw new Error("usage write failed");
+      },
+    });
+
+    await readAll(relayed);
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(usages).toHaveLength(1);
+    expect(usages[0]?.incomplete).toBe(false);
+    expect(unhandled).toHaveLength(0);
+  });
+});
+
+test("RelayStream consumes synchronous onUsage throws", async () => {
+  const upstream = new Response(createStream(["data: [DONE]\n\n"]));
+  const usages: Array<{ incomplete: boolean }> = [];
+
+  await withUnhandledRejectionCapture(async (unhandled) => {
+    const relayed = RelayStream.relay(upstream, {
+      provider: "openai",
+      onUsage: (usage) => {
+        usages.push(usage);
+        throw new Error("usage write failed synchronously");
+      },
+    });
+
+    await readAll(relayed);
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(usages).toHaveLength(1);
+    expect(usages[0]?.incomplete).toBe(false);
+    expect(unhandled).toHaveLength(0);
+  });
+});
+
+test("RelayStream consumes non-Error onUsage failures", async () => {
+  const upstream = new Response(createStream(["data: [DONE]\n\n"]));
+  const usages: Array<{ incomplete: boolean }> = [];
+
+  await withUnhandledRejectionCapture(async (unhandled) => {
+    const relayed = RelayStream.relay(upstream, {
+      provider: "openai",
+      onUsage: (usage) => {
+        usages.push(usage);
+        throw 1n;
+      },
+    });
+
+    await readAll(relayed);
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(usages).toHaveLength(1);
+    expect(usages[0]?.incomplete).toBe(false);
+    expect(unhandled).toHaveLength(0);
+  });
+});
+
+test("RelayStream consumes non-Error async onUsage rejections", async () => {
+  const upstream = new Response(createStream(["data: [DONE]\n\n"]));
+  const usages: Array<{ incomplete: boolean }> = [];
+
+  await withUnhandledRejectionCapture(async (unhandled) => {
+    const relayed = RelayStream.relay(upstream, {
+      provider: "openai",
+      onUsage: async (usage) => {
+        usages.push(usage);
+        return Promise.reject(1n);
+      },
+    });
+
+    await readAll(relayed);
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(usages).toHaveLength(1);
+    expect(usages[0]?.incomplete).toBe(false);
+    expect(unhandled).toHaveLength(0);
+  });
+});
+
+test("RelayStream consumes async onUsage rejections for empty bodies", async () => {
+  const usages: Array<{ incomplete: boolean }> = [];
+
+  await withUnhandledRejectionCapture(async (unhandled) => {
+    const relayed = RelayStream.relay(new Response(null), {
+      provider: "anthropic",
+      onUsage: async (usage) => {
+        usages.push(usage);
+        throw new Error("empty body usage write failed");
+      },
+    });
+
+    expect(await relayed.text()).toBe("");
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(usages).toHaveLength(1);
+    expect(usages[0]?.incomplete).toBe(true);
+    expect(unhandled).toHaveLength(0);
+  });
 });
