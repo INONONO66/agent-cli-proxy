@@ -32,6 +32,7 @@ test("release package metadata is populated for npm publishing", async () => {
   expect(pkg.license).toBe("MIT");
   expect(pkg.author).toBe("Agent CLI Proxy contributors");
   expect(pkg.engines).toEqual({ bun: ">=1.0.0", node: ">=20.0.0" });
+  expect(pkg.module).toBe("./dist/index.js");
   expect(pkg.bin).toEqual({ "agent-cli-proxy": "./dist/cli.js" });
   expect(pkg.files).toEqual(["dist", "README.md", "CHANGELOG.md", "LICENSE"]);
 });
