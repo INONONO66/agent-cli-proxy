@@ -377,6 +377,7 @@ export namespace RequestRepo {
       provider?: string;
       model?: string;
       actual_model?: string;
+      actual_provider?: string;
       proxy_api_key_id?: number;
       streamed?: number;
       status?: number;
@@ -403,6 +404,7 @@ export namespace RequestRepo {
       SET provider = COALESCE(?, provider),
           model = COALESCE(?, model),
           actual_model = COALESCE(?, actual_model),
+          actual_provider = COALESCE(?, actual_provider),
           proxy_api_key_id = COALESCE(?, proxy_api_key_id),
           streamed = COALESCE(?, streamed),
           status = COALESCE(?, status),
@@ -428,6 +430,7 @@ export namespace RequestRepo {
       fields.provider ?? null,
       fields.model ?? null,
       fields.actual_model ?? null,
+      fields.actual_provider ?? null,
       fields.proxy_api_key_id ?? null,
       fields.streamed ?? null,
       fields.status ?? null,

@@ -105,6 +105,7 @@ export namespace Storage {
     ensureColumn(db, "request_logs", "request_id", "TEXT");
     ensureColumn(db, "request_logs", "reasoning_tokens", "INTEGER DEFAULT 0");
     ensureColumn(db, "request_logs", "actual_model", "TEXT");
+    ensureColumn(db, "request_logs", "actual_provider", "TEXT");
     ensureColumn(db, "request_logs", "user_agent", "TEXT");
     ensureColumn(db, "request_logs", "source_ip", "TEXT");
     ensureColumn(db, "request_logs", "correlated_at", "TEXT");

@@ -20,6 +20,7 @@ export namespace Usage {
     provider: string;
     model: string;
     actual_model?: string;
+    actual_provider?: string;
     proxy_api_key_id?: number;
     tool: string;
     client_id: string;

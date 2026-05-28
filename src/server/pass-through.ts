@@ -713,11 +713,15 @@ export namespace PassThroughProxy {
       const durationMs = Date.now() - lifecycle.startTime;
       const usage = fields.parsed.usage;
       const model = fields.parsed.actualModel ?? lifecycle.model;
+      const actualProvider = fields.parsed.actualModel
+        ? CanonicalProvider.fromModel(fields.parsed.actualModel) ?? lifecycle.provider
+        : lifecycle.provider;
       const log: Omit<Usage.RequestLog, "id"> = {
         request_id: lifecycle.requestId,
         provider: lifecycle.provider,
         model,
         actual_model: fields.parsed.actualModel ?? undefined,
+        actual_provider: actualProvider,
         proxy_api_key_id: lifecycle.proxyApiKeyId,
         tool: lifecycle.tool,
         client_id: lifecycle.clientId,

@@ -40,6 +40,7 @@ export namespace UsageService {
           provider: logWithCost.provider,
           model: logWithCost.model,
           actual_model: logWithCost.actual_model,
+          actual_provider: logWithCost.actual_provider,
           streamed: logWithCost.streamed,
           status: logWithCost.status,
           prompt_tokens: logWithCost.prompt_tokens,
