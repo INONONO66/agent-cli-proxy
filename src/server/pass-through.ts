@@ -3,7 +3,6 @@ import { RequestInspector, type RequestInfo } from "./request-inspector";
 import { ResponseParser, type ParsedResponse } from "./response-parser";
 import { UsageService } from "../storage/service";
 import { ApiKeyRepo } from "../storage/api-keys";
-import { AgentPlugins, type AgentPlugin } from "../agent-plugins";
 import { CanonicalProvider } from "../provider/canonical";
 import { ProviderTransforms } from "../provider/transform";
 import "../provider/transforms";
@@ -88,7 +87,6 @@ export namespace PassThroughProxy {
       authContext: ProxyAuthContext = { mode: "best-effort-header" },
     ): Promise<Response> {
       const startTime = Date.now();
-      const plugin = AgentPlugins.resolve(info);
       const proxyApiKey = authContext.mode === "resolved"
         ? authContext.proxyApiKey
         : await resolveProxyApiKey(req.headers, usageService.db);
@@ -120,7 +118,7 @@ export namespace PassThroughProxy {
         const upstreamResponse = await fetchUpstream({
           method: req.method,
           url: upstreamUrl,
-          headers: buildHeaders(req.headers, requestInfo, plugin, rewritten),
+          headers: buildHeaders(req.headers, requestInfo, rewritten),
           body,
           providerId,
           idempotent: isIdempotentMethod(req.method),
@@ -331,7 +329,7 @@ export namespace PassThroughProxy {
     }
   }
 
-  export function buildHeaders(headers: Headers, info: RequestInfo, _plugin: AgentPlugin, bodyRewritten = false): Headers {
+  export function buildHeaders(headers: Headers, info: RequestInfo, bodyRewritten = false): Headers {
     const result = new Headers(headers);
     result.set("authorization", `Bearer ${Config.cliProxyApiKey}`);
     result.delete("x-proxy-key");
