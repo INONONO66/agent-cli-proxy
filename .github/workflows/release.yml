@@ -37,9 +37,6 @@ jobs:
             exit 1
           fi
 
-      - name: Package GitHub Release artifact
-        run: bun run scripts/package-release.ts
-
       - name: Configure npm registry auth
         run: |
           test -n "${NODE_AUTH_TOKEN}"
@@ -49,6 +46,7 @@ jobs:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 
       - name: Publish to npm
+        continue-on-error: true
         run: |
           PACKAGE_NAME="$(bun -e "const pkg = await Bun.file('package.json').json(); console.log(pkg.name)")"
           PACKAGE_VERSION="$(bun -e "const pkg = await Bun.file('package.json').json(); console.log(pkg.version)")"
@@ -59,6 +57,9 @@ jobs:
           fi
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+
+      - name: Package GitHub Release artifact
+        run: bun run scripts/package-release.ts
 
       - name: Extract changelog for this version
         id: changelog

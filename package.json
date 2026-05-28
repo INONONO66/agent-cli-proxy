@@ -1,6 +1,6 @@
 {
   "name": "agent-cli-proxy",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "description": "Self-hosted AI API proxy with per-tool usage monitoring, account attribution, and cost tracking for OpenAI/Anthropic-compatible APIs.",
   "module": "./dist/index.js",
   "type": "module",
@@ -41,10 +41,7 @@
   ],
   "scripts": {
     "dev": "bun run --watch src/index.ts",
-    "dashboard:dev": "bun run --watch src/dashboard/server.ts",
-    "dashboard:build": "bun run scripts/build-dashboard.ts",
-    "dashboard:start": "NODE_ENV=production bun run dist/dashboard-server.js",
-    "build": "bun build src/index.ts src/cli.ts --target=bun --outdir=./dist && bun build src/dashboard/server.ts --target=bun --outfile=./dist/dashboard-server.js && rm -rf dist/dashboard && bun run scripts/build-dashboard.ts && rm -rf dist/migrations && cp -R src/storage/migrations dist/migrations && bun run scripts/post-build.ts",
+    "build": "bun build src/index.ts src/cli.ts --target=bun --outdir=./dist && rm -rf dist/migrations && cp -R src/storage/migrations dist/migrations && bun run scripts/post-build.ts",
     "typecheck": "bunx tsc --noEmit",
     "test": "bun test",
     "release-check": "bun run typecheck && bun run test && bun run build && (bunx publint . || bun run scripts/release-fallback-check.ts)",

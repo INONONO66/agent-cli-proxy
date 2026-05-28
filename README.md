@@ -47,7 +47,7 @@ Install a specific version and register the user service in one command:
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/INONONO66/agent-cli-proxy/main/scripts/install-release.sh | \
-  AGENT_CLI_PROXY_VERSION=v0.2.0 \
+  AGENT_CLI_PROXY_VERSION=v0.2.1 \
   AGENT_CLI_PROXY_SERVICE=1 \
   AGENT_CLI_PROXY_INIT=1 \
   AGENT_CLI_PROXY_ENV=$HOME/.config/agent-cli-proxy/.env \
@@ -59,7 +59,7 @@ The script requires Bun, downloads `agent-cli-proxy.tar.gz` from GitHub Releases
 installs the runtime under `~/.local/share/agent-cli-proxy/runtime`, and writes a
 `~/.local/bin/agent-cli-proxy` wrapper. Set `AGENT_CLI_PROXY_INIT=1` to run
 non-interactive initialization during install. Release tarball installs require
-`v0.2.0` or newer because earlier tags do not include runtime assets.
+`v0.2.1` or newer because earlier tags do not include runtime assets.
 
 ## Quickstart
 
@@ -247,30 +247,6 @@ Prefer `--admin-token-env` and `--cliproxy-mgmt-key-env` for non-interactive ins
 `x-admin-token: $ADMIN_API_KEY` or `Authorization: Bearer $ADMIN_API_KEY`.
 The proxy no longer serves a bundled dashboard; build a dashboard as a separate
 client that talks to these local admin APIs.
-
-## Local Dashboard
-
-Run the dashboard as a separate loopback-only Bun process:
-
-```bash
-bun run dashboard:dev
-```
-
-It listens on `http://127.0.0.1:3200` by default and proxies browser requests to
-`DASHBOARD_PROXY_URL` (`http://127.0.0.1:3100` by default). If the proxy has
-`ADMIN_API_KEY` configured, start the dashboard with the same environment value
-so the dashboard server can attach `x-admin-token` to local admin requests.
-
-```bash
-ADMIN_API_KEY=... bun run dashboard:dev
-```
-
-For a static production bundle:
-
-```bash
-bun run dashboard:build
-NODE_ENV=production bun run dashboard:start
-```
 
 | Method | Path | Description |
 |--------|------|-------------|
