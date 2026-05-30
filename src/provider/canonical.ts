@@ -73,9 +73,30 @@ export namespace CanonicalProvider {
   export function fromModel(model: string): string | null {
     if (!model) return null;
     const lower = model.toLowerCase();
+    const namespacedProvider = providerFromNamespace(lower);
+    if (namespacedProvider) return namespacedProvider;
+
     for (const rule of rules()) {
       if (lower.startsWith(rule.prefix)) return rule.provider;
     }
+    return null;
+  }
+
+  function providerFromNamespace(model: string): string | null {
+    const slash = model.indexOf("/");
+    if (slash <= 0) return null;
+
+    const namespace = model.slice(0, slash);
+    let providers: readonly ProviderRegistry.Provider[] = [];
+    try {
+      providers = ProviderRegistry.all();
+    } catch {
+      providers = [];
+    }
+    if (providers.some((provider) => provider.id === namespace)) return namespace;
+
+    if (namespace === "anthropic") return "anthropic";
+    if (namespace === "openai") return "openai";
     return null;
   }
 
