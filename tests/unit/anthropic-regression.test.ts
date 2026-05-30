@@ -94,6 +94,20 @@ test("rewriteRequestBody rewrites system text, tool names, and user message cont
   ]);
 });
 
+test("rewriteRequestBody removes Anthropic provider namespace from model", async () => {
+  const { rewriteRequestBody } = await loadModules();
+
+  const rewritten = rewriteRequestBody({
+    model: "anthropic/claude-sonnet-4-6",
+    messages: [
+      { role: "user", content: "hello" },
+    ],
+    max_tokens: 8,
+  });
+
+  expect(rewritten.model).toBe("claude-sonnet-4-6");
+});
+
 test("stripToolPrefix removes the tool prefix from response blocks", async () => {
   const { stripToolPrefix, toolPrefix } = await loadModules();
 

@@ -314,7 +314,7 @@ export namespace PassThroughProxy {
   }
 
   async function buildBody(req: Request, info: RequestInfo, providerId: string): Promise<BodyBuildResult> {
-    if (!ProviderTransforms.get(providerId)?.transformBody || info.isStreaming) return { body: req.body, rewritten: false };
+    if (!ProviderTransforms.get(providerId)?.transformBody) return { body: req.body, rewritten: false };
     const contentType = req.headers.get("content-type") ?? "";
     // only attempt JSON transform for JSON bodies; binary/multipart pass through unchanged
     if (!contentType.startsWith("application/json") && !contentType.startsWith("text/")) {

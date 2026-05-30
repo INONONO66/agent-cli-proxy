@@ -134,8 +134,14 @@ function hasUserMessage(messages: Anthropic.Message[]): boolean {
   return messages.some((m) => m.role === "user");
 }
 
+function normalizeModel(model: string): string {
+  const prefix = "anthropic/";
+  return model.toLowerCase().startsWith(prefix) ? model.slice(prefix.length) : model;
+}
+
 export function rewriteRequestBody(body: Anthropic.Request): Anthropic.Request {
   const result = { ...body };
+  result.model = normalizeModel(result.model);
 
   const rawSystem = normalizeSystem(result.system);
   const sanitized = sanitizeSystemText(rawSystem);
