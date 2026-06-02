@@ -4,6 +4,8 @@ import { ResponseParser, type ParsedResponse } from "./response-parser";
 import { UsageService } from "../storage/service";
 import { ApiKeyRepo } from "../storage/api-keys";
 import { CanonicalProvider } from "../provider/canonical";
+import { ProviderRegistry } from "../provider/registry";
+import type { ProviderDefinition, ProviderAuth } from "../provider/registry-schema";
 import { ProviderTransforms } from "../provider/transform";
 import "../provider/transforms";
 import { UpstreamClient } from "../upstream/client";
@@ -25,6 +27,11 @@ type BodyReadResult = Awaited<ReturnType<ReadableStreamDefaultReader<Uint8Array>
 interface BodyBuildResult {
   body: BodyInit | null;
   rewritten: boolean;
+}
+
+interface ResolvedUpstream {
+  provider: ProviderDefinition;
+  url: string;
 }
 
 interface LifecycleContext {
@@ -93,12 +100,12 @@ export namespace PassThroughProxy {
       if (proxyApiKey) touchProxyApiKeyLastUsed(usageService, proxyApiKey.id);
       const lifecycle = preLog(req, info, usageService, startTime, proxyApiKey?.id ?? null);
       const requestInfo: RequestInfo = { ...info, requestId: lifecycle?.requestId ?? info.requestId };
-      const upstreamUrl = `${Config.cliProxyApiUrl}${requestInfo.path}`;
       const passthroughSignal = lifecycle ? composeSignals([req.signal, lifecycle.handle.signal]) : req.signal;
       let streamHandedOff = false;
 
       try {
-        const providerId = lifecycle?.provider ?? providerForPath(requestInfo.path, requestInfo.model);
+        const upstream = resolveUpstream(requestInfo);
+        const providerId = lifecycle?.provider ?? upstream.provider.id;
         if (requiresProviderAuthorization(requestInfo.path) && !isProviderAllowed(providerId, proxyApiKey?.allowedProviders ?? null)) {
           await finalizeOnce(usageService, lifecycle, {
             parsed: { actualModel: null, usage: null },
@@ -114,15 +121,26 @@ export namespace PassThroughProxy {
           );
         }
 
-        const { body, rewritten } = await buildBody(req, requestInfo, providerId);
+        const { body, rewritten } = await buildBody(req, requestInfo, upstream.provider);
+        const upstreamStartedAt = Date.now();
         const upstreamResponse = await fetchUpstream({
           method: req.method,
-          url: upstreamUrl,
-          headers: buildHeaders(req.headers, requestInfo, rewritten),
+          url: upstream.url,
+          headers: buildHeaders(req.headers, requestInfo, upstream.provider, rewritten),
           body,
           providerId,
           idempotent: isIdempotentMethod(req.method),
           signal: passthroughSignal,
+          timeoutMs: streamFirstByteTimeoutFor(requestInfo),
+        });
+        const headersReceivedAt = Date.now();
+        logger.info("upstream response headers received", {
+          event: "passthrough.upstream_headers",
+          request_id: requestIdFor(lifecycle, requestInfo),
+          path: requestInfo.path,
+          provider: providerId,
+          status: upstreamResponse.status,
+          latency_ms: headersReceivedAt - upstreamStartedAt,
         });
 
         const isStreaming = upstreamResponse.headers
@@ -131,7 +149,7 @@ export namespace PassThroughProxy {
 
         if (isStreaming) {
           streamHandedOff = true;
-          return await handleStreaming(upstreamResponse, requestInfo, usageService, lifecycle, providerId);
+          return await handleStreaming(upstreamResponse, requestInfo, usageService, lifecycle, providerId, upstreamStartedAt, headersReceivedAt);
         }
 
         return await handleNonStreaming(upstreamResponse, requestInfo, usageService, lifecycle, providerId);
@@ -148,7 +166,13 @@ export namespace PassThroughProxy {
           err,
           upstreamBodyTimeout ? "upstream timeout" : aborted ? "request aborted" : "upstream unavailable",
         );
-        logger.error("upstream fetch failed", { event: "passthrough.upstream_error", err, path: requestInfo.path, request_id: requestIdFor(lifecycle, requestInfo) });
+        logger.error("upstream fetch failed", {
+          event: "passthrough.upstream_error",
+          err,
+          path: requestInfo.path,
+          request_id: requestIdFor(lifecycle, requestInfo),
+          timeout_kind: upstreamBodyTimeout ? "first_body" : undefined,
+        });
         await finalizeOnce(usageService, lifecycle, {
           parsed: { actualModel: null, usage: null },
           status,
@@ -187,7 +211,7 @@ export namespace PassThroughProxy {
 
     const requestId = crypto.randomUUID();
     info.requestId = requestId;
-    const provider = providerForPath(info.path, info.model);
+    const provider = providerForRequest(info);
     const tool = RequestInspector.detectTool(info);
     const clientId = RequestInspector.generateClientId(tool, info);
     const startedAt = new Date(startTime).toISOString();
@@ -313,8 +337,9 @@ export namespace PassThroughProxy {
     return AbortSignal.any(signals);
   }
 
-  async function buildBody(req: Request, info: RequestInfo, providerId: string): Promise<BodyBuildResult> {
-    if (!ProviderTransforms.get(providerId)?.transformBody) return { body: req.body, rewritten: false };
+  async function buildBody(req: Request, info: RequestInfo, provider: ProviderDefinition): Promise<BodyBuildResult> {
+    const providerId = provider.id;
+    if (!ProviderTransforms.get(providerId)?.transformBody && !provider.stripProviderField) return { body: req.body, rewritten: false };
     const contentType = req.headers.get("content-type") ?? "";
     // only attempt JSON transform for JSON bodies; binary/multipart pass through unchanged
     if (!contentType.startsWith("application/json") && !contentType.startsWith("text/")) {
@@ -323,7 +348,8 @@ export namespace PassThroughProxy {
     const text = await req.text();
     try {
       const parsed = JSON.parse(text) as unknown;
-      const rewritten = ProviderTransforms.applyBody(providerId, parsed, info);
+      const withoutProvider = provider.stripProviderField ? stripProviderField(parsed) : parsed;
+      const rewritten = ProviderTransforms.applyBody(providerId, withoutProvider, info);
       return { body: JSON.stringify(rewritten), rewritten: true };
     } catch (err) {
       logger.warn("provider body transform failed, forwarding original body", { err, path: info.path, request_id: info.requestId, provider: providerId });
@@ -341,19 +367,81 @@ export namespace PassThroughProxy {
     }
   }
 
-  export function buildHeaders(headers: Headers, info: RequestInfo, bodyRewritten = false): Headers {
+  export function buildHeaders(headers: Headers, info: RequestInfo, provider?: ProviderDefinition, bodyRewritten = false): Headers {
     const result = new Headers(headers);
-    result.set("authorization", `Bearer ${Config.cliProxyApiKey}`);
     result.delete("x-proxy-key");
+    result.delete("x-provider");
     result.delete("host");
     result.delete("content-length");
     result.delete("content-encoding");
     result.delete("accept-encoding");
     stripSpoofableProxyHeaders(result);
-    const providerId = providerForPath(info.path, info.model);
+    const resolvedProvider = provider ?? resolveUpstream(info).provider;
+    applyProviderHeaders(result, resolvedProvider);
+    applyProviderAuth(result, resolvedProvider);
+    if (resolvedProvider.type === "anthropic" && !result.has("anthropic-version")) {
+      result.set("anthropic-version", "2023-06-01");
+    }
+    const providerId = resolvedProvider.id;
     const transformed = ProviderTransforms.applyHeaders(providerId, result, info);
     if (bodyRewritten) transformed.set("content-type", "application/json");
     return transformed;
+  }
+
+  function stripProviderField(value: unknown): unknown {
+    if (!isRecord(value) || !("provider" in value)) return value;
+    const { provider: _provider, ...rest } = value;
+    return rest;
+  }
+
+  function applyProviderHeaders(headers: Headers, provider: ProviderDefinition): void {
+    if (!provider.headers) return;
+    for (const [key, value] of Object.entries(provider.headers)) {
+      headers.set(key, value);
+    }
+  }
+
+  function applyProviderAuth(headers: Headers, provider: ProviderDefinition): void {
+    const auth = provider.auth ?? "preserve";
+    const authType = typeof auth === "string" ? auth : auth.type;
+
+    if (authType === "none") {
+      headers.delete("authorization");
+      headers.delete("x-api-key");
+      return;
+    }
+
+    if (authType === "preserve") {
+      if (isCliProxyProvider(provider)) headers.set("authorization", `Bearer ${Config.cliProxyApiKey}`);
+      return;
+    }
+
+    const token = providerAuthToken(auth);
+    if (!token) return;
+
+    if (authType === "bearer") {
+      headers.delete("x-api-key");
+      headers.set(providerAuthHeader(auth, "authorization"), `Bearer ${token}`);
+      return;
+    }
+
+    headers.delete("authorization");
+    headers.set(providerAuthHeader(auth, "x-api-key"), token);
+  }
+
+  function providerAuthToken(auth: ProviderAuth): string | null {
+    if (typeof auth === "string") return null;
+    if (auth.value) return auth.value;
+    if (auth.env) return process.env[auth.env]?.trim() || null;
+    return null;
+  }
+
+  function providerAuthHeader(auth: ProviderAuth, fallback: string): string {
+    return typeof auth === "string" ? fallback : auth.header ?? fallback;
+  }
+
+  function isCliProxyProvider(provider: ProviderDefinition): boolean {
+    return normalizeBaseUrl(provider.upstreamBaseUrl) === normalizeBaseUrl(Config.cliProxyApiUrl);
   }
 
   function isIdempotentMethod(method: string): boolean {
@@ -489,6 +577,8 @@ export namespace PassThroughProxy {
     usageService: UsageService.UsageService,
     lifecycle: LifecycleContext | null,
     providerId: string,
+    upstreamStartedAt: number = Date.now(),
+    headersReceivedAt: number = Date.now(),
   ): Promise<Response> {
     const upstreamBody = upstreamResponse.body;
     if (!upstreamBody) {
@@ -570,6 +660,15 @@ export namespace PassThroughProxy {
       });
       throw err;
     }
+
+    logger.info("stream first chunk received", {
+      event: "passthrough.stream_first_chunk",
+      request_id: requestIdFor(lifecycle, info),
+      path: info.path,
+      provider: providerId,
+      latency_ms: Date.now() - headersReceivedAt,
+      upstream_latency_ms: Date.now() - upstreamStartedAt,
+    });
 
     if (firstRead.done) {
       streamDone = true;
@@ -852,8 +951,43 @@ export namespace PassThroughProxy {
     return lifecycle?.requestId ?? info.requestId;
   }
 
-  function providerForPath(path: string, model?: string | null): string {
-    return CanonicalProvider.resolve(model, path);
+  function providerForRequest(info: RequestInfo): string {
+    return resolveUpstream(info).provider.id;
+  }
+
+  function resolveUpstream(info: RequestInfo): ResolvedUpstream {
+    const provider = ProviderRegistry.resolve({ path: info.path, model: info.model, provider: info.provider });
+    if (provider) return { provider, url: upstreamUrl(provider, info.path) };
+
+    const providerId = CanonicalProvider.resolve(info.model, info.path);
+    const fallback: ProviderDefinition = {
+      id: providerId,
+      type: providerId === "anthropic" ? "anthropic" : "openai-compatible",
+      paths: [info.path],
+      upstreamBaseUrl: Config.cliProxyApiUrl,
+      upstreamPath: info.path,
+      auth: "preserve",
+    };
+    return { provider: fallback, url: upstreamUrl(fallback, info.path) };
+  }
+
+  function upstreamUrl(provider: ProviderDefinition, requestPath: string): string {
+    const base = normalizeBaseUrl(provider.upstreamBaseUrl);
+    const path = provider.upstreamPath ?? requestPath;
+    return `${base}${path.startsWith("/") ? path : `/${path}`}`;
+  }
+
+  function normalizeBaseUrl(value: string): string {
+    return value.replace(/\/+$/, "");
+  }
+
+  function streamFirstByteTimeoutFor(info: RequestInfo): number | undefined {
+    if (!info.isStreaming || info.path !== "/v1/messages") return undefined;
+    return Config.upstreamStreamFirstByteTimeoutMs;
+  }
+
+  function isRecord(value: unknown): value is Record<string, unknown> {
+    return typeof value === "object" && value !== null;
   }
 
   function upstreamErrorMessage(status: number, body: string): string {

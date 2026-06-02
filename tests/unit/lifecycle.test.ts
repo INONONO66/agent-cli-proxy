@@ -16,9 +16,12 @@ const { UsageService } = await import("../../src/storage/service");
 const { RequestRepo } = await import("../../src/storage/repo");
 const { ApiKeyRepo } = await import("../../src/storage/api-keys");
 const { Pricing } = await import("../../src/storage/pricing");
+const { ProviderRegistry } = await import("../../src/provider");
 
 const encoder = new TextEncoder();
 const price = { input: 1, output: 1, cache_read: 1, cache_write: 1, reasoning: 1 };
+const originalProvidersJson = process.env.PROVIDERS_JSON;
+const originalCustomProviderKey = process.env.CUSTOM_PROVIDER_KEY;
 
 beforeEach(() => {
   Pricing.__setPricingForTests([
@@ -32,11 +35,22 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+  restoreEnv("PROVIDERS_JSON", originalProvidersJson);
+  restoreEnv("CUSTOM_PROVIDER_KEY", originalCustomProviderKey);
+  ProviderRegistry.forceReload();
   Pricing.__setPricingForTests([
     ["openai/gpt-5.4-mini", price],
     ["gpt-5.4-mini", price],
   ]);
 });
+
+function restoreEnv(key: "PROVIDERS_JSON" | "CUSTOM_PROVIDER_KEY", value: string | undefined): void {
+  if (value === undefined) {
+    delete process.env[key];
+    return;
+  }
+  process.env[key] = value;
+}
 
 type FetchUpstream = (options: UpstreamClient.FetchOptions) => Promise<Response>;
 
@@ -287,6 +301,87 @@ test("Anthropic body rewrite strips stale transfer headers before upstream fetch
   expect(forwardedHeaders.get("content-encoding")).toBeNull();
   expect(forwardedHeaders.get("accept-encoding")).toBeNull();
   expect(forwardedHeaders.get("content-type")).toBe("application/json");
+});
+
+test("custom provider routes to configured upstream with configured auth and stripped selector", async () => {
+  process.env.CUSTOM_PROVIDER_KEY = "custom-secret";
+  process.env.PROVIDERS_JSON = JSON.stringify({
+    providers: [{
+      id: "ccapi",
+      type: "anthropic",
+      paths: ["/v1/messages"],
+      upstreamBaseUrl: "https://api.ccapi.test/base/",
+      upstreamPath: "/anthropic/v1/messages",
+      models: ["ccapi-claude"],
+      auth: { type: "x-api-key", env: "CUSTOM_PROVIDER_KEY" },
+      headers: { "x-route": "ccapi" },
+      stripProviderField: true,
+    }],
+  });
+  ProviderRegistry.forceReload();
+
+  let forwardedUrl = "";
+  let forwardedHeaders = new Headers();
+  let forwardedBody = "";
+  const { db, handle } = createHarness(async (options) => {
+    forwardedUrl = String(options.url);
+    forwardedHeaders = new Headers(options.headers);
+    forwardedBody = String(options.body);
+    return new Response(JSON.stringify({
+      id: "msg_1",
+      type: "message",
+      role: "assistant",
+      content: [{ type: "text", text: "ok" }],
+      model: "ccapi-claude-sonnet",
+      usage: { input_tokens: 10, output_tokens: 5 },
+    }), { status: 200, headers: { "content-type": "application/json" } });
+  });
+
+  const req = request("/v1/messages", {
+    provider: "ccapi",
+    model: "ccapi-claude-sonnet",
+    max_tokens: 10,
+    messages: [{ role: "user", content: "hi" }],
+  }, {
+    authorization: "Bearer client-proxy-key",
+    "x-provider": "ccapi",
+  });
+  const res = await handle(req, await inspect(req));
+  await res.text();
+
+  expect(forwardedUrl).toBe("https://api.ccapi.test/base/anthropic/v1/messages");
+  expect(forwardedHeaders.get("x-api-key")).toBe("custom-secret");
+  expect(forwardedHeaders.get("authorization")).toBeNull();
+  expect(forwardedHeaders.get("x-provider")).toBeNull();
+  expect(forwardedHeaders.get("x-route")).toBe("ccapi");
+  expect(forwardedHeaders.get("anthropic-version")).toBe("2023-06-01");
+  expect(JSON.parse(forwardedBody)).not.toHaveProperty("provider");
+  expect(latest(db)).toMatchObject({ provider: "ccapi", lifecycle_status: "completed" });
+});
+
+test("Claude streaming requests use the stream first-byte timeout override", async () => {
+  let timeoutMs: number | undefined;
+  const upstream = new ReadableStream<Uint8Array>({
+    start(controller) {
+      controller.enqueue(encoder.encode("event: message_stop\ndata: {\"type\":\"message_stop\"}\n"));
+      controller.close();
+    },
+  });
+  const { handle } = createHarness(async (options) => {
+    timeoutMs = options.timeoutMs;
+    return new Response(upstream, { status: 200, headers: { "content-type": "text/event-stream" } });
+  });
+
+  const req = request("/v1/messages", {
+    model: "claude-sonnet-4-20250514",
+    max_tokens: 10,
+    stream: true,
+    messages: [{ role: "user", content: "hi" }],
+  });
+  const res = await handle(req, await inspect(req));
+  await res.text();
+
+  expect(timeoutMs).toBe(900000);
 });
 
 test("client-supplied forwarding headers are not trusted or forwarded upstream by default", async () => {

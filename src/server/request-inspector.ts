@@ -7,6 +7,7 @@ export interface RequestInfo {
   originator: string | null;
   sessionId: string | null;
   apiKey: string | null;
+  provider: string | null;
   isStreaming: boolean;
   path: string;
   method: string;
@@ -44,6 +45,7 @@ export namespace RequestInspector {
       || req.headers.get("x-activity-request-id");
     const apiKey = req.headers.get("authorization")?.replace("Bearer ", "").trim()
       || req.headers.get("x-api-key");
+    let provider = req.headers.get("x-provider")?.trim() || null;
 
     const clientIp = getTrustedClientIp(req);
 
@@ -56,6 +58,9 @@ export namespace RequestInspector {
         const body = await cloned.json() as Record<string, unknown>;
         if (typeof body.model === "string") {
           model = body.model;
+        }
+        if (!provider && typeof body.provider === "string" && body.provider.trim() !== "") {
+          provider = body.provider.trim();
         }
         if (body.stream === true || body.stream === "true") {
           isStreaming = true;
@@ -74,6 +79,7 @@ export namespace RequestInspector {
       originator,
       sessionId,
       apiKey,
+      provider,
       isStreaming,
       path,
       method,
