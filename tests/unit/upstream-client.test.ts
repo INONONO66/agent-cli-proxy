@@ -103,6 +103,33 @@ test("does not retry streaming requests even when marked idempotent", async () =
   expect(logs.at(-1)?.fields).toMatchObject({ event: "upstream.error", retryable: false, retrying: false });
 });
 
+test("does not retry streaming requests after upstream 429", async () => {
+  let attempts = 0;
+  const body = new ReadableStream<Uint8Array>({
+    start(controller) {
+      controller.enqueue(new Uint8Array([1]));
+      controller.close();
+    },
+  });
+  replaceFetch(async () => {
+    attempts += 1;
+    return new Response("rate limited", { status: 429 });
+  });
+
+  const res = await UpstreamClient.fetch({
+    method: "POST",
+    url: "https://upstream.example/rate-limit",
+    headers: { accept: "text/event-stream" },
+    body,
+    providerId: "stream-rate-limit-provider",
+  });
+
+  expect(res.status).toBe(429);
+  expect(await res.text()).toBe("rate limited");
+  expect(attempts).toBe(1);
+  expect(logs.at(-1)?.fields).toMatchObject({ event: "upstream.rate_limited", retrying: false });
+});
+
 test("opens breaker after five failures and short-circuits without fetch", async () => {
   let attempts = 0;
   replaceFetch(async () => {

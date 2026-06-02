@@ -40,6 +40,7 @@ export interface ValidatedConfig {
   quotaRefreshIntervalMs: number;
   quotaRefreshTimeoutMs: number;
   upstreamTimeoutMs: number;
+  upstreamStreamFirstByteTimeoutMs: number;
   upstreamConnectTimeoutMs: number;
   upstreamMaxRetries: number;
   upstreamCircuitBreakerOpenAfterFailures: number;
@@ -128,6 +129,7 @@ export namespace Config {
       quotaRefreshIntervalMs: readPositiveNumber(env, "QUOTA_REFRESH_INTERVAL_MS", 300000, issues),
       quotaRefreshTimeoutMs: readPositiveNumber(env, "QUOTA_REFRESH_TIMEOUT_MS", 15000, issues),
       upstreamTimeoutMs: readPositiveNumber(env, "UPSTREAM_TIMEOUT_MS", 300000, issues),
+      upstreamStreamFirstByteTimeoutMs: readPositiveNumber(env, "UPSTREAM_STREAM_FIRST_BYTE_TIMEOUT_MS", 900000, issues),
       upstreamConnectTimeoutMs: readPositiveNumber(env, "UPSTREAM_CONNECT_TIMEOUT_MS", 10000, issues),
       upstreamMaxRetries: readPositiveInteger(env, "UPSTREAM_MAX_RETRIES", 2, 100, issues),
       upstreamCircuitBreakerOpenAfterFailures: readPositiveInteger(

@@ -29,6 +29,7 @@ export namespace UpstreamClient {
     providerId: string;
     idempotent?: boolean;
     signal?: AbortSignal;
+    timeoutMs?: number;
   }
 
   type BreakerState = "closed" | "open" | "half-open";
@@ -82,7 +83,7 @@ export namespace UpstreamClient {
 
     while (true) {
       const timeout = createTimeoutSignal(
-        upstreamTimeoutMs ?? Config.upstreamTimeoutMs,
+        options.timeoutMs ?? upstreamTimeoutMs ?? Config.upstreamTimeoutMs,
         upstreamConnectTimeoutMs ?? Config.upstreamConnectTimeoutMs,
       );
       const signal = composeSignals([timeout.signal, options.signal]);
@@ -97,7 +98,7 @@ export namespace UpstreamClient {
 
         if (response.status === 429) {
           const retryAfterMs = parseRetryAfter(response);
-          const retrying = attempt < rateLimitMaxRetries;
+          const retrying = attempt < rateLimitMaxRetries && !streaming;
           logger.warn("upstream rate limited (429)", {
             event: "upstream.rate_limited",
             providerId,
@@ -541,11 +542,18 @@ export namespace UpstreamClient {
     logger.error("upstream failure", {
       event: "upstream.error",
       ...withoutCause(failure),
+      timeout_kind: timeoutKindFromCause(failure.cause),
       cause: failure.cause,
       attempt,
       max_retries: MAX_RETRIES,
       retrying,
     });
+  }
+
+  function timeoutKindFromCause(cause: unknown): string | undefined {
+    if (!isRecord(cause)) return undefined;
+    const timeoutKind = cause.timeoutKind;
+    return typeof timeoutKind === "string" ? timeoutKind : undefined;
   }
 
   function withoutCause(failure: NormalizedError): Omit<NormalizedError, "cause"> {
@@ -565,6 +573,10 @@ export namespace UpstreamClient {
       return { name: err.name, message: err.message };
     }
     return err;
+  }
+
+  function isRecord(value: unknown): value is Record<string, unknown> {
+    return typeof value === "object" && value !== null;
   }
 
   async function isUpstreamShortCircuit(response: Response): Promise<boolean> {

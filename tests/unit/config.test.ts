@@ -55,6 +55,7 @@ test("valid config is frozen and keeps typed values", () => {
     CCH_POSITIONS: "[1,2,3]",
     CLIENT_NAME_MAPPING: "key1=alice,key2=bob",
     UPSTREAM_MAX_RETRIES: "4",
+    UPSTREAM_STREAM_FIRST_BYTE_TIMEOUT_MS: "1200000",
     UPSTREAM_CIRCUIT_BREAKER_OPEN_AFTER_FAILURES: "12",
     UPSTREAM_CIRCUIT_BREAKER_HALF_OPEN_AFTER_MS: "45000",
     UPSTREAM_CIRCUIT_BREAKER_EVICT_AFTER_MS: "600000",
@@ -77,6 +78,7 @@ test("valid config is frozen and keeps typed values", () => {
   expect(config.port).toBe(4310);
   expect(config.maxRequestBodyBytes).toBe(25_000_000);
   expect(config.upstreamMaxRetries).toBe(4);
+  expect(config.upstreamStreamFirstByteTimeoutMs).toBe(1200000);
   expect(config.upstreamCircuitBreakerOpenAfterFailures).toBe(12);
   expect(config.upstreamCircuitBreakerHalfOpenAfterMs).toBe(45000);
   expect(config.upstreamCircuitBreakerEvictAfterMs).toBe(600000);
@@ -117,6 +119,7 @@ test("invalid port and timeout values fail fast", () => {
     QUOTA_REFRESH_INTERVAL_MS: "0",
     QUOTA_REFRESH_TIMEOUT_MS: "Infinity",
     READY_PRICING_MAX_AGE_MS: "0",
+    UPSTREAM_STREAM_FIRST_BYTE_TIMEOUT_MS: "0",
     UPSTREAM_MAX_RETRIES: "1.5",
     UPSTREAM_CIRCUIT_BREAKER_OPEN_AFTER_FAILURES: "0",
     UPSTREAM_CIRCUIT_BREAKER_HALF_OPEN_AFTER_MS: "NaN",
@@ -135,6 +138,7 @@ test("invalid port and timeout values fail fast", () => {
     "QUOTA_REFRESH_INTERVAL_MS",
     "QUOTA_REFRESH_TIMEOUT_MS",
     "READY_PRICING_MAX_AGE_MS",
+    "UPSTREAM_STREAM_FIRST_BYTE_TIMEOUT_MS",
     "UPSTREAM_MAX_RETRIES",
     "UPSTREAM_CIRCUIT_BREAKER_OPEN_AFTER_FAILURES",
     "UPSTREAM_CIRCUIT_BREAKER_HALF_OPEN_AFTER_MS",
