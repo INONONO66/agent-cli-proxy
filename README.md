@@ -132,6 +132,7 @@ Provider API keys are intentionally **not** stored by this proxy. The proxy rout
 | `COST_BACKFILL_INTERVAL_MS` | `1800000` | How often to backfill zero-cost request logs (30m) |
 | `COST_BACKFILL_LOOKBACK_MS` | `604800000` | How far back cost backfill looks (7d) |
 | `UPSTREAM_TIMEOUT_MS` | `300000` | Total upstream request timeout (5m) |
+| `UPSTREAM_STREAM_FIRST_BYTE_TIMEOUT_MS` | `900000` | First SSE chunk timeout for Claude `/v1/messages` streaming requests (15m). Use this to tolerate slow Claude queueing without relaxing non-streaming requests. |
 | `UPSTREAM_CONNECT_TIMEOUT_MS` | `10000` | Upstream connection timeout (10s) |
 | `UPSTREAM_MAX_RETRIES` | `2` | Retry attempts for retryable idempotent upstream failures |
 | `UPSTREAM_CIRCUIT_BREAKER_OPEN_AFTER_FAILURES` | `5` | Consecutive upstream failures before a provider circuit opens |
@@ -210,7 +211,7 @@ Add OpenAI-compatible local or custom providers with JSON config. Select them pe
 }
 ```
 
-Provider fields: `id`, `type` (`openai-compatible` or `anthropic`), `paths`, `upstreamBaseUrl`, optional `upstreamPath`, `models`, `headers`, `auth` (`none`, `preserve`, `bearer`, `x-api-key`, or object with `env`/`value`/`header`), and `stripProviderField`.
+Provider fields: `id`, `type` (`openai-compatible` or `anthropic`), `paths`, `upstreamBaseUrl`, optional `upstreamPath`, `models`, `headers`, `auth` (`none`, `preserve`, `bearer`, `x-api-key`, or object with `env`/`value`/`header`), and `stripProviderField`. Requests selected with `x-provider` or a JSON `provider` field are routed to the configured `upstreamBaseUrl` and `upstreamPath`; `stripProviderField: true` removes the selector before forwarding. Anthropic providers default `anthropic-version` to `2023-06-01` when the client omits it.
 
 Save this as a file and set `PROVIDERS_CONFIG_PATH`, or set `PROVIDERS_JSON` to the inline JSON string. Use `agent-cli-proxy providers init` to create a starter file at the default config path.
 
@@ -316,6 +317,8 @@ Key event names:
 | `lifecycle.pre_logged` | Request row inserted before upstream call |
 | `lifecycle.finalized` | Request row updated after upstream response |
 | `lifecycle.aborted` | Request aborted before upstream response |
+| `passthrough.upstream_headers` | Upstream response headers arrived; includes latency and status for pre-body diagnosis |
+| `passthrough.stream_first_chunk` | First upstream SSE chunk arrived; includes latency for diagnosing Claude queueing |
 | `upstream.error` | Upstream call failed (timeout, 5xx, network) |
 | `upstream.breaker_reject` | Request rejected by open circuit breaker (not an upstream failure) |
 | `upstream.breaker_reset` | Circuit breaker manually reset via admin endpoint |
