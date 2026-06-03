@@ -210,7 +210,7 @@ export namespace Handler {
   ): Promise<{ response?: Response; context?: ProxyAuthContext }> {
     if (!securityConfig.proxyRequireApiKey) return undefinedProxyAuth();
 
-    const proxyApiKey = extractBearerToken(req.headers);
+    const proxyApiKey = extractProxyApiKey(req.headers);
     if (!proxyApiKey) return { response: proxyApiKeyRequiredResponse() };
 
     const found = await ApiKeyRepo.findByKeyFull(usageService.db, proxyApiKey);
@@ -235,17 +235,19 @@ export namespace Handler {
   }
 
   function proxyApiKeyRequiredResponse(): Response {
-    return new Response(JSON.stringify({ error: "Valid Authorization Bearer token required." }), {
+    return new Response(JSON.stringify({ error: "Valid Authorization Bearer token or x-api-key required." }), {
       status: 401,
       headers: { "content-type": "application/json", "cache-control": "no-store" },
     });
   }
 
-  function extractBearerToken(headers: Headers): string | null {
+  function extractProxyApiKey(headers: Headers): string | null {
     const authorization = headers.get("authorization")?.trim();
     const match = authorization?.match(/^Bearer\s+(.+)$/i);
-    const token = match?.[1]?.trim();
-    return token || null;
+    const bearer = match?.[1]?.trim();
+    if (bearer) return bearer;
+    const apiKey = headers.get("x-api-key")?.trim();
+    return apiKey || null;
   }
 
   async function isAdminAuthorized(

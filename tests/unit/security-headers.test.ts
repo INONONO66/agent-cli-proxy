@@ -83,17 +83,17 @@ describe("security headers and proxy headers", () => {
     `, { PROXY_REQUIRE_API_KEY: "true" });
   });
 
-  test("public proxy mode requires a managed Bearer token", async () => {
+  test("public proxy mode rejects unknown credentials in either Authorization or x-api-key", async () => {
     await runIsolatedCheck(`
       const invalidBearer = await handle(new Request("http://proxy.test/v1/models", {
         headers: { authorization: "Bearer invalid-key" },
       }));
       assert(invalidBearer.status === 401, "unknown Bearer token must be rejected");
 
-      const xApiKeyOnly = await handle(new Request("http://proxy.test/v1/models", {
-        headers: { "x-api-key": "upstream-token" },
+      const unknownXApiKey = await handle(new Request("http://proxy.test/v1/models", {
+        headers: { "x-api-key": "unknown-key" },
       }));
-      assert(xApiKeyOnly.status === 401, "x-api-key must not satisfy public proxy key enforcement");
+      assert(unknownXApiKey.status === 401, "unknown x-api-key must be rejected");
 
       const legacyProxyKey = await handle(new Request("http://proxy.test/v1/models", {
         headers: { "x-proxy-key": "invalid-key" },
@@ -103,7 +103,7 @@ describe("security headers and proxy headers", () => {
     `, { PROXY_HOST: "0.0.0.0", ADMIN_API_KEY: "admin-token" });
   });
 
-  test("managed Bearer token satisfies required public proxy auth", async () => {
+  test("managed proxy key satisfies required public proxy auth via Authorization or x-api-key", async () => {
     await runIsolatedManagedProxyKeyCheck();
   });
 
@@ -244,6 +244,23 @@ async function runIsolatedManagedProxyKeyCheck(): Promise<void> {
       }));
       if (modelsRes.status === 401 || modelsRes.status === 403) throw new Error("expected valid managed Bearer token to pass model listing auth, got " + modelsRes.status);
       await modelsRes.text();
+
+      const xApiKeyRes = await handle(new Request("http://proxy.test/v1/chat/completions", {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          "x-api-key": apiKey.key,
+        },
+        body: JSON.stringify({ model: "gpt-4o", messages: [{ role: "user", content: "hi" }] }),
+      }));
+      if (xApiKeyRes.status !== 200) throw new Error("expected valid managed key via x-api-key to proxy, got " + xApiKeyRes.status);
+      await xApiKeyRes.text();
+
+      const xApiKeyModelsRes = await handle(new Request("http://proxy.test/v1/models", {
+        headers: { "x-api-key": apiKey.key },
+      }));
+      if (xApiKeyModelsRes.status === 401 || xApiKeyModelsRes.status === 403) throw new Error("expected valid managed key via x-api-key to pass model listing auth, got " + xApiKeyModelsRes.status);
+      await xApiKeyModelsRes.text();
     } finally {
       upstream.stop(true);
       db.close();

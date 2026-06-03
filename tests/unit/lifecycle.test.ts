@@ -453,6 +453,39 @@ test("Bearer token identifies the request, updates last used, and stays off upst
   expect(db.query("SELECT last_used_at FROM api_keys WHERE id = ?").get(apiKey.id)).toMatchObject({ last_used_at: expect.any(String) });
 });
 
+test("x-api-key identifies the request, updates last used, and never reaches upstream", async () => {
+  const { db } = createHarness(async () => new Response(JSON.stringify({ ok: true }), {
+    status: 200,
+    headers: { "content-type": "application/json" },
+  }));
+  const apiKey = await ApiKeyRepo.create(db, "anthropic-style-client");
+  let forwardedHeaders = new Headers();
+  const handle = PassThroughProxy.create(UsageService.create(db), {
+    fetch: async (options) => {
+      forwardedHeaders = new Headers(options.headers);
+      return new Response(JSON.stringify({ model: "gpt-5.4-mini", usage: { prompt_tokens: 1, completion_tokens: 2, total_tokens: 3 } }), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      });
+    },
+  });
+
+  const req = request("/v1/chat/completions", { model: "gpt-5.4-mini", messages: [{ role: "user", content: "hi" }] }, {
+    "x-api-key": apiKey.key,
+  });
+  const res = await handle(req, await inspect(req));
+  await res.text();
+
+  expect(forwardedHeaders.get("authorization")).toBe("Bearer proxy");
+  expect(forwardedHeaders.get("x-api-key")).toBeNull();
+  expect(forwardedHeaders.get("x-proxy-key")).toBeNull();
+  expect(latest(db)).toMatchObject({
+    proxy_api_key_id: apiKey.id,
+    lifecycle_status: "completed",
+  });
+  expect(db.query("SELECT last_used_at FROM api_keys WHERE id = ?").get(apiKey.id)).toMatchObject({ last_used_at: expect.any(String) });
+});
+
 test("missing Bearer token still proxies and leaves proxy_api_key_id null", async () => {
   const { db, handle } = createHarness(async () => new Response(JSON.stringify({ model: "gpt-5.4-mini", usage: { prompt_tokens: 1, completion_tokens: 2, total_tokens: 3 } }), {
     status: 200,

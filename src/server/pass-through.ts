@@ -1029,7 +1029,7 @@ export namespace PassThroughProxy {
   }
 
   async function resolveProxyApiKey(headers: Headers, db: UsageService.UsageService["db"]): Promise<ResolvedProxyApiKey | null> {
-    const proxyApiKey = extractBearerToken(headers);
+    const proxyApiKey = extractProxyApiKey(headers);
     if (!proxyApiKey) return null;
 
     const found = await ApiKeyRepo.findByKeyFull(db, proxyApiKey);
@@ -1038,11 +1038,13 @@ export namespace PassThroughProxy {
     return { id: found.id, allowedProviders: found.allowedProviders, allowedAccounts: found.allowedAccounts };
   }
 
-  function extractBearerToken(headers: Headers): string | null {
+  function extractProxyApiKey(headers: Headers): string | null {
     const authorization = headers.get("authorization")?.trim();
     const match = authorization?.match(/^Bearer\s+(.+)$/i);
-    const token = match?.[1]?.trim();
-    return token || null;
+    const bearer = match?.[1]?.trim();
+    if (bearer) return bearer;
+    const apiKey = headers.get("x-api-key")?.trim();
+    return apiKey || null;
   }
 
   function touchProxyApiKeyLastUsed(usageService: UsageService.UsageService, id: number): void {
