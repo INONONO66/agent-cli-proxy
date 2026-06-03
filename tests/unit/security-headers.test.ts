@@ -209,6 +209,7 @@ async function runIsolatedManagedProxyKeyCheck(): Promise<void> {
       fetch(req) {
         if (req.headers.get("authorization") !== "Bearer proxy") throw new Error("client Bearer token leaked upstream");
         if (req.headers.has("x-proxy-key")) throw new Error("x-proxy-key leaked upstream");
+        if (req.headers.has("x-api-key")) throw new Error("client x-api-key leaked upstream");
         return new Response(JSON.stringify({ model: "gpt-4o", usage: { prompt_tokens: 1, completion_tokens: 1, total_tokens: 2 } }), {
           headers: { "content-type": "application/json" },
         });

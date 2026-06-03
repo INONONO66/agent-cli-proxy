@@ -412,7 +412,12 @@ export namespace PassThroughProxy {
     }
 
     if (authType === "preserve") {
-      if (isCliProxyProvider(provider)) headers.set("authorization", `Bearer ${Config.cliProxyApiKey}`);
+      if (isCliProxyProvider(provider)) {
+        headers.set("authorization", `Bearer ${Config.cliProxyApiKey}`);
+        // cliproxy authenticates via Authorization Bearer only; drop any client x-api-key
+        // so credentials that arrive in that header never reach upstream.
+        headers.delete("x-api-key");
+      }
       return;
     }
 
