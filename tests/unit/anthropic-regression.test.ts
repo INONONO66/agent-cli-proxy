@@ -108,6 +108,21 @@ test("rewriteRequestBody removes Anthropic provider namespace from model", async
   expect(rewritten.model).toBe("claude-sonnet-4-6");
 });
 
+test("rewriteRequestBody strips context_management so CLIProxyAPI does not 400", async () => {
+  const { rewriteRequestBody } = await loadModules();
+
+  const rewritten = rewriteRequestBody({
+    model: "claude-sonnet-4-5",
+    messages: [{ role: "user", content: "hello" }],
+    max_tokens: 8,
+    context_management: { type: "auto" },
+  });
+
+  expect(rewritten).not.toHaveProperty("context_management");
+  expect(rewritten.model).toBe("claude-sonnet-4-5");
+  expect(rewritten.messages).toEqual([{ role: "user", content: "hello" }]);
+});
+
 test("stripToolPrefix removes the tool prefix from response blocks", async () => {
   const { stripToolPrefix, toolPrefix } = await loadModules();
 

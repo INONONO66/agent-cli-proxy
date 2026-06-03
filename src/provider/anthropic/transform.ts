@@ -139,8 +139,17 @@ function normalizeModel(model: string): string {
   return model.toLowerCase().startsWith(prefix) ? model.slice(prefix.length) : model;
 }
 
+// Fields newer Claude Code CLIs ship (e.g. v2.1.152+ `context_management`) that
+// the upstream CLIProxyAPI Pydantic model has not adopted yet, so it rejects the
+// request with HTTP 400 "Extra inputs are not permitted". Strip them so end-to-end
+// requests keep working until CLIProxyAPI catches up with the Anthropic API spec.
+const CLIPROXY_UNSUPPORTED_FIELDS = ["context_management"] as const;
+
 export function rewriteRequestBody(body: Anthropic.Request): Anthropic.Request {
   const result = { ...body };
+  for (const field of CLIPROXY_UNSUPPORTED_FIELDS) {
+    delete result[field];
+  }
   result.model = normalizeModel(result.model);
 
   const rawSystem = normalizeSystem(result.system);
