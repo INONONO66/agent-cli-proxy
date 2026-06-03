@@ -119,7 +119,7 @@ Provider API keys are intentionally **not** stored by this proxy. The proxy rout
 | `PROXY_HOST` | `127.0.0.1` | Bind host. Keep loopback unless you add auth/network controls. |
 | `TRUST_PROXY_HEADERS` | `false` | Trust reverse-proxy headers such as `X-Forwarded-Proto`/Cloudflare visitor scheme for HTTPS-only decisions. Enable only behind a trusted proxy. |
 | `ADMIN_API_KEY` | | Optional token for local-only `/admin/*` and `/metrics` endpoints. |
-| `PROXY_REQUIRE_API_KEY` | `false` on loopback, `true` off loopback | Require a valid managed `Authorization: Bearer <proxy-key>` token for `/v1/*` and `/api/*` requests. Keep enabled for any externally reachable deployment. |
+| `PROXY_REQUIRE_API_KEY` | `false` on loopback, `true` off loopback | Require a valid managed proxy key on `/v1/*` and `/api/*` requests, sent as either `Authorization: Bearer <proxy-key>` or `x-api-key: <proxy-key>`. Keep enabled for any externally reachable deployment. |
 | `CLI_PROXY_API_URL` | `http://localhost:8317` | Upstream CLIProxyAPI URL (required unless `PROXY_LOCAL_OK=1`) |
 | `CLI_PROXY_API_KEY` | `proxy` | Proxy auth key sent to CLIProxyAPI |
 | `CLAUDE_CODE_VERSION` | `2.1.87` | Claude Code version for bypass headers |
@@ -174,10 +174,12 @@ emits configuration warnings because they are deploy-directory dependent.
 
 When the proxy binds to a non-loopback host, `PROXY_REQUIRE_API_KEY` defaults to
 `true`. In that mode, every LLM proxy request under `/v1/*` and `/api/*` must
-include a valid managed proxy key as `Authorization: Bearer <proxy-key>`.
-`x-api-key` and legacy `x-proxy-key` headers do not satisfy this
-application-level check. Non-loopback binds cannot disable this requirement;
-keep `PROXY_HOST` on loopback for local development without proxy client keys.
+include a valid managed proxy key as either `Authorization: Bearer <proxy-key>`
+or `x-api-key: <proxy-key>` (Anthropic-SDK style). `Authorization` takes
+precedence when both are present. The legacy `x-proxy-key` header still does
+not satisfy this application-level check. Non-loopback binds cannot disable
+this requirement; keep `PROXY_HOST` on loopback for local development without
+proxy client keys.
 
 Create and manage client proxy keys from the local-only `/admin/api-keys` API.
 These keys remain separate from `ADMIN_API_KEY` and from the upstream
@@ -376,7 +378,7 @@ On Linux this proxies to `journalctl --user -u agent-cli-proxy.service -f`; on m
 **Common errors:**
 
 - `CLI_PROXY_API_URL is required` — set `CLI_PROXY_API_URL` in your `.env` or pass `PROXY_LOCAL_OK=1` to allow the local default.
-- `PROXY_REQUIRE_API_KEY must be true when PROXY_HOST is not loopback` — public proxy binds require managed `Authorization: Bearer <proxy-key>` authentication for `/v1/*` and `/api/*` requests.
+- `PROXY_REQUIRE_API_KEY must be true when PROXY_HOST is not loopback` — public proxy binds require a managed proxy key (`Authorization: Bearer <proxy-key>` or `x-api-key: <proxy-key>`) for `/v1/*` and `/api/*` requests.
 
 ## Releasing
 
