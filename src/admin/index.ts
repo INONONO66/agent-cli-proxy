@@ -9,6 +9,7 @@ import { Pricing } from "../storage/pricing";
 import { Session } from "./session";
 import { OAuthAdmin } from "./oauth";
 import { ApiKeysAdmin } from "./api-keys";
+import { parseDateRange, parseRequiredDateRange } from "./date-query";
 import { Usage } from "../usage";
 import { registeredProbeTypes } from "../cliproxy/quota";
 import { dirname } from "path";
@@ -90,18 +91,21 @@ export namespace Admin {
         }
 
         if (path === "/admin/usage/range") {
-          const from = url.searchParams.get("from");
-          const to = url.searchParams.get("to");
-          if (!from || !to)
-            return json({ error: "Missing from or to parameter" }, 400);
-          return json(usageService.getDateRange(from, to));
+          const range = parseRequiredDateRange(url.searchParams);
+          if (!range.ok) return json({ error: range.error }, 400);
+          return json(usageService.getDateRange(range.value.from, range.value.to));
         }
 
         if (path === "/admin/usage/models") {
           const from = url.searchParams.get("from") ?? undefined;
           const to = url.searchParams.get("to") ?? undefined;
+          if ((from && !to) || (!from && to)) {
+            return json({ error: "Both from and to are required when using date range" }, 400);
+          }
           if (from && to) {
-            return json(usageService.getModelBreakdown(from, to));
+            const range = parseDateRange(from, to);
+            if (!range.ok) return json({ error: range.error }, 400);
+            return json(usageService.getModelBreakdown(range.value.from, range.value.to));
           }
           const day =
             url.searchParams.get("day") ?? new Date().toISOString().slice(0, 10);
@@ -111,8 +115,13 @@ export namespace Admin {
         if (path === "/admin/usage/providers") {
           const from = url.searchParams.get("from") ?? undefined;
           const to = url.searchParams.get("to") ?? undefined;
+          if ((from && !to) || (!from && to)) {
+            return json({ error: "Both from and to are required when using date range" }, 400);
+          }
           if (from && to) {
-            return json(usageService.getProviderBreakdown(from, to));
+            const range = parseDateRange(from, to);
+            if (!range.ok) return json({ error: range.error }, 400);
+            return json(usageService.getProviderBreakdown(range.value.from, range.value.to));
           }
           const day =
             url.searchParams.get("day") ?? new Date().toISOString().slice(0, 10);
@@ -126,11 +135,9 @@ export namespace Admin {
         }
 
         if (path === "/admin/usage/accounts/range") {
-          const from = url.searchParams.get("from");
-          const to = url.searchParams.get("to");
-          if (!from || !to)
-            return json({ error: "Missing from or to parameter" }, 400);
-          return json(usageService.getAccountRange(from, to));
+          const range = parseRequiredDateRange(url.searchParams);
+          if (!range.ok) return json({ error: range.error }, 400);
+          return json(usageService.getAccountRange(range.value.from, range.value.to));
         }
 
         if (path === "/admin/usage/accounts/summary") {
@@ -139,7 +146,9 @@ export namespace Admin {
             new Date(Date.now() - 7 * 86400 * 1000).toISOString().slice(0, 10);
           const to =
             url.searchParams.get("to") ?? new Date().toISOString().slice(0, 10);
-          return json(usageService.getAccountSummary(from, to));
+          const range = parseDateRange(from, to);
+          if (!range.ok) return json({ error: range.error }, 400);
+          return json(usageService.getAccountSummary(range.value.from, range.value.to));
         }
 
         if (path === "/admin/usage/trend") {
