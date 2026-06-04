@@ -1,4 +1,5 @@
 import { expect, test } from "bun:test";
+import { execFileSync } from "node:child_process";
 import { chmodSync, mkdtempSync, readFileSync, existsSync, mkdirSync, readdirSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { basename, dirname, join } from "node:path";
@@ -204,6 +205,19 @@ test("doctor reports unreadable env files without raw filesystem errors", async 
   } finally {
     chmodSync(envPath, 0o644);
   }
+});
+
+test("doctor reports non-regular env files without raw filesystem errors", async () => {
+  const dir = tempDir("agent-cli-proxy-env-nonregular-");
+  const envPath = join(dir, ".env");
+  execFileSync("mkfifo", [envPath]);
+
+  const result = await runCliProcess(["doctor", "--env", envPath, "--json"], testEnv());
+
+  expect(result.exitCode).toBe(1);
+  expect(result.stdout).toBe("");
+  expect(result.stderr).toContain(`${envPath} is not a regular file, expected a readable .env file`);
+  expect(result.stderr).not.toContain("EISDIR");
 });
 
 test("doctor --json keeps stdout parseable when info logging is enabled", async () => {
