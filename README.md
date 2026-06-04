@@ -294,7 +294,7 @@ Usage day parameters and defaults are UTC dates.
 
 `/health` is a cheap liveness probe. It returns `200 {"status":"ok"}` as long as the process is alive, with no dependency checks.
 
-`/ready` is a readiness probe that checks the database, pricing cache freshness, upstream CLIProxyAPI, and supervisor loop state. It returns `200` when all checks pass and `503` when any critical dependency is failing.
+`/ready` is a readiness probe that checks the database, pricing cache freshness, upstream CLIProxyAPI, and supervisor loop state. It returns `200` when all checks pass or only transient supervisor retries are in progress, and `503` when any critical dependency is failing.
 
 Sample `/ready` response:
 
@@ -305,7 +305,24 @@ Sample `/ready` response:
     "database": { "status": "pass", "responseTime": 3 },
     "pricing": { "status": "pass", "ageMs": 14400000 },
     "upstream": { "status": "pass", "responseTime": 42 },
-    "supervisor": { "status": "pass", "loops": ["pricing-refresh", "cost-backfill"] }
+    "supervisor": {
+      "status": "warn",
+      "loops": ["pricing-refresh", "cost-backfill"],
+      "loopHealth": [
+        {
+          "name": "pricing-refresh",
+          "consecutiveFailures": 1,
+          "status": "warn",
+          "lastErrorAgeMs": 2500
+        },
+        {
+          "name": "cost-backfill",
+          "consecutiveFailures": 0,
+          "status": "pass",
+          "lastSuccessAgeMs": 60000
+        }
+      ]
+    }
   }
 }
 ```
