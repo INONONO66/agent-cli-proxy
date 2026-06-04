@@ -153,7 +153,6 @@ test("providers show masks auth values", async () => {
   });
 
   const result = await runCli(["providers", "show", "--json"], testEnv({
-    CLI_PROXY_API_URL: "http://localhost:8317",
     PROVIDERS_JSON: providers,
   }));
 
@@ -161,6 +160,25 @@ test("providers show masks auth values", async () => {
   expect(result.stdout).not.toContain("super-secret-token");
   expect(result.stdout).toContain("[redacted]");
   expect(result.stdout).toContain("IGNORED_SECRET_ENV");
+});
+
+test("providers show --json lists built-ins without upstream config", async () => {
+  const result = await runCli(["providers", "show", "--json"], testEnv());
+
+  expect(result.exitCode).toBe(0);
+  const providers = JSON.parse(result.stdout);
+  expect(providers.map((provider: { id: string }) => provider.id)).toContain("anthropic");
+  expect(result.stderr).toBe("");
+});
+
+test("providers show --json rejects invalid upstream config when provided", async () => {
+  const result = await runCli(["providers", "show", "--json"], testEnv({
+    CLI_PROXY_API_URL: "not-a-url",
+  }));
+
+  expect(result.exitCode).toBe(1);
+  expect(result.stdout).toBe("");
+  expect(result.stderr).toContain("CLI_PROXY_API_URL must be a parseable http(s) URL");
 });
 
 test("providers show --json keeps stdout parseable when config warnings are enabled", async () => {

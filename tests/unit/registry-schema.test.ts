@@ -147,3 +147,19 @@ test("registry forceReload keeps last-good providers when file config becomes in
   expect(reloadedIds).toContain("file-a");
   expect(ProviderRegistry.sourceInfo().lastReloadError?.source).toBe("PROVIDERS_CONFIG_PATH");
 });
+
+test("registry display load ignores cached custom providers when custom config is invalid", () => {
+  process.env.PROVIDERS_JSON = JSON.stringify({ providers: [validProvider({ id: "cached-custom" })] });
+  delete process.env.PROVIDERS_CONFIG_PATH;
+  expect(ProviderRegistry.forceReload().map((provider: ProviderDefinition) => provider.id)).toContain("cached-custom");
+
+  process.env.PROVIDERS_JSON = "{";
+  const displayIds = ProviderRegistry.loadProviders({
+    cache: false,
+    cliProxyApiUrl: "http://localhost:8317",
+  }).map((provider: ProviderDefinition) => provider.id);
+
+  expect(displayIds).toEqual(expect.arrayContaining(["anthropic", "openai"]));
+  expect(displayIds).not.toContain("cached-custom");
+  expect(ProviderRegistry.sourceInfo().lastReloadError).toBeUndefined();
+});

@@ -6,7 +6,7 @@ import { homedir, platform } from "node:os";
 import { createInterface } from "node:readline/promises";
 import { stdin as input, stdout as output } from "node:process";
 import { Storage } from "./storage/db";
-import { Config, ConfigError, type ConfigIssue, type ValidatedConfig } from "./config/validate";
+import { Config, ConfigError, readCliProxyApiUrl, type ConfigIssue, type ValidatedConfig } from "./config/validate";
 import { Logger } from "./util/logger";
 import { validateProviderDocument, type ProviderDefinition, type ProviderSchemaIssue } from "./provider/registry-schema";
 
@@ -503,7 +503,10 @@ async function providersCommand(ctx: CommandContext, subcommand: string): Promis
   switch (subcommand) {
     case "show": {
       const { ProviderRegistry } = await import("./provider/registry");
-      const providers = ProviderRegistry.all().map(maskProvider);
+      const providers = ProviderRegistry.loadProviders({
+        cliProxyApiUrl: readCliProxyApiUrl(process.env, { allowLocalDefault: true }),
+        cache: false,
+      }).map(maskProvider);
       if (hasFlag(ctx.args, "--json")) writeOut(JSON.stringify(providers, null, 2));
       else printProvidersTable(providers);
       return;
