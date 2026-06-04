@@ -762,7 +762,15 @@ function parseEnvFile(path: string): EnvMap {
   const info = statSync(path);
   if (info.isDirectory()) throw new Error(`${path} is a directory, expected a readable .env file`);
   if (!info.isFile()) throw new Error(`${path} is not a regular file, expected a readable .env file`);
-  const text = readFileSync(path, "utf-8");
+  let text: string;
+  try {
+    text = readFileSync(path, "utf-8");
+  } catch (error) {
+    if (error instanceof Error) {
+      throw new Error(`${path} is not readable, expected a readable .env file`, { cause: error });
+    }
+    throw error;
+  }
   const env: EnvMap = {};
   for (const line of text.split("\n")) {
     const trimmed = line.trim();

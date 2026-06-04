@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { mkdtempSync, readFileSync, existsSync, mkdirSync, readdirSync } from "node:fs";
+import { chmodSync, mkdtempSync, readFileSync, existsSync, mkdirSync, readdirSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { basename, dirname, join } from "node:path";
 import { parseArgs, getFlagValue, writeEnvAtomic, runCli as runCliInProcess, installBrokenPipeHandlers } from "../../src/cli";
@@ -186,6 +186,24 @@ test("doctor reports directory env paths without raw filesystem errors", async (
   expect(result.stdout).toBe("");
   expect(result.stderr).toContain(`${envPath} is a directory, expected a readable .env file`);
   expect(result.stderr).not.toContain("EISDIR");
+});
+
+test("doctor reports unreadable env files without raw filesystem errors", async () => {
+  const dir = tempDir("agent-cli-proxy-env-unreadable-");
+  const envPath = join(dir, ".env");
+  await Bun.write(envPath, "PROXY_PORT=1234\n");
+  chmodSync(envPath, 0o000);
+
+  try {
+    const result = await runCliProcess(["doctor", "--env", envPath, "--json"], testEnv());
+
+    expect(result.exitCode).toBe(1);
+    expect(result.stdout).toBe("");
+    expect(result.stderr).toContain(`${envPath} is not readable, expected a readable .env file`);
+    expect(result.stderr).not.toContain("EACCES");
+  } finally {
+    chmodSync(envPath, 0o644);
+  }
 });
 
 test("doctor --json keeps stdout parseable when info logging is enabled", async () => {
