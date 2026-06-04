@@ -49,10 +49,27 @@ type ReadyResult = {
   durationMs: number;
 };
 
+type ReadyCheckResult = ReadyCheck | Promise<ReadyCheck>;
+
+type ReadyChecksInFlight = {
+  result: Promise<ReadyChecks>;
+  done: Promise<void>;
+};
+
+type ReadyResultInFlight = {
+  result: Promise<ReadyResult>;
+  done: Promise<void>;
+};
+
+type ReadyCheckOverrides = {
+  pricing?: () => ReadyCheckResult;
+};
+
 type RequestContext = Pick<Server<unknown>, "requestIP"> | undefined;
 
 const READY_TOTAL_TIMEOUT_MS = 1_500;
 const READY_CACHE_TTL_MS = 3_000;
+const READY_DRAIN_TIMEOUT_MS = 30_000;
 const READY_CHECK_TIMEOUTS_MS = {
   database: 300,
   pricing: 300,
@@ -61,7 +78,10 @@ const READY_CHECK_TIMEOUTS_MS = {
 } as const;
 
 let readyCache: { expiresAt: number; result: ReadyResult } | null = null;
-let readyInFlight: Promise<ReadyResult> | null = null;
+let readyInFlight: ReadyResultInFlight | null = null;
+let readyCheckOverrides: ReadyCheckOverrides = {};
+let readyCacheGeneration = 0;
+let readyDrainTimeoutMs = READY_DRAIN_TIMEOUT_MS;
 
 export namespace Handler {
   export interface Options {
@@ -79,8 +99,19 @@ export namespace Handler {
   }
 
   export function __clearReadyCacheForTests(): void {
+    readyCacheGeneration += 1;
     readyCache = null;
     readyInFlight = null;
+    readyCheckOverrides = {};
+    readyDrainTimeoutMs = READY_DRAIN_TIMEOUT_MS;
+  }
+
+  export function __setReadyCheckOverrideForTests(overrides: ReadyCheckOverrides): void {
+    readyCheckOverrides = overrides;
+  }
+
+  export function __setReadyDrainTimeoutForTests(timeoutMs: number): void {
+    readyDrainTimeoutMs = timeoutMs;
   }
 
   export function create(usageService: UsageService.UsageService, options: Options = {}) {
@@ -380,21 +411,40 @@ export namespace Handler {
       return readyCache.result;
     }
 
-    if (readyInFlight) return readyInFlight;
+    if (readyInFlight) return readyInFlight.result;
 
-    readyInFlight = computeReadyResult(usageService).then((result) => {
-      readyCache = { result, expiresAt: Date.now() + READY_CACHE_TTL_MS };
-      return result;
-    }).finally(() => {
-      readyInFlight = null;
+    const { result, done } = computeReadyResult(usageService);
+    const cacheGeneration = readyCacheGeneration;
+    readyInFlight = { result, done };
+    void result.then((readyResult) => {
+      if (cacheGeneration === readyCacheGeneration) {
+        readyCache = { result: readyResult, expiresAt: Date.now() + READY_CACHE_TTL_MS };
+      }
+    }, () => undefined);
+    void done.then(() => {
+      if (readyInFlight?.done === done) {
+        readyInFlight = null;
+      }
     });
 
-    return readyInFlight;
+    return result;
   }
 
-  async function computeReadyResult(usageService: UsageService.UsageService): Promise<ReadyResult> {
+  function computeReadyResult(usageService: UsageService.UsageService): ReadyResultInFlight {
     const startedAt = Date.now();
-    const result = await raceWithDeadline(runReadyChecks(usageService), startedAt);
+    const checks = runReadyChecks(usageService);
+    const result = raceWithDeadline(checks.result, startedAt);
+    const done = Promise.all([result, withDrainDeadline(checks.done)]).then(() => undefined, () => undefined);
+    return { result, done };
+  }
+
+  function buildReadyResult(checks: ReadyChecks, startedAt: number): ReadyResult {
+    const status = aggregateStatus(checks);
+    const result: ReadyResult = {
+      body: { status, checks },
+      httpStatus: status === "fail" ? 503 : 200,
+      durationMs: Date.now() - startedAt,
+    };
     PerfMetrics.observeReadyCheck({ status: result.body.status, durationMs: result.durationMs });
     readyLogger.info("readiness checked", {
       event: "ready.check",
@@ -412,55 +462,83 @@ export namespace Handler {
         timer = setTimeout(() => resolve(timeoutChecks()), READY_TOTAL_TIMEOUT_MS);
       });
       const readyChecks = await Promise.race([checks, timeout]);
-      const status = aggregateStatus(readyChecks);
-      return {
-        body: { status, checks: readyChecks },
-        httpStatus: status === "fail" ? 503 : 200,
-        durationMs: Date.now() - startedAt,
-      };
+      return buildReadyResult(readyChecks, startedAt);
     } finally {
       if (timer) clearTimeout(timer);
     }
   }
 
-  async function runReadyChecks(usageService: UsageService.UsageService): Promise<ReadyChecks> {
-    const [database, pricing, upstream, supervisor] = await Promise.all([
-      withCheckTimeout("database", () => checkDatabase(usageService), READY_CHECK_TIMEOUTS_MS.database),
-      withCheckTimeout("pricing", checkPricing, READY_CHECK_TIMEOUTS_MS.pricing),
-      withCheckTimeout("upstream", checkUpstream, READY_CHECK_TIMEOUTS_MS.upstream),
-      withCheckTimeout("supervisor", checkSupervisor, READY_CHECK_TIMEOUTS_MS.supervisor),
-    ]);
-
-    return { database, pricing, upstream, supervisor };
+  async function withDrainDeadline(done: Promise<void>): Promise<void> {
+    let timer: ReturnType<typeof setTimeout> | null = null;
+    try {
+      const timeout = new Promise<void>((resolve) => {
+        timer = setTimeout(resolve, readyDrainTimeoutMs);
+      });
+      await Promise.race([done, timeout]);
+    } finally {
+      if (timer) clearTimeout(timer);
+    }
   }
 
-  async function withCheckTimeout(
+  function runReadyChecks(usageService: UsageService.UsageService): ReadyChecksInFlight {
+    const database = withCheckTimeout("database", () => checkDatabase(usageService), READY_CHECK_TIMEOUTS_MS.database);
+    const pricing = withCheckTimeout("pricing", checkPricing, READY_CHECK_TIMEOUTS_MS.pricing);
+    const upstream = withCheckTimeout("upstream", checkUpstream, READY_CHECK_TIMEOUTS_MS.upstream);
+    const supervisor = withCheckTimeout("supervisor", checkSupervisor, READY_CHECK_TIMEOUTS_MS.supervisor);
+
+    const result = Promise.all([database.result, pricing.result, upstream.result, supervisor.result]).then(([
+      databaseResult,
+      pricingResult,
+      upstreamResult,
+      supervisorResult,
+    ]) => ({
+      database: databaseResult,
+      pricing: pricingResult,
+      upstream: upstreamResult,
+      supervisor: supervisorResult,
+    }));
+
+    const done = Promise.all([
+      database.done,
+      pricing.done,
+      upstream.done,
+      supervisor.done,
+    ]).then(() => undefined);
+
+    return { result, done };
+  }
+
+  function withCheckTimeout(
     name: keyof ReadyChecks,
     check: () => Promise<ReadyCheck> | ReadyCheck,
     timeoutMs: number,
-  ): Promise<ReadyCheck> {
+  ): { result: Promise<ReadyCheck>; done: Promise<ReadyCheck> } {
     let timer: ReturnType<typeof setTimeout> | null = null;
     const startedAt = Date.now();
-    try {
-      return await Promise.race([
-        Promise.resolve().then(check),
-        new Promise<ReadyCheck>((resolve) => {
-          timer = setTimeout(() => resolve({
+    const done = Promise.resolve().then(check).catch((err): ReadyCheck => ({
+      status: "fail",
+      output: err instanceof Error ? err.message : String(err),
+      responseTime: Date.now() - startedAt,
+    }));
+    const result = Promise.race([
+      done,
+      new Promise<ReadyCheck>((resolve) => {
+        timer = setTimeout(() => {
+          const timedOut: ReadyCheck = {
             status: "fail",
             output: `${name} check timed out after ${timeoutMs}ms`,
             responseTime: Date.now() - startedAt,
-          }), timeoutMs);
-        }),
-      ]);
-    } catch (err) {
-      return {
-        status: "fail",
-        output: err instanceof Error ? err.message : String(err),
-        responseTime: Date.now() - startedAt,
-      };
-    } finally {
+          };
+          resolve(timedOut);
+        }, timeoutMs);
+      }),
+    ]).finally(() => {
       if (timer) clearTimeout(timer);
-    }
+    });
+    done.finally(() => {
+      if (timer) clearTimeout(timer);
+    });
+    return { result, done };
   }
 
   function checkDatabase(usageService: UsageService.UsageService): ReadyCheck {
@@ -473,6 +551,9 @@ export namespace Handler {
   }
 
   async function checkPricing(): Promise<ReadyCheck> {
+    if (readyCheckOverrides.pricing) {
+      return readyCheckOverrides.pricing();
+    }
     const startedAt = Date.now();
     const fileExists = await Bun.file(Config.pricingCachePath).exists();
     if (!fileExists) {

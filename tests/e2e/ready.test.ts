@@ -6,7 +6,8 @@ import { join } from "node:path";
 import { Supervisor } from "../../src/runtime/supervisor";
 
 const DEFAULT_UPSTREAM_PORT = 18318;
-const DEFAULT_UPSTREAM_URL = `http://127.0.0.1:${DEFAULT_UPSTREAM_PORT}`;
+const TEST_UPSTREAM_PORT = Number(process.env.READY_TEST_UPSTREAM_PORT ?? DEFAULT_UPSTREAM_PORT + (process.pid % 20_000));
+const DEFAULT_UPSTREAM_URL = `http://127.0.0.1:${TEST_UPSTREAM_PORT}`;
 
 type HandlerModule = typeof import("../../src/server/handler");
 type StorageModule = typeof import("../../src/storage/db");
@@ -17,7 +18,7 @@ type ReadyBody = {
   status: "pass" | "warn" | "fail";
   checks: {
     database?: { status?: string; responseTime?: number };
-    pricing?: { status?: string; ageMs?: number; responseTime?: number };
+    pricing?: { status?: string; ageMs?: number; responseTime?: number; output?: string };
     upstream?: { status?: string; output?: string; responseTime?: number };
     supervisor?: {
       status?: string;
@@ -214,6 +215,126 @@ describe("readiness endpoints", () => {
     expect(first.status).toBe(200);
     expect(second.status).toBe(200);
     expect(upstreamHits).toBe(1);
+  });
+
+  test("/ready does not start overlapping checks while the prior readiness is draining", async () => {
+    await startUpstream(() => new Response(null, { status: 204 }));
+    let pricingCheckStarts = 0;
+    type PricingCheckResult = { status: "pass" | "warn" | "fail"; responseTime?: number; ageMs?: number; output?: string };
+    let resolvePricingCheck!: (result: PricingCheckResult) => void;
+
+    const pendingPricingCheck = new Promise<PricingCheckResult>((resolve) => {
+      resolvePricingCheck = resolve;
+    });
+
+    Handler.__setReadyDrainTimeoutForTests(5_000);
+    Handler.__setReadyCheckOverrideForTests({
+      pricing: async () => {
+        pricingCheckStarts += 1;
+        return pendingPricingCheck;
+      },
+    });
+
+    const first = await requestReady();
+    const firstBody = await readReadyBody(first);
+
+    expect(first.status).toBe(503);
+    expect(firstBody.status).toBe("fail");
+    expect(firstBody.checks.pricing?.status).toBe("fail");
+    expect(firstBody.checks.pricing?.output).toContain("pricing check timed out after 300ms");
+    expect(pricingCheckStarts).toBe(1);
+
+    await new Promise((resolve) => setTimeout(resolve, 3_200));
+
+    const second = await requestReady();
+    const secondBody = await readReadyBody(second);
+
+    expect(secondBody.checks.pricing?.status).toBe("fail");
+    expect(pricingCheckStarts).toBe(1);
+
+    resolvePricingCheck({
+      status: "pass",
+      responseTime: 5,
+      ageMs: 0,
+      output: "pricing ready",
+    });
+    await pendingPricingCheck;
+    Handler.__clearReadyCacheForTests();
+
+    pricingCheckStarts = 0;
+    Handler.__setReadyCheckOverrideForTests({
+      pricing: async () => {
+        pricingCheckStarts += 1;
+        return { status: "pass", responseTime: 1, ageMs: 0 };
+      },
+    });
+
+    await requestReady();
+
+    expect(pricingCheckStarts).toBe(1);
+  });
+
+  test("/ready starts a fresh check after the drain deadline when prior checks do not settle", async () => {
+    await startUpstream(() => new Response(null, { status: 204 }));
+    let pricingCheckStarts = 0;
+    type PricingCheckResult = { status: "pass" | "warn" | "fail"; responseTime?: number; ageMs?: number; output?: string };
+    const pendingPricingCheck = new Promise<PricingCheckResult>(() => {});
+
+    Handler.__setReadyDrainTimeoutForTests(50);
+    Handler.__setReadyCheckOverrideForTests({
+      pricing: async () => {
+        pricingCheckStarts += 1;
+        return pendingPricingCheck;
+      },
+    });
+
+    const first = await requestReady();
+
+    expect(first.status).toBe(503);
+    expect(pricingCheckStarts).toBe(1);
+
+    await new Promise((resolve) => setTimeout(resolve, 3_200));
+
+    const second = await requestReady();
+    const secondBody = await readReadyBody(second);
+
+    expect(second.status).toBe(503);
+    expect(secondBody.checks.pricing?.output).toContain("pricing check timed out after 300ms");
+    expect(pricingCheckStarts).toBe(2);
+  });
+
+  test("/ready clear test helper prevents stale pending results from repopulating cache", async () => {
+    await startUpstream(() => new Response(null, { status: 204 }));
+    let pricingCheckStarts = 0;
+    type PricingCheckResult = { status: "pass" | "warn" | "fail"; responseTime?: number; ageMs?: number; output?: string };
+    const pendingPricingCheck = new Promise<PricingCheckResult>(() => {});
+
+    Handler.__setReadyDrainTimeoutForTests(50);
+    Handler.__setReadyCheckOverrideForTests({
+      pricing: async () => {
+        pricingCheckStarts += 1;
+        return pendingPricingCheck;
+      },
+    });
+
+    const first = requestReady();
+    await waitUntil(() => pricingCheckStarts === 1);
+    Handler.__clearReadyCacheForTests();
+
+    expect((await first).status).toBe(503);
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    Handler.__setReadyCheckOverrideForTests({
+      pricing: async () => {
+        pricingCheckStarts += 1;
+        return { status: "pass", responseTime: 1, ageMs: 0 };
+      },
+    });
+
+    const second = await requestReady();
+
+    expect(second.status).toBe(200);
+    expect(pricingCheckStarts).toBe(2);
   });
 
   function requestReady(): Promise<Response> {
