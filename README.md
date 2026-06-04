@@ -148,6 +148,8 @@ Provider API keys are intentionally **not** stored by this proxy. The proxy rout
 | `PROVIDERS_CONFIG_PATH` | | Optional JSON file for custom providers |
 | `PROVIDERS_JSON` | | Inline custom provider JSON; takes precedence over `PROVIDERS_CONFIG_PATH` |
 | `CLIPROXY_MGMT_KEY` | | Optional CLIProxyAPI management key for account correlation |
+| `CLIPROXY_CORRELATION_LOOKBACK_MS` | `300000` | How far back the correlator fetches local request rows and upstream usage details (5m) |
+| `CLIPROXY_CORRELATION_WINDOW_MS` | `30000` | Maximum timestamp difference allowed when matching a local row to upstream usage (30s) |
 | `CLIPROXY_AUTH_DIR` | | Optional CLIProxyAPI auth directory for quota probes |
 | `UPSTREAM_CIRCUIT_BREAKER_OPEN_AFTER_FAILURES` | `5` | Consecutive upstream failures before the circuit breaker opens |
 | `UPSTREAM_CIRCUIT_BREAKER_HALF_OPEN_AFTER_MS` | `30000` | Delay before a half-open probe is allowed (30s) |
@@ -360,6 +362,8 @@ Hermes    ─┘
 Each tool is automatically identified by request headers and tracked separately. Multiple instances of the same tool are distinguished by `X-Agent-Name` header or session IDs.
 
 The request lifecycle for LLM generation calls: a `pending` row is inserted before the upstream call (pre-log), the upstream response streams to the client, and the row is finalized with tokens and cost after the stream completes. Non-LLM proxy calls are forwarded without request-log rows. ProviderTransform modules apply provider-specific header, body, response, and stream-line rewrites, while the provider registry selects built-in or custom providers. An optional correlator loop maps CLIProxyAPI accounts to request rows for account attribution. A cost backfill loop recomputes zero-cost rows when pricing data becomes available.
+
+The correlator matches local rows to CLIProxyAPI usage by timestamp, model, and token totals. Keep the proxy host clock synchronized with CLIProxyAPI; sustained low match rates emit `correlator.low_match_rate`. If clocks can differ beyond the default 30 seconds, increase `CLIPROXY_CORRELATION_WINDOW_MS`.
 
 ### Tool Identification
 

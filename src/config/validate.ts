@@ -31,6 +31,7 @@ export interface ValidatedConfig {
   cliproxyMgmtKey: string;
   cliproxyCorrelationIntervalMs: number;
   cliproxyCorrelationLookbackMs: number;
+  cliproxyCorrelationWindowMs: number;
   cliproxyAuthDir: string;
   dashboardPasswordHash: string;
   dashboardSessionSecret: string;
@@ -121,6 +122,7 @@ export namespace Config {
       cliproxyMgmtKey: readString(env, "CLIPROXY_MGMT_KEY", ""),
       cliproxyCorrelationIntervalMs: readPositiveNumber(env, "CLIPROXY_CORRELATION_INTERVAL_MS", 15000, issues),
       cliproxyCorrelationLookbackMs: readPositiveNumber(env, "CLIPROXY_CORRELATION_LOOKBACK_MS", 300000, issues),
+      cliproxyCorrelationWindowMs: readPositiveNumber(env, "CLIPROXY_CORRELATION_WINDOW_MS", 30000, issues),
       cliproxyAuthDir: readString(env, "CLIPROXY_AUTH_DIR", ""),
       dashboardPasswordHash: readString(env, "DASHBOARD_PASSWORD_HASH", ""),
       dashboardSessionSecret: readString(env, "DASHBOARD_SESSION_SECRET", ""),
