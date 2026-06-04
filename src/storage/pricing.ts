@@ -4,6 +4,8 @@ import { Config } from "../config";
 import { CanonicalProvider } from "../provider/canonical";
 import { Logger } from "../util/logger";
 import { Supervisor } from "../runtime/supervisor";
+import { normalizePricingKey as normalizeKey, setPricingAlias } from "./pricing-key";
+import { fetchRemotePricing } from "./pricing-remote";
 
 const logger = Logger.fromConfig().child({ component: "pricing" });
 
@@ -28,27 +30,6 @@ export namespace Pricing {
     data: PricingMap;
     fetchedAt: number;
   }
-
-  type ModelsDevCost = {
-    input?: number;
-    output?: number;
-    cache_read?: number;
-    cache_write?: number;
-    reasoning?: number;
-  };
-
-  type ModelsDevModel = {
-    id?: string;
-    name?: string;
-    cost?: ModelsDevCost;
-  };
-
-  type ModelsDevProvider = {
-    models?: Record<string, ModelsDevModel>;
-  };
-
-  const MODELS_DEV_URL = "https://models.dev/api.json";
-  const OPENROUTER_MODELS_URL = "https://openrouter.ai/api/v1/models";
 
   let cache: CacheEntry | null = null;
   let inFlightFetch: Promise<PricingMap> | null = null;
@@ -207,109 +188,11 @@ export namespace Pricing {
     }
   }
 
-  async function fetchRemotePricing(): Promise<PricingMap> {
-    try {
-      const res = await fetch(MODELS_DEV_URL, { signal: AbortSignal.timeout(30_000) });
-      if (!res.ok) throw new Error(`models.dev returned HTTP ${res.status}`);
-      const raw = await res.json() as Record<string, ModelsDevProvider>;
-      return buildPricingMap(raw);
-    } catch (err) {
-      logger.warn("models.dev pricing fetch failed, trying OpenRouter", { err, source: "models.dev" });
-      return fetchOpenRouterPricing();
-    }
-  }
-
-  type OpenRouterModel = {
-    id?: string;
-    name?: string;
-    pricing?: {
-      prompt?: string | number;
-      completion?: string | number;
-      input_cache_read?: string | number;
-      input_cache_write?: string | number;
-      cache_read?: string | number;
-      cache_write?: string | number;
-    };
-  };
-
-  async function fetchOpenRouterPricing(): Promise<PricingMap> {
-    const res = await fetch(OPENROUTER_MODELS_URL, { signal: AbortSignal.timeout(30_000) });
-    if (!res.ok) throw new Error(`OpenRouter returned HTTP ${res.status}`);
-    const raw = await res.json() as { data?: OpenRouterModel[] };
-    const map: PricingMap = new Map();
-    for (const model of raw.data ?? []) {
-      const pricing = toOpenRouterPricing(model.pricing);
-      if (!pricing || !model.id) continue;
-      setPricingAlias(map, model.id, pricing);
-      if (model.name) setPricingAlias(map, model.name, pricing);
-      const slash = model.id.indexOf("/");
-      if (slash >= 0 && slash < model.id.length - 1) setPricingAlias(map, model.id.slice(slash + 1), pricing);
-    }
-    logger.info("loaded pricing aliases", { aliases: map.size, source: "openrouter" });
-    return map;
-  }
-
-  function toOpenRouterPricing(pricing: OpenRouterModel["pricing"]): ModelPricing | null {
-    if (!pricing) return null;
-    const input = openRouterTokenPrice(pricing.prompt);
-    const output = openRouterTokenPrice(pricing.completion);
-    if (input === null || output === null) return null;
-    const cacheRead = openRouterTokenPrice(pricing.input_cache_read ?? pricing.cache_read);
-    const cacheWrite = openRouterTokenPrice(pricing.input_cache_write ?? pricing.cache_write);
-    return {
-      input,
-      output,
-      cache_read: cacheRead ?? undefined,
-      cache_write: cacheWrite ?? undefined,
-    };
-  }
-
-  function openRouterTokenPrice(value: string | number | undefined): number | null {
-    if (value === undefined) return null;
-    const parsed = typeof value === "number" ? value : Number(value);
-    if (!Number.isFinite(parsed) || parsed < 0) return null;
-    return parsed * 1_000_000;
-  }
-
-  function buildPricingMap(raw: Record<string, ModelsDevProvider>): PricingMap {
-    const map: PricingMap = new Map();
-    for (const [provider, providerData] of Object.entries(raw)) {
-      if (!providerData.models) continue;
-      for (const [modelId, modelData] of Object.entries(providerData.models)) {
-        if (!modelData.cost) continue;
-        const pricing = toPricing(modelData.cost);
-        if (!pricing) continue;
-
-        setPricingAlias(map, modelId, pricing);
-        setPricingAlias(map, `${provider}/${modelId}`, pricing);
-        if (modelData.id) setPricingAlias(map, modelData.id, pricing);
-        if (modelData.name) setPricingAlias(map, modelData.name, pricing);
-      }
-    }
-    return map;
-  }
-
-  function toPricing(cost: ModelsDevCost): ModelPricing | null {
-    if (typeof cost.input !== "number" || typeof cost.output !== "number") return null;
-    return {
-      input: cost.input,
-      output: cost.output,
-      cache_read: typeof cost.cache_read === "number" ? cost.cache_read : undefined,
-      cache_write: typeof cost.cache_write === "number" ? cost.cache_write : undefined,
-      reasoning: typeof cost.reasoning === "number" ? cost.reasoning : undefined,
-    };
-  }
-
   function addLocalOverrides(map: PricingMap): void {
     for (const [model, pricing] of Object.entries(Config.pricingOverrides)) {
       setPricingAlias(map, model, pricing);
       setPricingAlias(map, `openai/${model}`, pricing);
     }
-  }
-
-  function setPricingAlias(map: PricingMap, key: string, pricing: ModelPricing): void {
-    map.set(key, pricing);
-    map.set(normalizeKey(key), pricing);
   }
 
   function buildLookupCandidates(model: string, provider?: string): string[] {
@@ -361,10 +244,6 @@ export namespace Pricing {
 
     if (!broad) return null;
     return { key: broad[0], pricing: broad[1], source: "fuzzy" };
-  }
-
-  function normalizeKey(key: string): string {
-    return key.trim().toLowerCase().replace(/[_\s]+/g, "-");
   }
 
   async function readDiskCache(): Promise<CacheEntry | null> {
