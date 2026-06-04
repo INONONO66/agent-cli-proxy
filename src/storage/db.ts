@@ -42,6 +42,7 @@ const REQUIRED_INDEXES = [
   "idx_request_logs_client_id",
   "idx_request_logs_cliproxy_account",
   "idx_request_logs_cliproxy_auth_index",
+  "idx_request_logs_provider_cliproxy_account_started_at",
   "idx_request_logs_request_id",
   "idx_request_logs_msg_id",
   "idx_request_logs_lifecycle_status",

@@ -1,6 +1,3 @@
--- Full schema init — replaces incremental migrations 001-013.
--- This is the only migration needed for fresh installs.
-
 CREATE TABLE IF NOT EXISTS request_logs (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   request_id TEXT,
@@ -49,6 +46,7 @@ CREATE INDEX IF NOT EXISTS idx_request_logs_tool ON request_logs(tool);
 CREATE INDEX IF NOT EXISTS idx_request_logs_client_id ON request_logs(client_id);
 CREATE INDEX IF NOT EXISTS idx_request_logs_cliproxy_account ON request_logs(cliproxy_account);
 CREATE INDEX IF NOT EXISTS idx_request_logs_cliproxy_auth_index ON request_logs(cliproxy_auth_index);
+CREATE INDEX IF NOT EXISTS idx_request_logs_provider_cliproxy_account_started_at ON request_logs(provider, cliproxy_account, started_at);
 CREATE INDEX IF NOT EXISTS idx_request_logs_request_id ON request_logs(request_id);
 CREATE UNIQUE INDEX IF NOT EXISTS idx_request_logs_msg_id ON request_logs(msg_id) WHERE msg_id IS NOT NULL;
 CREATE INDEX IF NOT EXISTS idx_request_logs_lifecycle_status ON request_logs(lifecycle_status);
