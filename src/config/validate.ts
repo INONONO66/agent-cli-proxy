@@ -16,6 +16,7 @@ export interface ValidatedConfig {
   toolPrefix: string;
   cliProxyApiKey: string;
   dbPath: string;
+  stalePendingMaxAgeMs: number;
   pricingCacheTtlMs: number;
   pricingCachePath: string;
   pricingOverrides: Record<string, PricingOverride>;
@@ -105,6 +106,7 @@ export namespace Config {
       toolPrefix: readString(env, "TOOL_PREFIX", "mcp_"),
       cliProxyApiKey: readString(env, "CLI_PROXY_API_KEY", "proxy"),
       dbPath: readString(env, "DB_PATH", defaultStatePath(env, "proxy.db")),
+      stalePendingMaxAgeMs: readPositiveNumber(env, "STALE_PENDING_MAX_AGE_MS", DEFAULT_STALE_PENDING_MAX_AGE_MS, issues),
       pricingCacheTtlMs: readPositiveNumber(env, "PRICING_CACHE_TTL_MS", 3600000, issues),
       pricingCachePath: readString(env, "PRICING_CACHE_PATH", defaultStatePath(env, "pricing-cache.json")),
       pricingOverrides: readPricingOverrides(env, issues),
@@ -184,6 +186,7 @@ export namespace Config {
   }
 }
 
+export const DEFAULT_STALE_PENDING_MAX_AGE_MS = 600_000;
 export const DEFAULT_CLI_PROXY_API_URL = "http://localhost:8317";
 
 export interface CliProxyApiUrlOptions {

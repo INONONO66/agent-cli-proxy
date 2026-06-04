@@ -1,6 +1,7 @@
 import { Database } from "bun:sqlite";
 import { existsSync, mkdirSync, readFileSync, readdirSync } from "fs";
 import { dirname, join } from "path";
+import { DEFAULT_STALE_PENDING_MAX_AGE_MS } from "../config/validate";
 import { Logger } from "../util/logger";
 
 const logger = Logger.fromConfig().child({ component: "storage-db" });
@@ -51,8 +52,6 @@ const REQUIRED_INDEXES = [
   "idx_quota_snapshots_provider",
   "idx_cost_audit_request_log_id",
 ] as const;
-
-export const STALE_PENDING_MAX_AGE_MS = parseStalePendingMaxAgeMs(process.env.STALE_PENDING_MAX_AGE_MS);
 
 type TableInfoRow = {
   readonly name: string;
@@ -145,7 +144,7 @@ export namespace Storage {
 
   export function recoverStalePending(
     db: Database,
-    maxAgeMs: number = STALE_PENDING_MAX_AGE_MS,
+    maxAgeMs: number = DEFAULT_STALE_PENDING_MAX_AGE_MS,
   ): number {
     const now = new Date().toISOString();
     const threshold = new Date(Date.now() - maxAgeMs).toISOString();
@@ -264,11 +263,4 @@ function getErrorCode(err: Error): unknown {
 function sleepSync(ms: number): void {
   const buffer = new SharedArrayBuffer(4);
   Atomics.wait(new Int32Array(buffer), 0, 0, ms);
-}
-
-function parseStalePendingMaxAgeMs(raw: string | undefined): number {
-  if (raw === undefined) return 600_000;
-  const parsed = Number(raw);
-  if (!Number.isFinite(parsed) || parsed <= 0) return 600_000;
-  return parsed;
 }
