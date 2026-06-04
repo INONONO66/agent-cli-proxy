@@ -2,7 +2,17 @@ import { expect, test } from "bun:test";
 import { mkdtempSync, readFileSync, existsSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { parseArgs, getFlagValue, writeEnvAtomic } from "../../src/cli";
+import { parseArgs, getFlagValue, writeEnvAtomic, runCli as runCliInProcess, installBrokenPipeHandlers } from "../../src/cli";
+
+class TestEpipeError extends Error {
+  readonly code = "EPIPE";
+}
+
+class TestExitError extends Error {
+  constructor(readonly exitCode: number) {
+    super(`exit ${exitCode}`);
+  }
+}
 
 function tempDir(prefix: string): string {
   return mkdtempSync(join(tmpdir(), prefix));
@@ -23,7 +33,7 @@ function testEnv(overrides: Record<string, string> = {}): Record<string, string>
   return { ...env, ...overrides };
 }
 
-async function runCli(args: string[], env: Record<string, string> = testEnv()): Promise<{ exitCode: number; stdout: string; stderr: string }> {
+async function runCliProcess(args: string[], env: Record<string, string> = testEnv()): Promise<{ exitCode: number; stdout: string; stderr: string }> {
   const proc = Bun.spawn(["bun", "run", "src/cli.ts", ...args], {
     cwd: join(import.meta.dir, "..", ".."),
     env,
@@ -38,6 +48,33 @@ async function runCli(args: string[], env: Record<string, string> = testEnv()): 
     stderr,
   };
 }
+
+test("paths exits 0 when stdout closes on first write", async () => {
+  const originalWrite = process.stdout.write;
+  process.stdout.write = function write(): boolean {
+    throw new TestEpipeError("write EPIPE");
+  } as typeof process.stdout.write;
+
+  try {
+    const exitCode = await runCliInProcess(["paths"]);
+    expect(exitCode).toBe(0);
+  } finally {
+    process.stdout.write = originalWrite;
+  }
+});
+
+test("broken pipe handlers exit cleanly for emitted EPIPE errors", () => {
+  const removeHandlers = installBrokenPipeHandlers((code) => {
+    throw new TestExitError(code);
+  });
+
+  try {
+    expect(() => process.stdout.emit("error", new TestEpipeError("write EPIPE"))).toThrow("exit 0");
+    expect(() => process.stderr.emit("error", new Error("stream failed"))).toThrow("exit 1");
+  } finally {
+    removeHandlers();
+  }
+});
 
 test("parseArgs handles positionals, flag-only, name=value, and name value", () => {
   const parsed = parseArgs(["plans", "show", "--json", "--env=/tmp/proxy.env", "--limit", "25"]);
@@ -107,7 +144,7 @@ test("doctor returns 0 on healthy config", async () => {
       "PROXY_LOCAL_OK=1",
     ].join("\n"));
 
-    const result = await runCli(["doctor", "--env", envPath, "--json"], testEnv());
+    const result = await runCliProcess(["doctor", "--env", envPath, "--json"], testEnv());
 
     expect(result.exitCode).toBe(0);
     expect(JSON.parse(result.stdout).status).toBe("PASS");
@@ -122,7 +159,7 @@ test("doctor returns 1 on broken config", async () => {
   const envPath = join(dir, ".env");
   await Bun.write(envPath, "PROXY_PORT=not-a-port\n");
 
-  const result = await runCli(["doctor", "--env", envPath, "--json"], testEnv());
+  const result = await runCliProcess(["doctor", "--env", envPath, "--json"], testEnv());
 
   expect(result.exitCode).toBe(1);
   const report = JSON.parse(result.stdout);
@@ -133,7 +170,7 @@ test("doctor returns 1 on broken config", async () => {
 test("doctor reports directory env paths without raw filesystem errors", async () => {
   const envPath = tempDir("agent-cli-proxy-env-directory-");
 
-  const result = await runCli(["doctor", "--env", envPath, "--json"], testEnv());
+  const result = await runCliProcess(["doctor", "--env", envPath, "--json"], testEnv());
 
   expect(result.exitCode).toBe(1);
   expect(result.stdout).toBe("");
@@ -146,7 +183,7 @@ test("doctor --json keeps stdout parseable when info logging is enabled", async 
   const envPath = join(dir, ".env");
   await Bun.write(envPath, "PROXY_PORT=not-a-port\n");
 
-  const result = await runCli(["doctor", "--env", envPath, "--json"], testEnv({ LOG_LEVEL: "info" }));
+  const result = await runCliProcess(["doctor", "--env", envPath, "--json"], testEnv({ LOG_LEVEL: "info" }));
 
   expect(result.exitCode).toBe(1);
   expect(JSON.parse(result.stdout).status).toBe("FAIL");
@@ -163,7 +200,7 @@ test("providers show masks auth values", async () => {
     }],
   });
 
-  const result = await runCli(["providers", "show", "--json"], testEnv({
+  const result = await runCliProcess(["providers", "show", "--json"], testEnv({
     PROVIDERS_JSON: providers,
   }));
 
@@ -174,7 +211,7 @@ test("providers show masks auth values", async () => {
 });
 
 test("providers show --json lists built-ins without upstream config", async () => {
-  const result = await runCli(["providers", "show", "--json"], testEnv());
+  const result = await runCliProcess(["providers", "show", "--json"], testEnv());
 
   expect(result.exitCode).toBe(0);
   const providers = JSON.parse(result.stdout);
@@ -183,7 +220,7 @@ test("providers show --json lists built-ins without upstream config", async () =
 });
 
 test("providers show --json rejects invalid upstream config when provided", async () => {
-  const result = await runCli(["providers", "show", "--json"], testEnv({
+  const result = await runCliProcess(["providers", "show", "--json"], testEnv({
     CLI_PROXY_API_URL: "not-a-url",
   }));
 
@@ -193,7 +230,7 @@ test("providers show --json rejects invalid upstream config when provided", asyn
 });
 
 test("providers show --json keeps stdout parseable when config warnings are enabled", async () => {
-  const result = await runCli(["providers", "show", "--json"], testEnv({
+  const result = await runCliProcess(["providers", "show", "--json"], testEnv({
     LOG_LEVEL: "info",
     PROXY_LOCAL_OK: "1",
   }));
@@ -206,7 +243,7 @@ test("paths command reports external XDG state defaults", async () => {
   const configHome = join(tempDir("agent-cli-proxy-config-home-"), "config");
   const dataHome = join(tempDir("agent-cli-proxy-data-home-"), "data");
 
-  const result = await runCli(["paths"], testEnv({
+  const result = await runCliProcess(["paths"], testEnv({
     XDG_CONFIG_HOME: configHome,
     XDG_DATA_HOME: dataHome,
   }));
@@ -226,7 +263,7 @@ test("paths command honors explicit agent-cli-proxy state environment", async ()
   const runtimeDir = join(tempDir("agent-cli-proxy-runtime-dir-"), "runtime");
   const envPath = join(configHome, "custom.env");
 
-  const result = await runCli(["paths"], testEnv({
+  const result = await runCliProcess(["paths"], testEnv({
     XDG_CONFIG_HOME: configHome,
     AGENT_CLI_PROXY_ENV: envPath,
     AGENT_CLI_PROXY_DATA_DIR: dataDir,
@@ -253,7 +290,7 @@ test("db init uses AGENT_CLI_PROXY_DATA_DIR from env file when DB_PATH is omitte
     `AGENT_CLI_PROXY_DATA_DIR=${dataDir}`,
   ].join("\n"));
 
-  const result = await runCli(["db", "init", "--env", envPath], testEnv());
+  const result = await runCliProcess(["db", "init", "--env", envPath], testEnv());
 
   expect(result.exitCode).toBe(0);
   expect(result.stdout).toContain(join(dataDir, "proxy.db"));
