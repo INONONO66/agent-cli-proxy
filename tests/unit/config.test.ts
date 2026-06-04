@@ -77,6 +77,7 @@ test("valid config is frozen and keeps typed values", () => {
   expect(Object.isFrozen(config)).toBe(true);
   expect(config.port).toBe(4310);
   expect(config.maxRequestBodyBytes).toBe(25_000_000);
+  expect(config.stalePendingMaxAgeMs).toBe(600_000);
   expect(config.upstreamMaxRetries).toBe(4);
   expect(config.upstreamStreamFirstByteTimeoutMs).toBe(1200000);
   expect(config.upstreamCircuitBreakerOpenAfterFailures).toBe(12);
@@ -119,6 +120,7 @@ test("invalid port and timeout values fail fast", () => {
     QUOTA_REFRESH_INTERVAL_MS: "0",
     QUOTA_REFRESH_TIMEOUT_MS: "Infinity",
     READY_PRICING_MAX_AGE_MS: "0",
+    STALE_PENDING_MAX_AGE_MS: "0",
     UPSTREAM_STREAM_FIRST_BYTE_TIMEOUT_MS: "0",
     UPSTREAM_MAX_RETRIES: "1.5",
     UPSTREAM_CIRCUIT_BREAKER_OPEN_AFTER_FAILURES: "0",
@@ -138,6 +140,7 @@ test("invalid port and timeout values fail fast", () => {
     "QUOTA_REFRESH_INTERVAL_MS",
     "QUOTA_REFRESH_TIMEOUT_MS",
     "READY_PRICING_MAX_AGE_MS",
+    "STALE_PENDING_MAX_AGE_MS",
     "UPSTREAM_STREAM_FIRST_BYTE_TIMEOUT_MS",
     "UPSTREAM_MAX_RETRIES",
     "UPSTREAM_CIRCUIT_BREAKER_OPEN_AFTER_FAILURES",
