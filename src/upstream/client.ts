@@ -1,5 +1,6 @@
 import { Config } from "../config";
 import { Logger } from "../util/logger";
+import { composeAbortSignals } from "./abort-signal";
 
 export namespace UpstreamClient {
   export const DEFAULT_UPSTREAM_TIMEOUT_MS = 300_000;
@@ -86,13 +87,17 @@ export namespace UpstreamClient {
         options.timeoutMs ?? upstreamTimeoutMs ?? Config.upstreamTimeoutMs,
         upstreamConnectTimeoutMs ?? Config.upstreamConnectTimeoutMs,
       );
-      const signal = composeSignals([timeout.signal, options.signal]);
+      const composedSignal = composeAbortSignals([timeout.signal, options.signal]);
+      const cleanupAttempt = (): void => {
+        timeout.clear();
+        composedSignal.cleanup();
+      };
       try {
         const response = await globalThis.fetch(options.url, {
           method: options.method,
           headers: options.headers,
           body: options.body,
-          signal,
+          signal: composedSignal.signal,
         });
         timeout.beginBody();
 
@@ -109,11 +114,12 @@ export namespace UpstreamClient {
           });
           if (retrying) {
             await discardResponse(response);
+            cleanupAttempt();
             await sleep(retryAfterMs ?? backoffMs(attempt));
             attempt += 1;
             continue;
           }
-          return withBodyTimeout(response, timeout);
+          return withBodyTimeout(response, timeout, composedSignal.cleanup);
         }
 
         if (response.status >= 500) {
@@ -123,25 +129,26 @@ export namespace UpstreamClient {
               providerId,
               attempt,
             });
-            return withBodyTimeout(response, timeout);
+            return withBodyTimeout(response, timeout, composedSignal.cleanup);
           }
           const normalized = normalizeHttpFailure(response, providerId, canRetry(idempotent, streaming));
           const retrying = shouldRetry(normalized, attempt, streaming, idempotent);
           logFailure(normalized, attempt, retrying);
           if (retrying) {
             await discardResponse(response);
+            cleanupAttempt();
             await sleep(backoffMs(attempt));
             attempt += 1;
             continue;
           }
           recordFailure(breaker);
-          return withBodyTimeout(response, timeout);
+          return withBodyTimeout(response, timeout, composedSignal.cleanup);
         }
 
         recordSuccess(breaker);
-        return withBodyTimeout(response, timeout);
+        return withBodyTimeout(response, timeout, composedSignal.cleanup);
       } catch (err) {
-        timeout.clear();
+        cleanupAttempt();
         const normalized = normalizeThrownFailure(err, providerId, canRetry(idempotent, streaming), timeout.kind);
         const retrying = shouldRetry(normalized, attempt, streaming, idempotent);
         logFailure(normalized, attempt, retrying);
@@ -356,10 +363,12 @@ export namespace UpstreamClient {
   function withBodyTimeout(
     response: Response,
     timeout: ReturnType<typeof createTimeoutSignal>,
+    cleanupSignal: () => void,
   ): Response {
     const body = response.body;
     if (!body) {
       timeout.clear();
+      cleanupSignal();
       return response;
     }
 
@@ -369,6 +378,7 @@ export namespace UpstreamClient {
       if (released) return;
       released = true;
       timeout.clear();
+      cleanupSignal();
     };
     const timeoutError = (): Error => new Error(BODY_TIMEOUT_MESSAGE);
 
@@ -433,26 +443,6 @@ export namespace UpstreamClient {
     const reason = timeout.signal.reason;
     if (reason instanceof Error) return reason;
     return new Error("upstream timeout");
-  }
-
-  function composeSignals(signals: Array<AbortSignal | undefined>): AbortSignal {
-    const active = signals.filter((signal): signal is AbortSignal => Boolean(signal));
-    if (active.length === 1) return active[0];
-    const abortSignal = AbortSignal as typeof AbortSignal & { any?: (signals: AbortSignal[]) => AbortSignal };
-    if (typeof abortSignal.any === "function") return abortSignal.any(active);
-
-    const controller = new AbortController();
-    const abort = (signal: AbortSignal): void => {
-      if (!controller.signal.aborted) controller.abort(signal.reason);
-    };
-    for (const signal of active) {
-      if (signal.aborted) {
-        abort(signal);
-        break;
-      }
-      signal.addEventListener("abort", () => abort(signal), { once: true });
-    }
-    return controller.signal;
   }
 
   function parseRetryAfter(response: Response): number | null {
