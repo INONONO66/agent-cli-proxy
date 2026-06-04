@@ -262,15 +262,15 @@ export namespace Admin {
             200,
           );
           const offset = Number(url.searchParams.get("offset") ?? 0);
-          const tool = url.searchParams.get("tool");
-          const clientId = url.searchParams.get("client_id");
+          const tool = parseOptionalFilter(url.searchParams.get("tool"));
+          const clientId = parseOptionalFilter(url.searchParams.get("client_id"));
           const model = url.searchParams.get("model");
           const provider = url.searchParams.get("provider");
           const statusMin = parseOptionalInteger(url.searchParams.get("status_min"));
           const statusMax = parseOptionalInteger(url.searchParams.get("status_max"));
           const lifecycleStatus = parseLifecycleStatus(url.searchParams.get("lifecycle_status"));
 
-          if (statusMin === null || statusMax === null || lifecycleStatus === null) {
+          if (tool === null || clientId === null || statusMin === null || statusMax === null || lifecycleStatus === null) {
             return json({ error: "Invalid filter parameter" }, 400);
           }
           if (!Number.isFinite(limit) || !Number.isFinite(offset) || limit < 1 || offset < 0)
@@ -321,6 +321,12 @@ export namespace Admin {
     if (value === "") return null;
     const parsed = Number.parseInt(value, 10);
     return Number.isInteger(parsed) ? parsed : null;
+  }
+
+  function parseOptionalFilter(value: string | null): string | null | undefined {
+    if (value === null) return undefined;
+    const trimmed = value.trim();
+    return trimmed === "" ? null : trimmed;
   }
 
   function parseLifecycleStatus(value: string | null): Usage.LifecycleStatus | null | undefined {
