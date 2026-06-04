@@ -187,8 +187,20 @@ export namespace Config {
 }
 
 export const DEFAULT_STALE_PENDING_MAX_AGE_MS = 600_000;
+export const DEFAULT_CLI_PROXY_API_URL = "http://localhost:8317";
 
-const DEFAULT_CLI_PROXY_API_URL = "http://localhost:8317";
+export interface CliProxyApiUrlOptions {
+  allowLocalDefault?: boolean;
+}
+
+export function readCliProxyApiUrl(env: EnvLike, options: CliProxyApiUrlOptions = {}): string {
+  const issues: ConfigIssue[] = [];
+  const canDefault = options.allowLocalDefault === true && (env.CLI_PROXY_API_URL === undefined || env.CLI_PROXY_API_URL.trim() === "");
+  const value = canDefault ? DEFAULT_CLI_PROXY_API_URL : readRequiredUrl(env, "CLI_PROXY_API_URL", issues, []);
+  if (issues.length > 0) throw new ConfigError(issues);
+  return value;
+}
+
 const APP_NAME = "agent-cli-proxy";
 const LOOPBACK_HOSTS = new Set(["127.0.0.1", "localhost", "::1"]);
 

@@ -1,5 +1,5 @@
 import { readFileSync } from "node:fs";
-import { Config } from "../config";
+import { readCliProxyApiUrl } from "../config/validate";
 import { Logger } from "../util/logger";
 import { builtInProviders } from "./built-ins";
 import {
@@ -40,6 +40,12 @@ export namespace ProviderRegistry {
     lastReloadError?: ReloadError;
   }
 
+  interface LoadOptions {
+    force?: boolean;
+    cliProxyApiUrl?: string;
+    cache?: boolean;
+  }
+
   interface CustomSource {
     source: "PROVIDERS_JSON" | "PROVIDERS_CONFIG_PATH";
     raw: string;
@@ -55,25 +61,30 @@ export namespace ProviderRegistry {
   const logger = Logger.fromConfig().child({ component: "provider-registry" });
   let cache: Cache | null = null;
 
-  export function loadProviders(options: { force?: boolean } = {}): ProviderDefinition[] {
-    if (cache && !options.force) return cache.providers;
+  export function loadProviders(options: LoadOptions = {}): ProviderDefinition[] {
+    const shouldCache = options.cache !== false;
+    if (shouldCache && cache && !options.force) return cache.providers;
+
+    const cliProxyApiUrl = options.cliProxyApiUrl ?? readCliProxyApiUrl(process.env);
 
     const customSource = readCustomConfig();
-    if (customSource && "failure" in customSource) return keepLastGoodProviders(customSource.failure);
+    if (customSource && "failure" in customSource) return keepLastGoodProviders(customSource.failure, cliProxyApiUrl, shouldCache);
 
     const customResult = customSource ? parseCustomProviders(customSource.raw, customSource) : { providers: [] };
-    if (customResult.failure) return keepLastGoodProviders(customResult.failure);
+    if (customResult.failure) return keepLastGoodProviders(customResult.failure, cliProxyApiUrl, shouldCache);
 
     const customProviders = customResult.providers;
-    const providers = mergeProviders([...builtInProviders(Config.cliProxyApiUrl), ...customProviders]);
+    const providers = mergeProviders([...builtInProviders(cliProxyApiUrl), ...customProviders]);
     const lastLoadedAt = new Date().toISOString();
 
-    cache = {
-      providers,
-      source: customSource?.source ?? "built-in",
-      configPath: customSource?.configPath,
-      lastLoadedAt,
-    };
+    if (shouldCache) {
+      cache = {
+        providers,
+        source: customSource?.source ?? "built-in",
+        configPath: customSource?.configPath,
+        lastLoadedAt,
+      };
+    }
     return providers;
   }
 
@@ -181,24 +192,28 @@ export namespace ProviderRegistry {
     return { providers };
   }
 
-  function keepLastGoodProviders(failure: CustomLoadFailure): ProviderDefinition[] {
+  function keepLastGoodProviders(failure: CustomLoadFailure, cliProxyApiUrl: string, shouldCache: boolean): ProviderDefinition[] {
     const lastReloadError = {
       ...failure,
       at: new Date().toISOString(),
     };
+
+    if (!shouldCache) return builtInProviders(cliProxyApiUrl);
 
     if (cache) {
       cache = { ...cache, lastReloadError };
       return cache.providers;
     }
 
-    const providers = builtInProviders(Config.cliProxyApiUrl);
-    cache = {
-      providers,
-      source: "built-in",
-      lastLoadedAt: lastReloadError.at,
-      lastReloadError,
-    };
+    const providers = builtInProviders(cliProxyApiUrl);
+    if (shouldCache) {
+      cache = {
+        providers,
+        source: "built-in",
+        lastLoadedAt: lastReloadError.at,
+        lastReloadError,
+      };
+    }
     return providers;
   }
 
