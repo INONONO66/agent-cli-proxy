@@ -727,15 +727,24 @@ async function writeJsonAtomic(path: string, value: JsonValue, opts: { force: bo
 async function writeTextAtomic(path: string, text: string, mode: number): Promise<void> {
   await mkdir(dirname(path), { recursive: true });
   const temp = `${path}.tmp.${process.pid}.${crypto.randomUUID()}`;
-  const handle = await open(temp, "w", mode);
   try {
-    await handle.writeFile(text);
-  } finally {
-    await handle.close();
+    const handle = await open(temp, "w", mode);
+    try {
+      await handle.writeFile(text);
+    } finally {
+      await handle.close();
+    }
+    await chmod(temp, mode);
+    await rename(temp, path);
+    await chmod(path, mode);
+  } catch (error) {
+    try {
+      await rm(temp, { force: true });
+    } catch (cleanupError) {
+      logger.warn("atomic temp cleanup failed", { event: "cli.atomic_temp_cleanup_failed", err: cleanupError, path: temp });
+    }
+    throw error;
   }
-  await chmod(temp, mode);
-  await rename(temp, path);
-  await chmod(path, mode);
 }
 
 function renderEnv(env: EnvMap): string {
