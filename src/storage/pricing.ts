@@ -5,9 +5,18 @@ import { CanonicalProvider } from "../provider/canonical";
 import { Logger } from "../util/logger";
 import { Supervisor } from "../runtime/supervisor";
 import { normalizePricingKey as normalizeKey, setPricingAlias } from "./pricing-key";
+import {
+  buildPricingLookup,
+  findFuzzyPricing,
+  findNormalizedPricing,
+  pricingLookupStats,
+  type LookupStats,
+  type PricingLookup,
+} from "./pricing-lookup";
 import { fetchRemotePricing } from "./pricing-remote";
 
 const logger = Logger.fromConfig().child({ component: "pricing" });
+const MAX_LOOKUP_MISSES = 4096;
 
 export namespace Pricing {
   export interface ModelPricing {
@@ -26,16 +35,26 @@ export namespace Pricing {
 
   export type PricingMap = Map<string, ModelPricing>;
 
-  interface CacheEntry {
+  interface PricingSnapshot {
     data: PricingMap;
     fetchedAt: number;
+  }
+
+  interface CacheEntry extends PricingSnapshot {
+    lookup: PricingLookup<ModelPricing>;
+    misses: Set<string>;
+  }
+
+  interface LookupStatsForTests extends LookupStats {
+    aliases: number;
+    misses: number;
   }
 
   let cache: CacheEntry | null = null;
   let inFlightFetch: Promise<PricingMap> | null = null;
   let inFlightState: { force: boolean; remoteAttempted: boolean } | null = null;
   let bypassDiskCacheForTests = false;
-  let diskCacheReader: () => Promise<CacheEntry | null> = readDiskCache;
+  let diskCacheReader: () => Promise<PricingSnapshot | null> = readDiskCache;
   let remotePricingFetcher: () => Promise<PricingMap> = fetchRemotePricing;
 
   export async function fetchPricing(options: { force?: boolean } = {}): Promise<PricingMap> {
@@ -85,7 +104,7 @@ export namespace Pricing {
 
   export function __setPricingForTests(entries: Array<[string, ModelPricing]>, fetchedAt: number = Date.now()): void {
     bypassDiskCacheForTests = false;
-    cache = { data: new Map(entries), fetchedAt };
+    cache = createCacheEntry(new Map(entries), fetchedAt);
   }
 
   export function __clearPricingForTests(options: { bypassDiskCache?: boolean } = {}): void {
@@ -96,10 +115,18 @@ export namespace Pricing {
 
   export function __setRemotePricingFetcherForTests(fetcher: () => Promise<PricingMap>): void { remotePricingFetcher = fetcher; }
 
-  export function __setDiskCacheReaderForTests(reader: () => Promise<CacheEntry | null>): void { diskCacheReader = reader; }
+  export function __setDiskCacheReaderForTests(reader: () => Promise<PricingSnapshot | null>): void { diskCacheReader = reader; }
+
+  export function __getLookupStatsForTests(): LookupStatsForTests | null {
+    if (!cache) return null;
+    return { aliases: cache.data.size, ...pricingLookupStats(cache.lookup), misses: cache.misses.size };
+  }
 
   export function findPricing(model: string, provider?: string): PricingMatch | null {
     if (!cache) return null;
+    const missKey = `${provider ?? ""}\0${model}`;
+    if (cache.misses.has(missKey)) return null;
+
     const normalizedModel = normalizeKey(model);
     const normalizedProvider = provider ? normalizeKey(provider) : null;
     const candidates = buildLookupCandidates(model, provider);
@@ -109,13 +136,9 @@ export namespace Pricing {
       if (pricing) return { pricing, key, source: "exact" };
     }
 
-    for (const [key, pricing] of cache.data) {
-      if (normalizeKey(key) === normalizedModel) {
-        return { pricing, key, source: "normalized" };
-      }
-      if (normalizedProvider && normalizeKey(key) === `${normalizedProvider}/${normalizedModel}`) {
-        return { pricing, key, source: "normalized" };
-      }
+    const normalized = findNormalizedPricing(cache.lookup, normalizedModel, normalizedProvider);
+    if (normalized) {
+      return { pricing: normalized.pricing, key: normalized.key, source: "normalized" };
     }
 
     const alias = aliasModel(normalizedModel);
@@ -126,9 +149,11 @@ export namespace Pricing {
       }
     }
 
-    const fuzzy = findFuzzyMatch(normalizedModel, normalizedProvider, cache.data);
-    if (fuzzy) return fuzzy;
+    const fuzzy = findFuzzyPricing(cache.lookup, normalizedModel, normalizedProvider);
+    if (fuzzy) return { key: fuzzy.key, pricing: fuzzy.pricing, source: "fuzzy" };
 
+    if (cache.misses.size >= MAX_LOOKUP_MISSES) cache.misses.clear();
+    cache.misses.add(missKey);
     return null;
   }
 
@@ -172,8 +197,8 @@ export namespace Pricing {
     if (!force && !bypassDiskCacheForTests) {
       const diskCache = await diskCacheReader();
       if (diskCache && now - diskCache.fetchedAt < Config.pricingCacheTtlMs) {
-        cache = diskCache;
-        return diskCache.data;
+        cache = createCacheEntry(diskCache.data, diskCache.fetchedAt);
+        return cache.data;
       }
     }
 
@@ -181,7 +206,7 @@ export namespace Pricing {
       markRemoteAttempt();
       const map = await remotePricingFetcher();
       addLocalOverrides(map);
-      cache = { data: map, fetchedAt: now };
+      cache = createCacheEntry(map, now);
       await writeDiskCache(cache);
       logger.info("loaded pricing aliases", { aliases: map.size, source: "remote" });
       return map;
@@ -190,17 +215,26 @@ export namespace Pricing {
       if (cache) return cache.data;
       const diskCache = bypassDiskCacheForTests ? null : await diskCacheReader();
       if (diskCache) {
-        cache = diskCache;
-        return diskCache.data;
+        cache = createCacheEntry(diskCache.data, diskCache.fetchedAt);
+        return cache.data;
       }
       const fallback = new Map<string, ModelPricing>();
       addLocalOverrides(fallback);
       // Fetch failed before any usable disk cache existed. Keep local overrides
       // available, but mark them stale immediately so the next caller retries
       // models.dev instead of treating fallback pricing as fresh for the full TTL.
-      cache = { data: fallback, fetchedAt: 0 };
+      cache = createCacheEntry(fallback, 0);
       return fallback;
     }
+  }
+
+  function createCacheEntry(data: PricingMap, fetchedAt: number): CacheEntry {
+    return {
+      data,
+      fetchedAt,
+      lookup: buildPricingLookup(data),
+      misses: new Set(),
+    };
   }
 
   function addLocalOverrides(map: PricingMap): void {
@@ -232,36 +266,7 @@ export namespace Pricing {
     return null;
   }
 
-  function findFuzzyMatch(
-    normalizedModel: string,
-    normalizedProvider: string | null,
-    map: PricingMap,
-  ): PricingMatch | null {
-    const eligible = Array.from(map.entries()).filter(([key, pricing]) => {
-      if (pricing.input === 0 && pricing.output === 0) return false;
-      const normalizedKey = normalizeKey(key);
-      if (normalizedProvider && !normalizedKey.startsWith(`${normalizedProvider}/`) && normalizedKey.includes("/")) {
-        return false;
-      }
-      return normalizedKey.endsWith(`/${normalizedModel}`) || normalizedKey === normalizedModel;
-    });
-
-    if (eligible.length > 0) {
-      const [key, pricing] = eligible[0];
-      return { key, pricing, source: "fuzzy" };
-    }
-
-    const broad = Array.from(map.entries()).find(([key, pricing]) => {
-      if (pricing.input === 0 && pricing.output === 0) return false;
-      const normalizedKey = normalizeKey(key);
-      return normalizedKey.length >= 6 && normalizedModel.includes(normalizedKey);
-    });
-
-    if (!broad) return null;
-    return { key: broad[0], pricing: broad[1], source: "fuzzy" };
-  }
-
-  async function readDiskCache(): Promise<CacheEntry | null> {
+  async function readDiskCache(): Promise<PricingSnapshot | null> {
     try {
       const file = Bun.file(Config.pricingCachePath);
       if (!(await file.exists())) return null;
