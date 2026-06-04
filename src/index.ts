@@ -1,9 +1,12 @@
 import { Logger } from "./util/logger";
+import { UnsupportedBunVersionError, assertSupportedBunVersion } from "./runtime/bun-version";
 
 const logger = Logger.fromConfig().child({ component: "startup" });
 export const shutdownController = new AbortController();
 
 async function main(): Promise<void> {
+  assertSupportedBunVersion(Bun.version);
+
   const { Config } = await import("./config");
   const { UpstreamClient } = await import("./upstream/client");
   const { Storage } = await import("./storage/db");
@@ -89,6 +92,13 @@ async function main(): Promise<void> {
 main().catch((err) => {
   if (err instanceof Error && (err as { code?: string }).code === "CONFIG_INVALID") {
     logger.error("configuration validation failed", { event: "config.error", err, issues: (err as { issues?: unknown }).issues });
+  } else if (err instanceof UnsupportedBunVersionError) {
+    logger.error("unsupported Bun runtime", {
+      event: "startup.bun_version_unsupported",
+      err,
+      currentVersion: err.currentVersion,
+      minimumVersion: err.minimumVersion,
+    });
   } else {
     logger.error("startup failed", { event: "startup.error", err });
   }
