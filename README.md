@@ -27,6 +27,8 @@ agent-cli-proxy init
 
 ### From source
 
+Requires Bun 1.3.0 or newer.
+
 ```bash
 git clone https://github.com/INONONO66/agent-cli-proxy.git
 cd agent-cli-proxy
