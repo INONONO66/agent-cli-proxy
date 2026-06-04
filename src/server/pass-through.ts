@@ -587,7 +587,7 @@ export namespace PassThroughProxy {
   ): Promise<Response> {
     const upstreamBody = upstreamResponse.body;
     if (!upstreamBody) {
-      void finalizeOnce(usageService, lifecycle, {
+      await finalizeOnce(usageService, lifecycle, {
         parsed: { actualModel: null, usage: null },
         status: upstreamResponse.status,
         isStreaming: true,
