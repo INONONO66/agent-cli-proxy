@@ -185,3 +185,77 @@ test("structured logger emits loop.error and loop.tick events", async () => {
     name: "structured-events",
   }));
 });
+
+test("loop disables after reaching maxConsecutiveFailures and reports failed state", async () => {
+  const capture = captureSink();
+  Supervisor.__setLoggerForTests(capture.logger);
+  let attempts = 0;
+
+  const handle = Supervisor.run("max-failure-cap", () => {
+    attempts += 1;
+    throw new Error(`failure #${attempts}`);
+  }, {
+    intervalMs: 10,
+    jitterRatio: 0,
+    maxConsecutiveFailures: 2,
+  });
+
+  await waitUntil(() => {
+    return Supervisor.statuses().some((entry) => entry.name === "max-failure-cap" && entry.failed);
+  });
+  expect(Supervisor.list()).toContain("max-failure-cap");
+  const afterDisable = Supervisor.statuses().find((entry) => entry.name === "max-failure-cap");
+  expect(afterDisable).toMatchObject({ name: "max-failure-cap", failed: true, consecutiveFailures: 2 });
+
+  const loopErrors = parseLogs(capture.stderr).filter((entry) => entry.event === "loop.error");
+  expect(loopErrors).toHaveLength(1);
+  expect(loopErrors.map((entry) => entry.attempt)).toEqual([1]);
+
+  const disabled = parseLogs(capture.stderr).filter((entry) => entry.event === "loop.disabled");
+  expect(disabled).toHaveLength(1);
+  expect(disabled[0]).toMatchObject({
+    name: "max-failure-cap",
+    total_failures: 2,
+  });
+
+  await sleep(40);
+  expect(attempts).toBe(2);
+  await handle.stop();
+});
+
+test("a successful tick resets the consecutive failure counter", async () => {
+  const capture = captureSink();
+  Supervisor.__setLoggerForTests(capture.logger);
+  let attempts = 0;
+
+  const handle = Supervisor.run("failure-reset", () => {
+    attempts += 1;
+    if (attempts === 1) throw new Error("initial failure");
+  }, {
+    intervalMs: 10,
+    jitterRatio: 0,
+    maxConsecutiveFailures: 2,
+  });
+
+  await waitUntil(() => parseLogs(capture.stderr).some((entry) => entry.event === "loop.error"));
+  await waitUntil(() => parseLogs(capture.stdout).some((entry) => entry.event === "loop.tick"));
+  await sleep(30);
+
+  const loop = Supervisor.statuses().find((entry) => entry.name === "failure-reset");
+  expect(loop).toMatchObject({ name: "failure-reset", failed: false, consecutiveFailures: 0 });
+  expect(parseLogs(capture.stderr).filter((entry) => entry.event === "loop.disabled")).toHaveLength(0);
+
+  await handle.stop();
+});
+
+test("invalid maxConsecutiveFailures is rejected", () => {
+  expect(() =>
+    Supervisor.run("invalid-max-failures", () => {}, { intervalMs: 10, maxConsecutiveFailures: 0 }),
+  ).toThrow("Supervisor maxConsecutiveFailures must be a positive finite integer");
+  expect(() =>
+    Supervisor.run("invalid-max-failures", () => {}, { intervalMs: 10, maxConsecutiveFailures: 2.2 }),
+  ).toThrow("Supervisor maxConsecutiveFailures must be a positive finite integer");
+  expect(() =>
+    Supervisor.run("invalid-max-failures", () => {}, { intervalMs: 10, maxConsecutiveFailures: Number.POSITIVE_INFINITY }),
+  ).toThrow("Supervisor maxConsecutiveFailures must be a positive finite integer");
+});
