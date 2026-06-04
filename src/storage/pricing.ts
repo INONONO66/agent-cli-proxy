@@ -33,7 +33,10 @@ export namespace Pricing {
 
   let cache: CacheEntry | null = null;
   let inFlightFetch: Promise<PricingMap> | null = null;
+  let inFlightState: { force: boolean; remoteAttempted: boolean } | null = null;
   let bypassDiskCacheForTests = false;
+  let diskCacheReader: () => Promise<CacheEntry | null> = readDiskCache;
+  let remotePricingFetcher: () => Promise<PricingMap> = fetchRemotePricing;
 
   export async function fetchPricing(options: { force?: boolean } = {}): Promise<PricingMap> {
     const now = Date.now();
@@ -41,12 +44,19 @@ export namespace Pricing {
       return cache.data;
     }
 
-    if (!options.force && inFlightFetch) {
-      return inFlightFetch;
+    const current = inFlightFetch;
+    const currentState = inFlightState;
+    if (current && currentState) {
+      if (!options.force || currentState.force) return current;
+      return current.then((data) => currentState.remoteAttempted ? data : fetchPricing({ force: true }));
     }
 
-    inFlightFetch = refreshPricing(options.force ?? false).finally(() => {
-      inFlightFetch = null;
+    const state = { force: options.force ?? false, remoteAttempted: false };
+    inFlightState = state;
+    inFlightFetch = refreshPricing(state.force, () => {
+      state.remoteAttempted = true;
+    }).finally(() => {
+      if (inFlightState === state) { inFlightFetch = null; inFlightState = null; }
     });
 
     return inFlightFetch;
@@ -78,11 +88,15 @@ export namespace Pricing {
     cache = { data: new Map(entries), fetchedAt };
   }
 
-  export function __clearPricingForTests(): void {
-    cache = null;
-    inFlightFetch = null;
-    bypassDiskCacheForTests = true;
+  export function __clearPricingForTests(options: { bypassDiskCache?: boolean } = {}): void {
+    cache = null; inFlightFetch = null; inFlightState = null;
+    bypassDiskCacheForTests = options.bypassDiskCache ?? true;
+    diskCacheReader = readDiskCache; remotePricingFetcher = fetchRemotePricing;
   }
+
+  export function __setRemotePricingFetcherForTests(fetcher: () => Promise<PricingMap>): void { remotePricingFetcher = fetcher; }
+
+  export function __setDiskCacheReaderForTests(reader: () => Promise<CacheEntry | null>): void { diskCacheReader = reader; }
 
   export function findPricing(model: string, provider?: string): PricingMatch | null {
     if (!cache) return null;
@@ -152,11 +166,11 @@ export namespace Pricing {
     return pricing.input;
   }
 
-  async function refreshPricing(force: boolean): Promise<PricingMap> {
+  async function refreshPricing(force: boolean, markRemoteAttempt: () => void): Promise<PricingMap> {
     const now = Date.now();
 
     if (!force && !bypassDiskCacheForTests) {
-      const diskCache = await readDiskCache();
+      const diskCache = await diskCacheReader();
       if (diskCache && now - diskCache.fetchedAt < Config.pricingCacheTtlMs) {
         cache = diskCache;
         return diskCache.data;
@@ -164,7 +178,8 @@ export namespace Pricing {
     }
 
     try {
-      const map = await fetchRemotePricing();
+      markRemoteAttempt();
+      const map = await remotePricingFetcher();
       addLocalOverrides(map);
       cache = { data: map, fetchedAt: now };
       await writeDiskCache(cache);
@@ -173,7 +188,7 @@ export namespace Pricing {
     } catch (err) {
       logger.warn("pricing fetch failed, using cached data", { err, source: "models.dev" });
       if (cache) return cache.data;
-      const diskCache = bypassDiskCacheForTests ? null : await readDiskCache();
+      const diskCache = bypassDiskCacheForTests ? null : await diskCacheReader();
       if (diskCache) {
         cache = diskCache;
         return diskCache.data;
