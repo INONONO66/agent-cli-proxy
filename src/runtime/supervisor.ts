@@ -132,15 +132,17 @@ export namespace Supervisor {
 
   export function startQuotaRetentionLoop(
     db: Database,
-    options: { signal?: AbortSignal } = {},
+    options: { retentionDays?: number; signal?: AbortSignal } = {},
   ): Handle {
+    const retentionDays = options.retentionDays ?? 7;
     return run(
       "quota-retention",
       async () => {
-        const deletedCount = QuotaRepo.deleteOlderThan30Days(db);
+        const deletedCount = QuotaRepo.deleteOlderThanDays(db, retentionDays);
         logger.info("quota retention cleanup completed", {
           event: "quota.retention_cleanup",
           deleted_count: deletedCount,
+          retention_days: retentionDays,
         });
       },
       {

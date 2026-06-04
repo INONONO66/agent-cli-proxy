@@ -60,6 +60,7 @@ test("valid config is frozen and keeps typed values", () => {
     UPSTREAM_CIRCUIT_BREAKER_HALF_OPEN_AFTER_MS: "45000",
     UPSTREAM_CIRCUIT_BREAKER_EVICT_AFTER_MS: "600000",
     CLIPROXY_CORRELATION_WINDOW_MS: "60000",
+    QUOTA_SNAPSHOT_RETENTION_DAYS: "9",
     PROVIDERS_JSON: JSON.stringify({
       providers: [{
         id: "local",
@@ -85,6 +86,7 @@ test("valid config is frozen and keeps typed values", () => {
   expect(config.upstreamCircuitBreakerHalfOpenAfterMs).toBe(45000);
   expect(config.upstreamCircuitBreakerEvictAfterMs).toBe(600000);
   expect(config.cliproxyCorrelationWindowMs).toBe(60000);
+  expect(config.quotaSnapshotRetentionDays).toBe(9);
   expect(config.cchPositions).toEqual([1, 2, 3]);
   expect(config.clientNameMapping).toBeInstanceOf(Map);
   expect(config.clientNameMapping.get("key1")).toBe("alice");
@@ -122,6 +124,7 @@ test("invalid port and timeout values fail fast", () => {
     CLIPROXY_CORRELATION_WINDOW_MS: "0",
     QUOTA_REFRESH_INTERVAL_MS: "0",
     QUOTA_REFRESH_TIMEOUT_MS: "Infinity",
+    QUOTA_SNAPSHOT_RETENTION_DAYS: "0",
     READY_PRICING_MAX_AGE_MS: "0",
     STALE_PENDING_MAX_AGE_MS: "0",
     UPSTREAM_STREAM_FIRST_BYTE_TIMEOUT_MS: "0",
@@ -143,6 +146,7 @@ test("invalid port and timeout values fail fast", () => {
     "CLIPROXY_CORRELATION_WINDOW_MS",
     "QUOTA_REFRESH_INTERVAL_MS",
     "QUOTA_REFRESH_TIMEOUT_MS",
+    "QUOTA_SNAPSHOT_RETENTION_DAYS",
     "READY_PRICING_MAX_AGE_MS",
     "STALE_PENDING_MAX_AGE_MS",
     "UPSTREAM_STREAM_FIRST_BYTE_TIMEOUT_MS",

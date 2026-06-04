@@ -41,6 +41,7 @@ export interface ValidatedConfig {
   cliproxyConfigPath: string;
   quotaRefreshIntervalMs: number;
   quotaRefreshTimeoutMs: number;
+  quotaSnapshotRetentionDays: number;
   upstreamTimeoutMs: number;
   upstreamStreamFirstByteTimeoutMs: number;
   upstreamConnectTimeoutMs: number;
@@ -132,6 +133,7 @@ export namespace Config {
       cliproxyConfigPath: readString(env, "CLIPROXY_CONFIG_PATH", ""),
       quotaRefreshIntervalMs: readPositiveNumber(env, "QUOTA_REFRESH_INTERVAL_MS", 300000, issues),
       quotaRefreshTimeoutMs: readPositiveNumber(env, "QUOTA_REFRESH_TIMEOUT_MS", 15000, issues),
+      quotaSnapshotRetentionDays: readPositiveInteger(env, "QUOTA_SNAPSHOT_RETENTION_DAYS", 7, 3650, issues),
       upstreamTimeoutMs: readPositiveNumber(env, "UPSTREAM_TIMEOUT_MS", 300000, issues),
       upstreamStreamFirstByteTimeoutMs: readPositiveNumber(env, "UPSTREAM_STREAM_FIRST_BYTE_TIMEOUT_MS", 900000, issues),
       upstreamConnectTimeoutMs: readPositiveNumber(env, "UPSTREAM_CONNECT_TIMEOUT_MS", 10000, issues),

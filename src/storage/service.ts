@@ -25,6 +25,7 @@ export namespace UsageService {
 
   export function create(db: Database, options: CreateOptions = {}) {
     const serviceLogger = options.logger ?? logger;
+    let quotaRefreshInFlight: Promise<Usage.QuotaRefreshResult> | null = null;
 
     function preLog(log: Omit<Usage.RequestLog, "id">): number {
       return Storage.runWriteWithRetry(db, () => RequestRepo.insert(db, log));
@@ -550,9 +551,17 @@ export namespace UsageService {
     }
 
     async function refreshQuotas(): Promise<Usage.QuotaRefreshResult> {
+      if (quotaRefreshInFlight) return quotaRefreshInFlight;
+      quotaRefreshInFlight = refreshQuotasOnce().finally(() => {
+        quotaRefreshInFlight = null;
+      });
+      return quotaRefreshInFlight;
+    }
+
+    async function refreshQuotasOnce(): Promise<Usage.QuotaRefreshResult> {
       const result = await QuotaProbe.refresh();
       const accounts = result.accounts.map(withLocalUsage);
-      const txn = db.transaction(() => {
+      const txn = db.transaction((): number => {
         let inserted = 0;
         for (const account of accounts) {
           for (const snapshot of account.windows) {
@@ -568,9 +577,10 @@ export namespace UsageService {
           }
         }
 
+        QuotaRepo.deleteOlderThanDays(db, Config.quotaSnapshotRetentionDays);
         return inserted;
       });
-      const inserted = Storage.runWriteWithRetry(db, txn);
+      const inserted = Storage.runWriteWithRetry(db, () => txn() as number);
       return { ...result, inserted, accounts };
     }
 
