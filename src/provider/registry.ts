@@ -1,6 +1,7 @@
 import { readFileSync } from "node:fs";
 import { Config } from "../config";
 import { Logger } from "../util/logger";
+import { builtInProviders } from "./built-ins";
 import {
   parseProviderInput,
   validateProviderDocument,
@@ -21,6 +22,14 @@ export namespace ProviderRegistry {
     source: "built-in" | "PROVIDERS_JSON" | "PROVIDERS_CONFIG_PATH";
     configPath?: string;
     lastLoadedAt: string | null;
+    lastReloadError?: ReloadError;
+  }
+
+  export interface ReloadError {
+    source: "PROVIDERS_JSON" | "PROVIDERS_CONFIG_PATH";
+    configPath?: string;
+    message: string;
+    at: string;
   }
 
   interface Cache {
@@ -28,6 +37,19 @@ export namespace ProviderRegistry {
     source: SourceInfo["source"];
     configPath?: string;
     lastLoadedAt: string;
+    lastReloadError?: ReloadError;
+  }
+
+  interface CustomSource {
+    source: "PROVIDERS_JSON" | "PROVIDERS_CONFIG_PATH";
+    raw: string;
+    configPath?: string;
+  }
+
+  interface CustomLoadFailure {
+    source: "PROVIDERS_JSON" | "PROVIDERS_CONFIG_PATH";
+    configPath?: string;
+    message: string;
   }
 
   const logger = Logger.fromConfig().child({ component: "provider-registry" });
@@ -37,8 +59,13 @@ export namespace ProviderRegistry {
     if (cache && !options.force) return cache.providers;
 
     const customSource = readCustomConfig();
-    const customProviders = customSource ? parseCustomProviders(customSource.raw) : [];
-    const providers = mergeProviders([...builtInProviders(), ...customProviders]);
+    if (customSource && "failure" in customSource) return keepLastGoodProviders(customSource.failure);
+
+    const customResult = customSource ? parseCustomProviders(customSource.raw, customSource) : { providers: [] };
+    if (customResult.failure) return keepLastGoodProviders(customResult.failure);
+
+    const customProviders = customResult.providers;
+    const providers = mergeProviders([...builtInProviders(Config.cliProxyApiUrl), ...customProviders]);
     const lastLoadedAt = new Date().toISOString();
 
     cache = {
@@ -87,67 +114,11 @@ export namespace ProviderRegistry {
       source: cache.source,
       configPath: cache.configPath,
       lastLoadedAt: cache.lastLoadedAt,
+      lastReloadError: cache.lastReloadError,
     };
   }
 
-  function builtInProviders(): ProviderDefinition[] {
-    return [
-      {
-        id: "anthropic",
-        type: "anthropic",
-        paths: ["/v1/messages"],
-        upstreamBaseUrl: Config.cliProxyApiUrl,
-        upstreamPath: "/v1/messages",
-        auth: "preserve",
-      },
-      {
-        id: "xai",
-        type: "openai-compatible",
-        paths: ["/v1/chat/completions"],
-        upstreamBaseUrl: Config.cliProxyApiUrl,
-        upstreamPath: "/v1/chat/completions",
-        models: ["grok"],
-        auth: "preserve",
-      },
-      {
-        id: "kimi",
-        type: "openai-compatible",
-        paths: ["/v1/chat/completions"],
-        upstreamBaseUrl: Config.cliProxyApiUrl,
-        upstreamPath: "/v1/chat/completions",
-        models: ["kimi", "k2p", "k2-"],
-        auth: "preserve",
-      },
-      {
-        id: "zai",
-        type: "openai-compatible",
-        paths: ["/v1/chat/completions"],
-        upstreamBaseUrl: Config.cliProxyApiUrl,
-        upstreamPath: "/v1/chat/completions",
-        models: ["glm"],
-        auth: "preserve",
-      },
-      {
-        id: "minimax",
-        type: "openai-compatible",
-        paths: ["/v1/chat/completions"],
-        upstreamBaseUrl: Config.cliProxyApiUrl,
-        upstreamPath: "/v1/chat/completions",
-        models: ["minimax"],
-        auth: "preserve",
-      },
-      {
-        id: "openai",
-        type: "openai-compatible",
-        paths: ["/v1/chat/completions"],
-        upstreamBaseUrl: Config.cliProxyApiUrl,
-        upstreamPath: "/v1/chat/completions",
-        auth: "preserve",
-      },
-    ];
-  }
-
-  function readCustomConfig(): { source: "PROVIDERS_JSON" | "PROVIDERS_CONFIG_PATH"; raw: string; configPath?: string } | null {
+  function readCustomConfig(): CustomSource | { failure: CustomLoadFailure } | null {
     const inline = process.env.PROVIDERS_JSON;
     if (inline !== undefined && inline.trim() !== "") return { source: "PROVIDERS_JSON", raw: inline };
 
@@ -164,11 +135,11 @@ export namespace ProviderRegistry {
         configPath: path,
         err,
       });
-      return null;
+      return { failure: { source: "PROVIDERS_CONFIG_PATH", configPath: path, message: errorMessage(err) } };
     }
   }
 
-  function parseCustomProviders(raw: string): ProviderDefinition[] {
+  function parseCustomProviders(raw: string, source: CustomSource): { providers: ProviderDefinition[]; failure?: CustomLoadFailure } {
     let parsed: unknown;
     try {
       parsed = JSON.parse(raw);
@@ -178,7 +149,7 @@ export namespace ProviderRegistry {
         path: "providers",
         err,
       });
-      return [];
+      return { providers: [], failure: { source: source.source, configPath: source.configPath, message: errorMessage(err) } };
     }
 
     if (!isRecord(parsed) || !Array.isArray(parsed.providers)) {
@@ -188,7 +159,14 @@ export namespace ProviderRegistry {
         path: result.issues[0]?.path ?? "providers",
         issues: result.issues,
       });
-      return [];
+      return {
+        providers: [],
+        failure: {
+          source: source.source,
+          configPath: source.configPath,
+          message: result.issues[0]?.message ?? "provider config document is invalid",
+        },
+      };
     }
 
     const providers: ProviderDefinition[] = [];
@@ -200,6 +178,27 @@ export namespace ProviderRegistry {
       }
       warnInvalidEntry(entry, `providers[${index}]`, result.issues);
     });
+    return { providers };
+  }
+
+  function keepLastGoodProviders(failure: CustomLoadFailure): ProviderDefinition[] {
+    const lastReloadError = {
+      ...failure,
+      at: new Date().toISOString(),
+    };
+
+    if (cache) {
+      cache = { ...cache, lastReloadError };
+      return cache.providers;
+    }
+
+    const providers = builtInProviders(Config.cliProxyApiUrl);
+    cache = {
+      providers,
+      source: "built-in",
+      lastLoadedAt: lastReloadError.at,
+      lastReloadError,
+    };
     return providers;
   }
 
@@ -234,5 +233,9 @@ export namespace ProviderRegistry {
 
   function isRecord(value: unknown): value is Record<string, unknown> {
     return typeof value === "object" && value !== null && !Array.isArray(value);
+  }
+
+  function errorMessage(err: unknown): string {
+    return err instanceof Error ? err.message : String(err);
   }
 }
