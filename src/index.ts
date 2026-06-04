@@ -32,7 +32,7 @@ async function main(): Promise<void> {
 
   Storage.backupBeforeStart(Config.dbPath);
   const db = Storage.initDb(Config.dbPath);
-  Storage.recoverStalePending(db);
+  Storage.recoverStalePending(db, Config.stalePendingMaxAgeMs);
   const usageService = UsageService.create(db);
   UsageService.startCostBackfillLoop(usageService, { signal: shutdownController.signal });
   const dashboardSessionSecret = Config.dashboardSessionSecret || await Session.resolveSecret(Config.dbPath);
