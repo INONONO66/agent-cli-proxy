@@ -1,6 +1,7 @@
 import { Database } from "bun:sqlite";
 import { QuotaRepo } from "../storage/repo";
 import { Logger } from "../util/logger";
+import { applyJitter, resolveWithin, sleep } from "./supervisor-timing";
 
 export namespace Supervisor {
   export interface Options {
@@ -8,6 +9,7 @@ export namespace Supervisor {
     initialDelayMs?: number;
     jitterRatio?: number;
     maxBackoffMs?: number;
+    maxConsecutiveFailures?: number;
     signal?: AbortSignal;
     runOnStart?: boolean;
   }
@@ -18,6 +20,9 @@ export namespace Supervisor {
 
   type LoopState = {
     name: string;
+    failed: boolean;
+    consecutiveFailures: number;
+    maxConsecutiveFailures: number;
     controller: AbortController;
     done: Promise<void>;
     stopRequested: boolean;
@@ -25,9 +30,16 @@ export namespace Supervisor {
     stop(timeoutMs: number): Promise<void>;
   };
 
+  export type LoopStatus = {
+    readonly name: string;
+    readonly failed: boolean;
+    readonly consecutiveFailures: number;
+  };
+
   const DEFAULT_JITTER_RATIO = 0.1;
   const DEFAULT_MAX_BACKOFF_MS = 60_000;
   const DEFAULT_STOP_TIMEOUT_MS = 2_000;
+  const DEFAULT_MAX_CONSECUTIVE_FAILURES = 100;
 
   const registry = new Set<LoopState>();
   let logger = Logger.fromConfig().child({ component: "supervisor" });
@@ -40,6 +52,7 @@ export namespace Supervisor {
     const intervalMs = options.intervalMs;
     const jitterRatio = options.jitterRatio ?? DEFAULT_JITTER_RATIO;
     const maxBackoffMs = options.maxBackoffMs ?? DEFAULT_MAX_BACKOFF_MS;
+    const maxConsecutiveFailures = options.maxConsecutiveFailures ?? DEFAULT_MAX_CONSECUTIVE_FAILURES;
     const runOnStart = options.runOnStart ?? true;
     const initialDelayMs = options.initialDelayMs ?? 0;
 
@@ -55,6 +68,9 @@ export namespace Supervisor {
 
     const state: LoopState = {
       name,
+      failed: false,
+      consecutiveFailures: 0,
+      maxConsecutiveFailures,
       controller,
       done: Promise.resolve(),
       stopRequested: false,
@@ -65,6 +81,7 @@ export namespace Supervisor {
         const stopped = await resolveWithin(this.done, timeoutMs);
         if (stopped) {
           logStopped(this);
+          registry.delete(this);
           return;
         }
         registry.delete(this);
@@ -81,9 +98,12 @@ export namespace Supervisor {
       jitterRatio,
       maxBackoffMs,
       runOnStart,
+      state,
     }).finally(() => {
       removeExternalAbort?.();
-      registry.delete(state);
+      if (!state.failed) {
+        registry.delete(state);
+      }
       if (state.stopRequested || signal.aborted) logStopped(state);
     });
 
@@ -104,6 +124,14 @@ export namespace Supervisor {
 
   export function list(): string[] {
     return Array.from(registry, (loopState) => loopState.name).sort();
+  }
+
+  export function statuses(): LoopStatus[] {
+    return Array.from(registry, (loopState) => ({
+      name: loopState.name,
+      failed: loopState.failed,
+      consecutiveFailures: loopState.consecutiveFailures,
+    })).sort((a, b) => a.name.localeCompare(b.name));
   }
 
   export function startQuotaRetentionLoop(
@@ -138,9 +166,10 @@ export namespace Supervisor {
     initialDelayMs: number;
     jitterRatio: number;
     maxBackoffMs: number;
+    state: LoopState;
     runOnStart: boolean;
   }): Promise<void> {
-    let consecutiveFailures = 0;
+    const state = context.state;
     let nextDelayMs = context.runOnStart
       ? context.initialDelayMs
       : context.initialDelayMs > 0
@@ -158,8 +187,8 @@ export namespace Supervisor {
       const startedAt = Date.now();
       try {
         await context.fn();
+        state.consecutiveFailures = 0;
         const durationMs = Date.now() - startedAt;
-        consecutiveFailures = 0;
         logger.debug("loop tick", {
           name: context.name,
           event: "loop.tick",
@@ -167,9 +196,19 @@ export namespace Supervisor {
         });
         nextDelayMs = applyJitter(context.intervalMs, context.jitterRatio);
       } catch (err) {
-        consecutiveFailures += 1;
+        state.consecutiveFailures += 1;
+        if (state.consecutiveFailures >= state.maxConsecutiveFailures) {
+          state.failed = true;
+          logger.error("loop disabled", {
+            name: context.name,
+            event: "loop.disabled",
+            cause: err,
+            total_failures: state.consecutiveFailures,
+          });
+          return;
+        }
         const backoffMs = Math.min(
-          context.intervalMs * 2 ** consecutiveFailures,
+          context.intervalMs * 2 ** state.consecutiveFailures,
           context.maxBackoffMs,
         );
         nextDelayMs = applyJitter(backoffMs, context.jitterRatio);
@@ -177,7 +216,7 @@ export namespace Supervisor {
           name: context.name,
           event: "loop.error",
           err,
-          attempt: consecutiveFailures,
+          attempt: state.consecutiveFailures,
           next_delay_ms: nextDelayMs,
         });
       }
@@ -198,42 +237,13 @@ export namespace Supervisor {
     if (options.maxBackoffMs !== undefined && (!Number.isFinite(options.maxBackoffMs) || options.maxBackoffMs <= 0)) {
       throw new Error("Supervisor maxBackoffMs must be a positive finite number");
     }
-  }
-
-  function applyJitter(delayMs: number, jitterRatio: number): number {
-    if (delayMs <= 0 || jitterRatio <= 0) return Math.max(0, Math.round(delayMs));
-    const spread = delayMs * jitterRatio;
-    const offset = (Math.random() * 2 - 1) * spread;
-    return Math.max(0, Math.round(delayMs + offset));
-  }
-
-  function sleep(delayMs: number, signal: AbortSignal): Promise<boolean> {
-    if (signal.aborted) return Promise.resolve(false);
-    return new Promise((resolve) => {
-      let timeout: ReturnType<typeof setTimeout> | null = null;
-      const onAbort = () => {
-        if (timeout) clearTimeout(timeout);
-        resolve(false);
-      };
-      timeout = setTimeout(() => {
-        signal.removeEventListener("abort", onAbort);
-        resolve(true);
-      }, delayMs);
-      signal.addEventListener("abort", onAbort, { once: true });
-    });
-  }
-
-  async function resolveWithin(promise: Promise<void>, timeoutMs: number): Promise<boolean> {
-    let timeout: ReturnType<typeof setTimeout> | null = null;
-    try {
-      return await Promise.race([
-        promise.then(() => true),
-        new Promise<boolean>((resolve) => {
-          timeout = setTimeout(() => resolve(false), timeoutMs);
-        }),
-      ]);
-    } finally {
-      if (timeout) clearTimeout(timeout);
+    if (
+      options.maxConsecutiveFailures !== undefined &&
+      (!Number.isFinite(options.maxConsecutiveFailures) ||
+        !Number.isInteger(options.maxConsecutiveFailures) ||
+        options.maxConsecutiveFailures <= 0)
+    ) {
+      throw new Error("Supervisor maxConsecutiveFailures must be a positive finite integer");
     }
   }
 

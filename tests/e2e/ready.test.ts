@@ -3,6 +3,7 @@ import type { Database } from "bun:sqlite";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { Supervisor } from "../../src/runtime/supervisor";
 
 const DEFAULT_UPSTREAM_PORT = 18318;
 const DEFAULT_UPSTREAM_URL = `http://127.0.0.1:${DEFAULT_UPSTREAM_PORT}`;
@@ -18,7 +19,11 @@ type ReadyBody = {
     database?: { status?: string; responseTime?: number };
     pricing?: { status?: string; ageMs?: number; responseTime?: number };
     upstream?: { status?: string; output?: string; responseTime?: number };
-    supervisor?: { status?: string; loops?: string[] };
+    supervisor?: {
+      status?: string;
+      loops?: string[];
+      failedLoops?: Array<{ name: string; failed: boolean; consecutiveFailures: number }>;
+    };
   };
 };
 
@@ -63,6 +68,7 @@ describe("readiness endpoints", () => {
 
   afterAll(async () => {
     await stopUpstream();
+    await Supervisor.stopAll();
     db.close();
     await rm(tempDir, { recursive: true, force: true });
   });
@@ -100,6 +106,38 @@ describe("readiness endpoints", () => {
     expect(typeof body.checks.pricing?.ageMs).toBe("number");
     expect(body.checks.upstream?.output).toContain("HTTP");
     expect(Array.isArray(body.checks.supervisor?.loops)).toBe(true);
+  });
+
+  test("/ready returns 503 when a loop has failed", async () => {
+    await startUpstream(() => new Response(null, { status: 204 }));
+    const handle = Supervisor.run("ready-failed-loop", () => {
+      throw new Error("ready loop failed");
+    }, {
+      intervalMs: 10,
+      jitterRatio: 0,
+      maxConsecutiveFailures: 1,
+    });
+
+    try {
+      await waitUntil(() => {
+        return Supervisor.statuses().some((loop) => loop.name === "ready-failed-loop" && loop.failed);
+      });
+
+      const res = await requestReady();
+      const body = await readReadyBody(res);
+
+      expect(res.status).toBe(503);
+      expect(body.checks.upstream?.status).toBe("pass");
+      expect(body.checks.supervisor?.status).toBe("fail");
+      expect(body.checks.supervisor?.loops).toContain("ready-failed-loop");
+      expect(body.checks.supervisor?.failedLoops).toContainEqual({
+        name: "ready-failed-loop",
+        failed: true,
+        consecutiveFailures: 1,
+      });
+    } finally {
+      await handle.stop();
+    }
   });
 
   test("/ready returns 503 when upstream is unreachable", async () => {
@@ -143,6 +181,15 @@ describe("readiness endpoints", () => {
 
   async function readReadyBody(res: Response): Promise<ReadyBody> {
     return await res.json() as ReadyBody;
+  }
+
+  async function waitUntil(predicate: () => boolean, timeoutMs = 600): Promise<void> {
+    const startedAt = Date.now();
+    while (Date.now() - startedAt < timeoutMs) {
+      if (predicate()) return;
+      await new Promise((resolve) => setTimeout(resolve, 5));
+    }
+    throw new Error("timed out waiting for readiness condition");
   }
 
   async function writeFreshPricingCache(): Promise<void> {

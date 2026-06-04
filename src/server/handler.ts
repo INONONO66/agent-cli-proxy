@@ -27,6 +27,7 @@ type ReadyCheck = {
   output?: string;
   ageMs?: number;
   loops?: string[];
+  failedLoops?: Supervisor.LoopStatus[];
 };
 
 type ReadyChecks = {
@@ -518,6 +519,15 @@ export namespace Handler {
 
   function checkSupervisor(): ReadyCheck {
     const loops = Supervisor.list();
+    const failedLoops = Supervisor.statuses().filter((loop) => loop.failed);
+    if (failedLoops.length > 0) {
+      return {
+        status: "fail",
+        loops,
+        failedLoops,
+        output: `failed loops: ${failedLoops.map((loop) => loop.name).join(", ")}`,
+      };
+    }
     return { status: "pass", loops };
   }
 
