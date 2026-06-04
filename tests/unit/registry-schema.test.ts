@@ -131,3 +131,19 @@ test("registry forceReload rereads PROVIDERS_CONFIG_PATH content", async () => {
   expect(reloadedIds).toContain("file-b");
   expect(reloadedIds).not.toContain("file-a");
 });
+
+test("registry forceReload keeps last-good providers when file config becomes invalid", async () => {
+  delete process.env.PROVIDERS_JSON;
+  const dir = mkdtempSync(join(tmpdir(), "agent-cli-proxy-registry-"));
+  const configPath = join(dir, "providers.json");
+  process.env.PROVIDERS_CONFIG_PATH = configPath;
+
+  await Bun.write(configPath, JSON.stringify({ providers: [validProvider({ id: "file-a" })] }));
+  expect(ProviderRegistry.forceReload().map((provider: ProviderDefinition) => provider.id)).toContain("file-a");
+
+  await Bun.write(configPath, "{");
+  const reloadedIds = ProviderRegistry.forceReload().map((provider: ProviderDefinition) => provider.id);
+
+  expect(reloadedIds).toContain("file-a");
+  expect(ProviderRegistry.sourceInfo().lastReloadError?.source).toBe("PROVIDERS_CONFIG_PATH");
+});
