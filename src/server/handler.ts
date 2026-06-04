@@ -14,6 +14,7 @@ import { Session } from "../admin/session";
 import { PerfMetrics } from "./perf-metrics";
 import { isRequestSecure } from "../util/proxy-headers";
 import { ApiKeyRepo } from "../storage/api-keys";
+import { PerClientRateLimiter } from "./rate-limit";
 
 const logger = Logger.fromConfig().child({ component: "handler" });
 const readyLogger = logger.child({ component: "handler.ready" });
@@ -140,6 +141,7 @@ export namespace Handler {
     };
     const adminRouter = Admin.createRouter(usageService, sessionConfig, oauthConfig);
     const maxRequestBodyBytes = options.maxRequestBodyBytes ?? Config.maxRequestBodyBytes;
+    const rateLimiter = new PerClientRateLimiter(Config.rateLimitPerClientPerMinute);
 
     return async function handleRequest(req: Request, context?: RequestContext): Promise<Response> {
       const url = new URL(req.url);
@@ -222,6 +224,10 @@ export namespace Handler {
         if (!authContext) throw new Error("proxy auth context missing");
         const inspected = await RequestInspector.inspect(bounded);
         const info = authContext.mode === "resolved" ? { ...inspected, apiKey: null } : inspected;
+        const tool = RequestInspector.detectTool(info);
+        const clientId = RequestInspector.generateClientId(tool, info);
+        const rateLimit = rateLimiter.take(tool, clientId);
+        if (!rateLimit.allowed) return withSecurityHeaders(req, securityConfig, rateLimitedResponse(rateLimit.retryAfterSeconds));
         return withSecurityHeaders(req, securityConfig, passThrough(bounded, info, authContext));
       } catch (err) {
         if (isRequestBodyTooLargeError(err)) {
@@ -271,6 +277,17 @@ export namespace Handler {
     return new Response(JSON.stringify({ error: "Valid Authorization Bearer token or x-api-key required." }), {
       status: 401,
       headers: { "content-type": "application/json", "cache-control": "no-store" },
+    });
+  }
+
+  function rateLimitedResponse(retryAfterSeconds: number): Response {
+    return new Response(JSON.stringify({ error: "rate limit exceeded", code: "RATE_LIMITED" }), {
+      status: 429,
+      headers: {
+        "content-type": "application/json",
+        "cache-control": "no-store",
+        "retry-after": String(retryAfterSeconds),
+      },
     });
   }
 

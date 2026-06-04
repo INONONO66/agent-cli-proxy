@@ -1,6 +1,7 @@
 import type { Database } from "bun:sqlite";
 import { UsageRepo } from "../storage/repo";
 import { PerfMetrics } from "./perf-metrics";
+import { RateLimitMetrics } from "./rate-limit";
 
 export namespace Metrics {
   function escape(value: string): string {
@@ -39,6 +40,7 @@ export namespace Metrics {
     }
 
     lines.push(PerfMetrics.renderPrometheus().trimEnd());
+    lines.push(RateLimitMetrics.renderPrometheus());
 
     return lines.join("\n") + "\n";
   }

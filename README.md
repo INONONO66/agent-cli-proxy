@@ -141,6 +141,7 @@ Provider API keys are intentionally **not** stored by this proxy. The proxy rout
 | `UPSTREAM_CIRCUIT_BREAKER_HALF_OPEN_AFTER_MS` | `30000` | Recovery window before one half-open probe is allowed |
 | `UPSTREAM_CIRCUIT_BREAKER_EVICT_AFTER_MS` | `300000` | Inactive closed provider breaker retention window |
 | `MAX_REQUEST_BODY_BYTES` | `25000000` | Maximum request body size accepted for proxied POST requests (25MB) |
+| `RATE_LIMIT_PER_CLIENT_PER_MIN` | `0` | Optional per `(tool, client_id)` proxy request limit per minute. `0` disables rate limiting. |
 | `STALE_PENDING_MAX_AGE_MS` | `600000` | Age at which pending request rows are recovered on boot (10m) |
 | `QUOTA_REFRESH_INTERVAL_MS` | `300000` | How often to refresh CLIProxyAPI quota snapshots (5m) |
 | `QUOTA_REFRESH_TIMEOUT_MS` | `15000` | Timeout for provider quota refresh calls (15s) |

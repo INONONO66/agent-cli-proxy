@@ -61,6 +61,7 @@ test("valid config is frozen and keeps typed values", () => {
     UPSTREAM_CIRCUIT_BREAKER_EVICT_AFTER_MS: "600000",
     CLIPROXY_CORRELATION_WINDOW_MS: "60000",
     QUOTA_SNAPSHOT_RETENTION_DAYS: "9",
+    RATE_LIMIT_PER_CLIENT_PER_MIN: "120",
     PROVIDERS_JSON: JSON.stringify({
       providers: [{
         id: "local",
@@ -87,6 +88,7 @@ test("valid config is frozen and keeps typed values", () => {
   expect(config.upstreamCircuitBreakerEvictAfterMs).toBe(600000);
   expect(config.cliproxyCorrelationWindowMs).toBe(60000);
   expect(config.quotaSnapshotRetentionDays).toBe(9);
+  expect(config.rateLimitPerClientPerMinute).toBe(120);
   expect(config.cchPositions).toEqual([1, 2, 3]);
   expect(config.clientNameMapping).toBeInstanceOf(Map);
   expect(config.clientNameMapping.get("key1")).toBe("alice");
@@ -133,6 +135,7 @@ test("invalid port and timeout values fail fast", () => {
     UPSTREAM_CIRCUIT_BREAKER_HALF_OPEN_AFTER_MS: "NaN",
     UPSTREAM_CIRCUIT_BREAKER_EVICT_AFTER_MS: "-1",
     MAX_REQUEST_BODY_BYTES: "1000000001",
+    RATE_LIMIT_PER_CLIENT_PER_MIN: "-1",
   })));
 
   expect(err.issues.map((issue) => issue.path)).toEqual(expect.arrayContaining([
@@ -155,6 +158,7 @@ test("invalid port and timeout values fail fast", () => {
     "UPSTREAM_CIRCUIT_BREAKER_HALF_OPEN_AFTER_MS",
     "UPSTREAM_CIRCUIT_BREAKER_EVICT_AFTER_MS",
     "MAX_REQUEST_BODY_BYTES",
+    "RATE_LIMIT_PER_CLIENT_PER_MIN",
   ]));
 });
 

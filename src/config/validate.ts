@@ -50,6 +50,7 @@ export interface ValidatedConfig {
   upstreamCircuitBreakerHalfOpenAfterMs: number;
   upstreamCircuitBreakerEvictAfterMs: number;
   maxRequestBodyBytes: number;
+  rateLimitPerClientPerMinute: number;
   breakerOpenAfterFailures: number;
   breakerHalfOpenAfterMs: number;
   breakerEvictAfterMs: number;
@@ -158,6 +159,7 @@ export namespace Config {
         issues,
       ),
       maxRequestBodyBytes: readPositiveInteger(env, "MAX_REQUEST_BODY_BYTES", 25_000_000, 1_000_000_000, issues),
+      rateLimitPerClientPerMinute: readNonNegativeInteger(env, "RATE_LIMIT_PER_CLIENT_PER_MIN", 0, 1_000_000, issues),
       breakerOpenAfterFailures: readPositiveInteger(env, "UPSTREAM_CIRCUIT_BREAKER_OPEN_AFTER_FAILURES", 5, 1000, issues),
       breakerHalfOpenAfterMs: readPositiveNumber(env, "UPSTREAM_CIRCUIT_BREAKER_HALF_OPEN_AFTER_MS", 30_000, issues),
       breakerEvictAfterMs: readPositiveNumber(env, "UPSTREAM_CIRCUIT_BREAKER_EVICT_AFTER_MS", 300_000, issues),
@@ -328,6 +330,23 @@ function readPositiveInteger(
   const parsed = Number(raw);
   if (!Number.isInteger(parsed) || parsed < 1 || parsed > maximum) {
     issues.push({ path: key, message: `must be an integer from 1 to ${maximum}` });
+    return fallback;
+  }
+  return parsed;
+}
+
+function readNonNegativeInteger(
+  env: EnvLike,
+  key: string,
+  fallback: number,
+  maximum: number,
+  issues: ConfigIssue[],
+): number {
+  const raw = env[key];
+  if (raw === undefined) return fallback;
+  const parsed = Number(raw);
+  if (!Number.isInteger(parsed) || parsed < 0 || parsed > maximum) {
+    issues.push({ path: key, message: `must be an integer from 0 to ${maximum}` });
     return fallback;
   }
   return parsed;
