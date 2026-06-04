@@ -212,3 +212,18 @@ test("persistent low match rate emits an operator warning", async () => {
   const warnings = stderrLines.filter((line) => line.includes("correlator.low_match_rate"));
   expect(warnings).toHaveLength(1);
 });
+
+test("persistent empty upstream details emit an operator warning", async () => {
+  captureStderr();
+  const now = new Date().toISOString();
+  const response = buildResponse({});
+  const logs = Array.from({ length: 2 }, (_, index) => makeLog(index + 1, "test-model", now, 1_000));
+  const { service } = createService(response, logs);
+
+  for (let i = 0; i < 5; i++) {
+    await Correlator.runTick(service, { lookbackMs: 60_000 });
+  }
+
+  const warnings = stderrLines.filter((line) => line.includes("correlator.low_match_rate"));
+  expect(warnings).toHaveLength(1);
+});
