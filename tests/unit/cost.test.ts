@@ -189,6 +189,43 @@ test("pricing fetch falls back to OpenRouter model pricing when models.dev fails
   })).toMatchObject({ cost_status: "ok", cost_usd: 3 });
 });
 
+test("pricing fetch consumes models.dev HTTP error bodies before falling back", async () => {
+  Pricing.__clearPricingForTests();
+  const modelsDevResponses: Response[] = [];
+  globalThis.fetch = ((input: string | URL | Request) => {
+    const url = typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
+    if (url.includes("models.dev")) {
+      const response = new Response("unavailable", { status: 503 });
+      modelsDevResponses.push(response);
+      return Promise.resolve(response);
+    }
+    return Promise.resolve(new Response(JSON.stringify({ data: [] }), {
+      status: 200,
+      headers: { "content-type": "application/json" },
+    }));
+  }) as unknown as typeof fetch;
+
+  await Pricing.fetchPricing({ force: true });
+
+  expect(modelsDevResponses[0]?.bodyUsed).toBe(true);
+});
+
+test("pricing fetch consumes OpenRouter HTTP error bodies before using fallback pricing", async () => {
+  Pricing.__clearPricingForTests();
+  const openRouterResponses: Response[] = [];
+  globalThis.fetch = ((input: string | URL | Request) => {
+    const url = typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
+    if (url.includes("models.dev")) return Promise.reject(new Error("network down"));
+    const response = new Response("temporarily unavailable", { status: 503 });
+    openRouterResponses.push(response);
+    return Promise.resolve(response);
+  }) as unknown as typeof fetch;
+
+  await Pricing.fetchPricing({ force: true });
+
+  expect(openRouterResponses[0]?.bodyUsed).toBe(true);
+});
+
 test("Anthropic cache creation uses provider default cache_write multiplier when pricing omits it", () => {
   Pricing.__setPricingForTests([["anthropic/claude-cache-default", { input: 2, output: 10 }]]);
 
