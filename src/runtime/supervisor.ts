@@ -1,6 +1,14 @@
 import { Database } from "bun:sqlite";
 import { QuotaRepo } from "../storage/repo";
 import { Logger } from "../util/logger";
+import {
+  compareLoopName,
+  toLoopHealthSnapshot,
+  toLoopStatus,
+  type LoopHealthSnapshot as SupervisorLoopHealthSnapshot,
+  type LoopStatus as SupervisorLoopStatus,
+} from "./supervisor-health";
+import type { LoopState } from "./supervisor-state";
 import { applyJitter, resolveWithin, sleep } from "./supervisor-timing";
 
 export namespace Supervisor {
@@ -18,23 +26,8 @@ export namespace Supervisor {
     stop(): Promise<void>;
   }
 
-  type LoopState = {
-    name: string;
-    failed: boolean;
-    consecutiveFailures: number;
-    maxConsecutiveFailures: number;
-    controller: AbortController;
-    done: Promise<void>;
-    stopRequested: boolean;
-    stopLogged: boolean;
-    stop(timeoutMs: number): Promise<void>;
-  };
-
-  export type LoopStatus = {
-    readonly name: string;
-    readonly failed: boolean;
-    readonly consecutiveFailures: number;
-  };
+  export type LoopStatus = SupervisorLoopStatus;
+  export type LoopHealthSnapshot = SupervisorLoopHealthSnapshot;
 
   const DEFAULT_JITTER_RATIO = 0.1;
   const DEFAULT_MAX_BACKOFF_MS = 60_000;
@@ -70,6 +63,8 @@ export namespace Supervisor {
       name,
       failed: false,
       consecutiveFailures: 0,
+      lastSuccessAt: null,
+      lastErrorAt: null,
       maxConsecutiveFailures,
       controller,
       done: Promise.resolve(),
@@ -127,11 +122,12 @@ export namespace Supervisor {
   }
 
   export function statuses(): LoopStatus[] {
-    return Array.from(registry, (loopState) => ({
-      name: loopState.name,
-      failed: loopState.failed,
-      consecutiveFailures: loopState.consecutiveFailures,
-    })).sort((a, b) => a.name.localeCompare(b.name));
+    return Array.from(registry, toLoopStatus).sort(compareLoopName);
+  }
+
+  export function healthSnapshot(): LoopHealthSnapshot[] {
+    const nowMs = Date.now();
+    return Array.from(registry, (loopState) => toLoopHealthSnapshot(loopState, nowMs)).sort(compareLoopName);
   }
 
   export function startQuotaRetentionLoop(
@@ -187,6 +183,7 @@ export namespace Supervisor {
       const startedAt = Date.now();
       try {
         await context.fn();
+        state.lastSuccessAt = Date.now();
         state.consecutiveFailures = 0;
         const durationMs = Date.now() - startedAt;
         logger.debug("loop tick", {
@@ -196,6 +193,7 @@ export namespace Supervisor {
         });
         nextDelayMs = applyJitter(context.intervalMs, context.jitterRatio);
       } catch (err) {
+        state.lastErrorAt = Date.now();
         state.consecutiveFailures += 1;
         if (state.consecutiveFailures >= state.maxConsecutiveFailures) {
           state.failed = true;

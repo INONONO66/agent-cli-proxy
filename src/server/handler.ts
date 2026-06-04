@@ -27,6 +27,7 @@ type ReadyCheck = {
   output?: string;
   ageMs?: number;
   loops?: string[];
+  loopHealth?: Supervisor.LoopHealthSnapshot[];
   failedLoops?: Supervisor.LoopStatus[];
 };
 
@@ -518,17 +519,27 @@ export namespace Handler {
   }
 
   function checkSupervisor(): ReadyCheck {
-    const loops = Supervisor.list();
-    const failedLoops = Supervisor.statuses().filter((loop) => loop.failed);
+    const loopHealth = Supervisor.healthSnapshot();
+    const loops = loopHealth.map((loop) => loop.name);
+    const failedLoops = loopHealth.filter((loop) => loop.status === "fail").map((loop) => ({
+      name: loop.name,
+      failed: true,
+      consecutiveFailures: loop.consecutiveFailures,
+    }));
+
     if (failedLoops.length > 0) {
       return {
         status: "fail",
         loops,
+        loopHealth,
         failedLoops,
         output: `failed loops: ${failedLoops.map((loop) => loop.name).join(", ")}`,
       };
     }
-    return { status: "pass", loops };
+    if (loopHealth.some((loop) => loop.status === "warn")) {
+      return { status: "warn", loops, loopHealth };
+    }
+    return { status: "pass", loops, loopHealth };
   }
 
   function aggregateStatus(checks: ReadyChecks): ReadyStatus {

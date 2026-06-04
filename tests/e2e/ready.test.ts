@@ -23,6 +23,13 @@ type ReadyBody = {
       status?: string;
       loops?: string[];
       failedLoops?: Array<{ name: string; failed: boolean; consecutiveFailures: number }>;
+      loopHealth?: Array<{
+        name: string;
+        lastSuccessAgeMs?: number;
+        lastErrorAgeMs?: number;
+        consecutiveFailures: number;
+        status: "pass" | "warn" | "fail";
+      }>;
     };
   };
 };
@@ -135,6 +142,40 @@ describe("readiness endpoints", () => {
         failed: true,
         consecutiveFailures: 1,
       });
+    } finally {
+      await handle.stop();
+    }
+  });
+
+  test("/ready returns warn when a loop is in backoff but not failed", async () => {
+    await startUpstream(() => new Response(null, { status: 204 }));
+    const handle = Supervisor.run("ready-warn-loop", () => {
+      throw new Error("temporary failure");
+    }, {
+      intervalMs: 100,
+      jitterRatio: 0,
+      maxConsecutiveFailures: 10,
+    });
+
+    try {
+      await waitUntil(() => {
+        return Supervisor.healthSnapshot().some((loop) => loop.name === "ready-warn-loop" && loop.status === "warn");
+      });
+
+      const res = await requestReady();
+      const body = await readReadyBody(res);
+
+      expect(res.status).toBe(200);
+      expect(body.status).toBe("warn");
+      expect(body.checks.supervisor?.status).toBe("warn");
+      expect(body.checks.supervisor?.loops).toContain("ready-warn-loop");
+      expect(body.checks.supervisor?.loopHealth).toEqual(expect.arrayContaining([
+        expect.objectContaining({
+          name: "ready-warn-loop",
+          status: "warn",
+          consecutiveFailures: 1,
+        }),
+      ]));
     } finally {
       await handle.stop();
     }

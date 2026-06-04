@@ -60,6 +60,39 @@ test("a loop that throws on the first tick is retried with backoff", async () =>
   expect(errors[0]).toMatchObject({ name: "retry-once", attempt: 1, next_delay_ms: 20 });
 });
 
+test("healthSnapshot reports warn after one failure and pass after recovery", async () => {
+  let attempts = 0;
+
+  const handle = Supervisor.run("snapshot-recovery", () => {
+    attempts += 1;
+    if (attempts === 1) throw new Error("first attempt failed");
+  }, {
+    intervalMs: 10,
+    jitterRatio: 0,
+  });
+
+  await waitUntil(() => {
+    const snapshot = Supervisor.healthSnapshot().find((entry) => entry.name === "snapshot-recovery");
+    return snapshot?.status === "warn" && snapshot.consecutiveFailures > 0 && typeof snapshot.lastErrorAgeMs === "number";
+  });
+
+  await waitUntil(() => {
+    const snapshot = Supervisor.healthSnapshot().find((entry) => entry.name === "snapshot-recovery");
+    return snapshot?.status === "pass" && snapshot.consecutiveFailures === 0 && typeof snapshot.lastSuccessAgeMs === "number";
+  });
+
+  const finalSnapshot = Supervisor.healthSnapshot().find((entry) => entry.name === "snapshot-recovery");
+  expect(finalSnapshot).toBeDefined();
+  expect(finalSnapshot).toMatchObject({
+    name: "snapshot-recovery",
+    consecutiveFailures: 0,
+    status: "pass",
+  });
+  expect(typeof finalSnapshot?.lastSuccessAgeMs).toBe("number");
+
+  await handle.stop();
+});
+
 test("after 3 consecutive failures delay reaches base interval times 2^3", async () => {
   const capture = captureSink();
   Supervisor.__setLoggerForTests(capture.logger);
