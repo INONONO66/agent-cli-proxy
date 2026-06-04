@@ -79,11 +79,27 @@ function makeLog(
 }
 
 let fetchSpy: ReturnType<typeof spyOn> | null = null;
+let originalStderrWrite: typeof process.stderr.write | null = null;
+let stderrLines: string[] = [];
 
 afterEach(() => {
   fetchSpy?.mockRestore();
   fetchSpy = null;
+  Correlator.__resetLowMatchRateForTests();
+  if (originalStderrWrite) {
+    process.stderr.write = originalStderrWrite;
+    originalStderrWrite = null;
+  }
+  stderrLines = [];
 });
+
+function captureStderr(): void {
+  originalStderrWrite = process.stderr.write;
+  process.stderr.write = function write(chunk: string | Uint8Array) {
+    stderrLines.push(String(chunk));
+    return true;
+  } as typeof process.stderr.write;
+}
 
 function createService(
   response: CLIProxyClientNS.UsageResponse,
@@ -158,4 +174,56 @@ test("all details outside lookback returns early without matching", async () => 
   await Correlator.runTick(service, { lookbackMs: 60_000 });
 
   expect(applySpy).not.toHaveBeenCalled();
+});
+
+test("configurable match window correlates clock-skewed usage", async () => {
+  const now = Date.now();
+  const logTs = new Date(now - 45_000).toISOString();
+  const detailTs = new Date(now).toISOString();
+
+  const response = buildResponse({
+    "test-model": [makeDetail(detailTs, 1_000)],
+  });
+
+  const logs = [makeLog(1, "test-model", logTs, 1_000)];
+  const { service, applySpy } = createService(response, logs);
+  await Correlator.runTick(service, { lookbackMs: 60_000, maxMatchDeltaMs: 60_000 });
+
+  expect(applySpy).toHaveBeenCalledTimes(1);
+});
+
+test("persistent low match rate emits an operator warning", async () => {
+  captureStderr();
+  const now = new Date().toISOString();
+  const response = buildResponse({
+    "other-model": [makeDetail(now, 1_000)],
+  });
+  const logs = Array.from({ length: 4 }, (_, index) => makeLog(index + 1, "test-model", now, 1_000));
+  const { service } = createService(response, logs);
+
+  for (let i = 0; i < 5; i++) {
+    await Correlator.runTick(service, { lookbackMs: 60_000 });
+  }
+
+  for (let i = 0; i < 5; i++) {
+    await Correlator.runTick(service, { lookbackMs: 60_000 });
+  }
+
+  const warnings = stderrLines.filter((line) => line.includes("correlator.low_match_rate"));
+  expect(warnings).toHaveLength(1);
+});
+
+test("persistent empty upstream details emit an operator warning", async () => {
+  captureStderr();
+  const now = new Date().toISOString();
+  const response = buildResponse({});
+  const logs = Array.from({ length: 2 }, (_, index) => makeLog(index + 1, "test-model", now, 1_000));
+  const { service } = createService(response, logs);
+
+  for (let i = 0; i < 5; i++) {
+    await Correlator.runTick(service, { lookbackMs: 60_000 });
+  }
+
+  const warnings = stderrLines.filter((line) => line.includes("correlator.low_match_rate"));
+  expect(warnings).toHaveLength(1);
 });
