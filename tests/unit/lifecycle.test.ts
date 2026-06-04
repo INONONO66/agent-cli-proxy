@@ -81,6 +81,19 @@ function allLogs(db: Database): Usage.RequestLog[] {
   return db.query("SELECT * FROM request_logs ORDER BY id ASC").all() as Usage.RequestLog[];
 }
 
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+async function waitUntil(predicate: () => boolean, timeoutMs = 500): Promise<void> {
+  const startedAt = Date.now();
+  while (Date.now() - startedAt < timeoutMs) {
+    if (predicate()) return;
+    await sleep(5);
+  }
+  throw new Error("timed out waiting for condition");
+}
+
 test("pre-log row exists immediately after request entry", async () => {
   const capturedRows: Usage.RequestLog[] = [];
   const { db, handle } = createHarness(async () => {
@@ -171,6 +184,50 @@ test("upstream 502 finalizes the pre-log row as error", async () => {
     incomplete: 1,
   });
   expect(latest(db).error_message).toContain("upstream HTTP 502");
+});
+
+test("streaming response without a body waits for lifecycle finalization", async () => {
+  const { db, usageService, handle } = createHarness(async () => new Response(null, {
+    status: 204,
+    headers: { "content-type": "text/event-stream" },
+  }));
+  const finalizeUsage = usageService.finalizeUsage;
+  let finalizeStarted = false;
+  let finalizeFinished = false;
+  let releaseFinalize!: () => void;
+  const finalizeGate = new Promise<void>((resolve) => {
+    releaseFinalize = resolve;
+  });
+  usageService.finalizeUsage = async (id, log) => {
+    finalizeStarted = true;
+    await finalizeGate;
+    const finalized = await finalizeUsage(id, log);
+    finalizeFinished = true;
+    return finalized;
+  };
+
+  const req = request("/v1/chat/completions", { model: "gpt-4o", stream: true, messages: [{ role: "user", content: "hi" }] });
+  const responsePromise = handle(req, await inspect(req));
+
+  await waitUntil(() => finalizeStarted);
+  let responseSettled = false;
+  void responsePromise.then(() => {
+    responseSettled = true;
+  });
+  await sleep(0);
+
+  expect(responseSettled).toBe(false);
+
+  releaseFinalize();
+  const res = await responsePromise;
+
+  expect(res.status).toBe(204);
+  expect(finalizeFinished).toBe(true);
+  expect(latest(db)).toMatchObject({
+    lifecycle_status: "completed",
+    status: 204,
+    incomplete: 0,
+  });
 });
 
 test("non-LLM proxy requests are forwarded without request log rows", async () => {
