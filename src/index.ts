@@ -51,16 +51,31 @@ async function main(): Promise<void> {
   await usageService.startQuotaRefresh({ signal: shutdownController.signal });
   Supervisor.startQuotaRetentionLoop(db, { signal: shutdownController.signal });
 
-  const server = Bun.serve({
-    port: Config.port,
-    hostname: Config.host,
-    idleTimeout: 0,
-    fetch: handleRequest,
-    development:
-      process.env.NODE_ENV !== "production"
-        ? { hmr: true, console: true }
-        : undefined,
-  });
+  let server: ReturnType<typeof Bun.serve>;
+  try {
+    server = Bun.serve({
+      port: Config.port,
+      hostname: Config.host,
+      idleTimeout: 0,
+      fetch: handleRequest,
+      development:
+        process.env.NODE_ENV !== "production"
+          ? { hmr: true, console: true }
+          : undefined,
+    });
+  } catch (err) {
+    if (isPortInUseError(err, Config.port)) {
+      logger.error("port already in use", {
+        event: "startup.port_in_use",
+        err,
+        host: Config.host,
+        port: Config.port,
+        hint: "another agent-cli-proxy may be running, or set PROXY_PORT to a different port",
+      });
+      process.exit(1);
+    }
+    throw err;
+  }
 
   if (process.env.NODE_ENV !== "test" && process.env.DISABLE_SHUTDOWN_HANDLERS !== "1") {
     const shutdownOptions = { server, db, supervisor: Supervisor };
@@ -79,3 +94,11 @@ main().catch((err) => {
   }
   process.exit(1);
 });
+
+function isPortInUseError(err: unknown, port: number): boolean {
+  if (!(err instanceof Error)) return false;
+  const code = (err as { code?: unknown }).code;
+  if (code === "EADDRINUSE") return true;
+  const message = err.message.toLowerCase();
+  return message.includes("eaddrinuse") || message.includes(`port ${port} in use`);
+}
