@@ -668,11 +668,11 @@ export namespace QuotaRepo {
     return result.lastInsertRowid as number;
   }
 
-  export function deleteOlderThan30Days(db: Database): number {
+  export function deleteOlderThanDays(db: Database, days: number): number {
     const result = db.prepare(`
       DELETE FROM quota_snapshots
-      WHERE timestamp < datetime('now', '-30 days')
-    `).run();
+      WHERE timestamp < datetime('now', ?)
+    `).run(`-${days} days`);
     return result.changes;
   }
 

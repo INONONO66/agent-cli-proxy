@@ -144,6 +144,7 @@ Provider API keys are intentionally **not** stored by this proxy. The proxy rout
 | `STALE_PENDING_MAX_AGE_MS` | `600000` | Age at which pending request rows are recovered on boot (10m) |
 | `QUOTA_REFRESH_INTERVAL_MS` | `300000` | How often to refresh CLIProxyAPI quota snapshots (5m) |
 | `QUOTA_REFRESH_TIMEOUT_MS` | `15000` | Timeout for provider quota refresh calls (15s) |
+| `QUOTA_SNAPSHOT_RETENTION_DAYS` | `7` | Days of quota snapshots to retain |
 | `CLIENT_NAME_MAPPING` | | API key to display name mapping (e.g. `key1=alice,key2=bob`) |
 | `PROVIDERS_CONFIG_PATH` | | Optional JSON file for custom providers |
 | `PROVIDERS_JSON` | | Inline custom provider JSON; takes precedence over `PROVIDERS_CONFIG_PATH` |

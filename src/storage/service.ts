@@ -15,6 +15,7 @@ import { Supervisor } from "../runtime/supervisor";
 
 const logger = Logger.fromConfig().child({ component: "usage-service" });
 const costBackfillLogger = Logger.fromConfig().child({ component: "cost" });
+const QUOTA_RETENTION_INTERVAL_MS = 24 * 60 * 60 * 1000;
 
 
 export namespace UsageService {
@@ -25,6 +26,8 @@ export namespace UsageService {
 
   export function create(db: Database, options: CreateOptions = {}) {
     const serviceLogger = options.logger ?? logger;
+    let quotaRefreshInFlight: Promise<Usage.QuotaRefreshResult> | null = null;
+    let lastQuotaRetentionMs = 0;
 
     function preLog(log: Omit<Usage.RequestLog, "id">): number {
       return Storage.runWriteWithRetry(db, () => RequestRepo.insert(db, log));
@@ -550,9 +553,17 @@ export namespace UsageService {
     }
 
     async function refreshQuotas(): Promise<Usage.QuotaRefreshResult> {
+      if (quotaRefreshInFlight) return quotaRefreshInFlight;
+      quotaRefreshInFlight = refreshQuotasOnce().finally(() => {
+        quotaRefreshInFlight = null;
+      });
+      return quotaRefreshInFlight;
+    }
+
+    async function refreshQuotasOnce(): Promise<Usage.QuotaRefreshResult> {
       const result = await QuotaProbe.refresh();
       const accounts = result.accounts.map(withLocalUsage);
-      const txn = db.transaction(() => {
+      const txn = db.transaction((): number => {
         let inserted = 0;
         for (const account of accounts) {
           for (const snapshot of account.windows) {
@@ -570,8 +581,24 @@ export namespace UsageService {
 
         return inserted;
       });
-      const inserted = Storage.runWriteWithRetry(db, txn);
+      const inserted = Storage.runWriteWithRetry(db, () => txn() as number);
+      runQuotaRetentionIfDue();
       return { ...result, inserted, accounts };
+    }
+
+    function runQuotaRetentionIfDue(): number {
+      const now = Date.now();
+      if (now - lastQuotaRetentionMs < QUOTA_RETENTION_INTERVAL_MS) return 0;
+      lastQuotaRetentionMs = now;
+      try {
+        return Storage.runWriteWithRetry(db, () => QuotaRepo.deleteOlderThanDays(db, Config.quotaSnapshotRetentionDays));
+      } catch (err) {
+        serviceLogger.warn("quota retention cleanup failed", {
+          event: "quota.retention_cleanup_failed",
+          err,
+        });
+        return 0;
+      }
     }
 
     async function startQuotaRefresh(options: { intervalMs?: number; signal?: AbortSignal } = {}): Promise<Supervisor.Handle | null> {
