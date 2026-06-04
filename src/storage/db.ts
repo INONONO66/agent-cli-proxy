@@ -1,5 +1,5 @@
 import { Database } from "bun:sqlite";
-import { existsSync, mkdirSync, readFileSync, readdirSync, statSync } from "fs";
+import { existsSync, mkdirSync, readFileSync, readdirSync, statSync, unlinkSync } from "fs";
 import { dirname, join, resolve } from "path";
 import { DEFAULT_STALE_PENDING_MAX_AGE_MS } from "../config/validate";
 import { Logger } from "../util/logger";
@@ -226,9 +226,20 @@ export namespace Storage {
     if (existsSync(resolvedOutputPath)) throw new Error(`backup output already exists: ${resolvedOutputPath}`);
 
     ensureDbParentDir(resolvedOutputPath);
-    const db = initDb(resolvedDbPath);
+    const db = new Database(resolvedDbPath, { readonly: true });
     try {
       db.query<never, [string]>("VACUUM INTO ?").run(resolvedOutputPath);
+    } catch (err) {
+      try {
+        if (existsSync(resolvedOutputPath)) unlinkSync(resolvedOutputPath);
+      } catch (cleanupErr) {
+        logger.warn("partial database backup cleanup failed", {
+          event: "db.backup_cleanup_failed",
+          path: resolvedOutputPath,
+          err: cleanupErr,
+        });
+      }
+      throw err;
     } finally {
       db.close();
     }

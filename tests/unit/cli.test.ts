@@ -379,6 +379,34 @@ test("db backup writes a restorable SQLite snapshot", async () => {
   expect(row?.request_count).toBe(1);
 });
 
+test("db backup does not migrate the source database", async () => {
+  const dir = tempDir("agent-cli-proxy-db-backup-readonly-");
+  const envPath = join(dir, ".env");
+  const dbPath = join(dir, "legacy.db");
+  const outputPath = join(dir, "legacy.backup.db");
+  await Bun.write(envPath, [
+    "CLI_PROXY_API_URL=http://localhost:8317",
+    "PROXY_LOCAL_OK=1",
+    `DB_PATH=${dbPath}`,
+  ].join("\n"));
+  const db = new Database(dbPath);
+  db.prepare("CREATE TABLE legacy_value (value TEXT NOT NULL)").run();
+  db.prepare("INSERT INTO legacy_value (value) VALUES (?)").run("kept");
+  db.close();
+
+  const result = await runCliProcess(["db", "backup", "--env", envPath, "--output", outputPath], testEnv());
+
+  expect(result.exitCode).toBe(0);
+  const source = new Database(dbPath, { readonly: true });
+  const sourceMigrationTable = source.query("SELECT name FROM sqlite_master WHERE type='table' AND name='schema_migrations'").get();
+  source.close();
+  expect(sourceMigrationTable).toBeNull();
+  const backup = new Database(outputPath, { readonly: true });
+  const row = backup.query<{ value: string }, []>("SELECT value FROM legacy_value").get();
+  backup.close();
+  expect(row?.value).toBe("kept");
+});
+
 test("db backup requires an output path", async () => {
   const dir = tempDir("agent-cli-proxy-db-backup-missing-output-");
   const envPath = join(dir, ".env");
