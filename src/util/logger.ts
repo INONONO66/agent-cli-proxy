@@ -1,3 +1,5 @@
+import { AsyncLocalStorage } from "node:async_hooks";
+
 export namespace Logger {
   export type Level = "debug" | "info" | "warn" | "error";
   export type Format = "json" | "pretty";
@@ -40,6 +42,7 @@ export namespace Logger {
 
   const MAX_PENDING = 1000;
   const pendingLines: string[] = [];
+  const scopedLevel = new AsyncLocalStorage<Level>();
   let stdoutBackpressured = false;
   let droppedCount = 0;
 
@@ -111,6 +114,10 @@ export namespace Logger {
     });
   }
 
+  export function withLevel<T>(level: Level, fn: () => T): T {
+    return scopedLevel.run(level, fn);
+  }
+
   export function redactValue(value: unknown): unknown {
     return redact(value);
   }
@@ -145,7 +152,8 @@ export namespace Logger {
     }
 
     private write(level: Level, msg: string, fields: Fields = {}): void {
-      if (LEVELS[level] < LEVELS[this.options.level]) return;
+      const activeLevel = scopedLevel.getStore() ?? this.options.level;
+      if (LEVELS[level] < LEVELS[activeLevel]) return;
 
       const record: LogRecord = {
         ts: new Date().toISOString(),
@@ -159,7 +167,7 @@ export namespace Logger {
         ? formatPretty(record)
         : JSON.stringify(record);
 
-      if (level === "error") {
+      if (level === "warn" || level === "error") {
         this.options.sink.stderr(line);
         return;
       }

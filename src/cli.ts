@@ -110,6 +110,15 @@ async function main(): Promise<void> {
 export async function runCli(argv: string[]): Promise<number> {
   try {
     const args = parseArgs(argv);
+    if (hasFlag(args, "--json")) return await Logger.withLevel("error", () => runParsedCli(args));
+    return await runParsedCli(args);
+  } catch (err) {
+    return handleCliError(err);
+  }
+}
+
+async function runParsedCli(args: ParsedArgs): Promise<number> {
+  try {
     const [command = hasFlag(args, "--help") ? "help" : "help", subcommand = ""] = args.positional;
     const ctx: CommandContext = { args };
 
@@ -147,14 +156,18 @@ export async function runCli(argv: string[]): Promise<number> {
     printHelp();
     return 1;
   } catch (err) {
-    if (err instanceof ConfigError || (err instanceof Error && (err as { code?: string }).code === "CONFIG_INVALID")) {
-      logger.error("configuration validation failed", { event: "config.error", err, issues: (err as { issues?: unknown }).issues });
-      writeErr(err instanceof Error ? err.message : String(err));
-      return 1;
-    }
+    return handleCliError(err);
+  }
+}
+
+function handleCliError(err: unknown): number {
+  if (err instanceof ConfigError || (err instanceof Error && (err as { code?: string }).code === "CONFIG_INVALID")) {
+    logger.error("configuration validation failed", { event: "config.error", err, issues: (err as { issues?: unknown }).issues });
     writeErr(err instanceof Error ? err.message : String(err));
     return 1;
   }
+  writeErr(err instanceof Error ? err.message : String(err));
+  return 1;
 }
 
 async function initCommand(ctx: CommandContext): Promise<void> {

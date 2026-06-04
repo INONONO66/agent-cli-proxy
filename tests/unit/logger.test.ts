@@ -55,7 +55,8 @@ test("child logger adds fields and preserves parent fields", () => {
 
   logger.warn("upstream warning", { event: "rewrite_failed" });
 
-  const parsed = JSON.parse(capture.stdout[0]);
+  expect(capture.stdout).toHaveLength(0);
+  const parsed = JSON.parse(capture.stderr[0]);
   expect(parsed).toMatchObject({
     level: "warn",
     msg: "upstream warning",
@@ -73,8 +74,25 @@ test("filters messages below configured level", () => {
   logger.info("hidden info");
   logger.warn("visible warn");
 
-  expect(capture.stdout).toHaveLength(1);
-  expect(JSON.parse(capture.stdout[0]).msg).toBe("visible warn");
+  expect(capture.stdout).toHaveLength(0);
+  expect(capture.stderr).toHaveLength(1);
+  expect(JSON.parse(capture.stderr[0]).msg).toBe("visible warn");
+});
+
+test("scoped level filters logs only inside the async context", async () => {
+  const capture = captureSink();
+  const logger = Logger.create({ level: "info", sink: capture.sink });
+
+  await Logger.withLevel("error", async () => {
+    logger.info("hidden scoped info");
+    await Promise.resolve();
+    logger.warn("hidden scoped warn");
+    logger.error("visible scoped error");
+  });
+  logger.info("visible outer info");
+
+  expect(capture.stdout.map((line) => JSON.parse(line).msg)).toEqual(["visible outer info"]);
+  expect(capture.stderr.map((line) => JSON.parse(line).msg)).toEqual(["visible scoped error"]);
 });
 
 test("routes error logs to stderr", () => {

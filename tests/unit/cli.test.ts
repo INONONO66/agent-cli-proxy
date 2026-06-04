@@ -130,6 +130,17 @@ test("doctor returns 1 on broken config", async () => {
   expect(report.checks.config.issues.join(" ")).toContain("CLI_PROXY_API_URL");
 });
 
+test("doctor --json keeps stdout parseable when info logging is enabled", async () => {
+  const dir = tempDir("agent-cli-proxy-doctor-json-");
+  const envPath = join(dir, ".env");
+  await Bun.write(envPath, "PROXY_PORT=not-a-port\n");
+
+  const result = await runCli(["doctor", "--env", envPath, "--json"], testEnv({ LOG_LEVEL: "info" }));
+
+  expect(result.exitCode).toBe(1);
+  expect(JSON.parse(result.stdout).status).toBe("FAIL");
+});
+
 test("providers show masks auth values", async () => {
   const providers = JSON.stringify({
     providers: [{
@@ -150,6 +161,16 @@ test("providers show masks auth values", async () => {
   expect(result.stdout).not.toContain("super-secret-token");
   expect(result.stdout).toContain("[redacted]");
   expect(result.stdout).toContain("IGNORED_SECRET_ENV");
+});
+
+test("providers show --json keeps stdout parseable when config warnings are enabled", async () => {
+  const result = await runCli(["providers", "show", "--json"], testEnv({
+    LOG_LEVEL: "info",
+    PROXY_LOCAL_OK: "1",
+  }));
+
+  expect(result.exitCode).toBe(0);
+  expect(Array.isArray(JSON.parse(result.stdout))).toBe(true);
 });
 
 test("paths command reports external XDG state defaults", async () => {

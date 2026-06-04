@@ -121,7 +121,7 @@ async function runShutdown(options: {
     exitCode: exitCodes[0] ?? null,
     server,
     supervisor,
-    logs: parseLogs(capture.stdout),
+    logs: parseLogs([...capture.stdout, ...capture.stderr]),
     errors: parseLogs(capture.stderr),
   };
 }
