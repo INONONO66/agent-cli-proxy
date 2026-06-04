@@ -214,7 +214,8 @@ export namespace UsageService {
       return db.query(`
         SELECT id, provider, model, lifecycle_status, prompt_tokens, completion_tokens,
                cache_creation_tokens, cache_read_tokens, reasoning_tokens,
-               total_tokens, cost_usd, cost_status, started_at
+               total_tokens, cost_usd, cost_status, started_at,
+               cliproxy_account, cliproxy_auth_index
         FROM request_logs
         WHERE lifecycle_status IN ('completed', 'error')
           AND cost_status IN ('pending', 'unresolved')
@@ -261,6 +262,23 @@ export namespace UsageService {
                   total_tokens: 0,
                   cost_usd: cost.cost_usd - row.cost_usd,
                 });
+                if (row.cliproxy_account) {
+                  UsageRepo.upsertDailyAccount(db, {
+                    day: row.started_at.slice(0, 10),
+                    provider: row.provider,
+                    model: row.model,
+                    cliproxy_account: row.cliproxy_account,
+                    cliproxy_auth_index: row.cliproxy_auth_index ?? undefined,
+                    request_count: 0,
+                    prompt_tokens: 0,
+                    completion_tokens: 0,
+                    cache_creation_tokens: 0,
+                    cache_read_tokens: 0,
+                    reasoning_tokens: 0,
+                    total_tokens: 0,
+                    cost_usd: cost.cost_usd - row.cost_usd,
+                  });
+                }
               }
               if (cost.cost_status === "ok") chunkUpdated += result.changes;
             }
@@ -654,6 +672,8 @@ export namespace UsageService {
     cost_usd: number;
     cost_status: Usage.CostStatus;
     started_at: string;
+    cliproxy_account?: string | null;
+    cliproxy_auth_index?: string | null;
   }
 
   export function startCostBackfillLoop(
