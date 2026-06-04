@@ -251,12 +251,14 @@ Prefer `--admin-token-env` and `--cliproxy-mgmt-key-env` for non-interactive ins
 The proxy no longer serves a bundled dashboard; build a dashboard as a separate
 client that talks to these local admin APIs.
 
+Usage day parameters and defaults are UTC dates.
+
 | Method | Path | Description |
 |--------|------|-------------|
 | `GET` | `/health` | Liveness probe (always 200 if process alive) |
 | `GET` | `/ready` | Readiness probe (DB, pricing, upstream); 503 when failing |
 | `GET` | `/metrics` | Prometheus-format metrics, including usage counters and low-cardinality latency histograms |
-| `GET` | `/admin/usage/today` | Today's usage summary |
+| `GET` | `/admin/usage/today` | Current UTC day usage summary |
 | `GET` | `/admin/usage/range?from=&to=` | Usage by date range |
 | `GET` | `/admin/usage/models?day=` | Model breakdown for a day |
 | `GET` | `/admin/usage/providers?day=` | Provider breakdown for a day |

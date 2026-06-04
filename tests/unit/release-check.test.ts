@@ -51,3 +51,10 @@ test("pack dry-run includes only required install artifacts after build", async 
     expect(pack.output).toContain(expected);
   }
 });
+
+test("README documents UTC semantics for usage-day admin endpoints", async () => {
+  const readme = await Bun.file(`${rootDir}/README.md`).text();
+
+  expect(readme).toContain("| `GET` | `/admin/usage/today` | Current UTC day usage summary |");
+  expect(readme).toContain("Usage day parameters and defaults are UTC dates.");
+});

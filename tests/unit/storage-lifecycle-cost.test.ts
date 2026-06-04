@@ -226,3 +226,23 @@ test("UsageService finalization computes daily usage from non-regressed token co
   });
   expect(daily.cost_usd).toBeCloseTo(0.0002145);
 });
+
+test("UsageService getToday uses the current UTC day", () => {
+  const realDate = Date;
+  const fixedNow = new realDate("2026-05-04T15:05:00.000Z");
+  class FixedDate extends realDate {
+    constructor(value?: string | number | Date) {
+      super(value ?? fixedNow.getTime());
+    }
+    static override now(): number {
+      return fixedNow.getTime();
+    }
+  }
+  globalThis.Date = FixedDate as unknown as DateConstructor;
+  try {
+    const service = UsageService.create(Storage.initDb(":memory:"));
+    expect(service.getToday().date).toBe("2026-05-04");
+  } finally {
+    globalThis.Date = realDate;
+  }
+});
