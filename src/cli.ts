@@ -160,6 +160,10 @@ async function runParsedCli(args: ParsedArgs): Promise<number> {
           await initDbCommand(ctx);
           return 0;
         }
+        if (subcommand === "backup") {
+          await backupDbCommand(ctx);
+          return 0;
+        }
         break;
       case "service":
         return await serviceCommand(ctx, subcommand);
@@ -353,6 +357,17 @@ async function initDbCommand(ctx: CommandContext): Promise<void> {
   const config = validateCliEnv(env);
   await initDbAt(config.dbPath);
   writeOut(`Initialized DB at ${config.dbPath}`);
+}
+
+async function backupDbCommand(ctx: CommandContext): Promise<void> {
+  const outputPath = getFlagValue(ctx.args, "--output");
+  if (!outputPath) throw new Error("--output requires a value");
+
+  const envPath = getFlagValue(ctx.args, "--env") ?? defaultEnvPath;
+  const env = parseEnvFile(envPath);
+  const config = validateCliEnv(env);
+  const result = Storage.backupDb(config.dbPath, outputPath);
+  writeOut(`Backed up DB from ${result.sourcePath} to ${result.outputPath} (${result.sizeBytes} bytes)`);
 }
 
 async function backfillCostsCommand(ctx: CommandContext): Promise<void> {
@@ -882,6 +897,7 @@ Usage:
   agent-cli-proxy init --non-interactive [--env PATH] [--data-dir PATH] [--runtime-dir PATH] [--admin-token VALUE|--admin-token-env NAME] [--cliproxy-mgmt-key-env NAME] [--force|--merge]
   agent-cli-proxy doctor [--env PATH] [--json]
   agent-cli-proxy db init [--env PATH]
+  agent-cli-proxy db backup [--env PATH] --output PATH
   agent-cli-proxy service install [--env PATH] [--runtime-dir PATH] [--service-path PATH] [--skip-runtime]
   agent-cli-proxy service start|stop|restart|status
   agent-cli-proxy service logs [--follow]
