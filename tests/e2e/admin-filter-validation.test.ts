@@ -66,6 +66,15 @@ describe("admin filter validation", () => {
     expect(res.status).toBe(200);
     expect(await res.json()).toEqual([]);
   });
+
+  it("rejects admin log offsets above the scan cap", async () => {
+    const res = await adminGet("/admin/logs?offset=100001");
+
+    expect(res.status).toBe(400);
+    expect(await res.json()).toMatchObject({
+      error: "Invalid limit or offset",
+    });
+  });
 });
 
 function adminGet(path: string): Promise<Response> {

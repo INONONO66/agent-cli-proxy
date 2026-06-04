@@ -288,7 +288,7 @@ Usage day parameters and defaults are UTC dates.
 | `GET` | `/admin/breakers/:providerId` | Single breaker state by provider |
 | `POST` | `/admin/breakers/:providerId/reset` | Reset a breaker to closed state |
 
-
+`/admin/logs` accepts `limit` from 1 to 200 and `offset` from 0 to 100000.
 
 ## Health and Readiness
 

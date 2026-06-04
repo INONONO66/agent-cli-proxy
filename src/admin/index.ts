@@ -16,6 +16,8 @@ import { dirname } from "path";
 import { mkdirSync } from "fs";
 
 const logger = Logger.fromConfig().child({ component: "admin" });
+const ADMIN_LOGS_MAX_OFFSET = 100_000;
+
 mkdirSync(dirname(Config.dbPath), { recursive: true });
 const requestLogDb = Storage.initDb(Config.dbPath);
 
@@ -273,7 +275,7 @@ export namespace Admin {
           if (tool === null || clientId === null || statusMin === null || statusMax === null || lifecycleStatus === null) {
             return json({ error: "Invalid filter parameter" }, 400);
           }
-          if (!Number.isFinite(limit) || !Number.isFinite(offset) || limit < 1 || offset < 0)
+          if (!Number.isFinite(limit) || !Number.isFinite(offset) || limit < 1 || offset < 0 || offset > ADMIN_LOGS_MAX_OFFSET)
             return json({ error: "Invalid limit or offset" }, 400);
           return json(RequestRepo.getRecent(requestLogDb, limit, offset, {
             tool: tool ?? undefined,
