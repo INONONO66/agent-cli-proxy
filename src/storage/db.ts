@@ -6,8 +6,71 @@ import { Logger } from "../util/logger";
 const logger = Logger.fromConfig().child({ component: "storage-db" });
 const SQLITE_BUSY_TIMEOUT_MS = 5_000;
 const SQLITE_WRITE_RETRY_DELAYS_MS: readonly number[] = [50, 200, 800];
+const REQUIRED_COLUMNS = {
+  request_logs: [
+    "id", "request_id", "provider", "model", "actual_model", "actual_provider", "proxy_api_key_id",
+    "tool", "client_id", "agent", "source", "msg_id", "path", "streamed", "status",
+    "prompt_tokens", "completion_tokens", "cache_creation_tokens", "cache_read_tokens",
+    "reasoning_tokens", "total_tokens", "cost_usd", "cost_status", "lifecycle_status",
+    "incomplete", "error_code", "error_message", "latency_ms", "started_at", "finished_at",
+    "finalized_at", "meta_json", "user_agent", "source_ip", "cliproxy_account",
+    "cliproxy_auth_index", "cliproxy_source", "correlated_at",
+  ],
+  daily_usage: [
+    "day", "provider", "model", "request_count", "prompt_tokens", "completion_tokens",
+    "cache_creation_tokens", "cache_read_tokens", "total_tokens", "cost_usd",
+  ],
+  daily_account_usage: [
+    "day", "provider", "model", "cliproxy_account", "cliproxy_auth_index", "request_count",
+    "prompt_tokens", "completion_tokens", "cache_creation_tokens", "cache_read_tokens",
+    "reasoning_tokens", "total_tokens", "cost_usd",
+  ],
+  quota_snapshots: [
+    "id", "timestamp", "provider", "account", "quota_type", "model", "used_pct",
+    "remaining", "remaining_raw", "resets_at", "raw_json",
+  ],
+  cost_audit: ["id", "request_log_id", "model", "provider", "source", "base_cost_usd", "calc_at"],
+  api_keys: [
+    "id", "key_hash", "key_prefix", "name", "created_at", "revoked_at", "last_used_at",
+    "allowed_accounts", "allowed_providers",
+  ],
+} as const;
+const REQUIRED_INDEXES = [
+  "idx_request_logs_started_at",
+  "idx_request_logs_tool",
+  "idx_request_logs_client_id",
+  "idx_request_logs_cliproxy_account",
+  "idx_request_logs_cliproxy_auth_index",
+  "idx_request_logs_request_id",
+  "idx_request_logs_msg_id",
+  "idx_request_logs_lifecycle_status",
+  "idx_request_logs_cost_status",
+  "idx_daily_usage_day",
+  "idx_daily_account_usage_day",
+  "idx_daily_account_usage_account",
+  "idx_quota_snapshots_provider",
+  "idx_cost_audit_request_log_id",
+] as const;
 
 export const STALE_PENDING_MAX_AGE_MS = parseStalePendingMaxAgeMs(process.env.STALE_PENDING_MAX_AGE_MS);
+
+type TableInfoRow = {
+  readonly name: string;
+};
+
+type SqliteMasterRow = {
+  readonly name: string;
+};
+
+class SchemaAssertionError extends Error {
+  readonly missing: readonly string[];
+
+  constructor(missing: readonly string[]) {
+    super(`schema assertion failed: missing ${missing.join(", ")}`);
+    this.name = "SchemaAssertionError";
+    this.missing = missing;
+  }
+}
 
 export namespace Storage {
   function splitStatements(sql: string): string[] {
@@ -16,21 +79,6 @@ export namespace Storage {
       .split(";")
       .map((s) => s.trim())
       .filter((s) => s.length > 0);
-  }
-
-  function execSafe(db: Database, statement: string): void {
-    try {
-      db.exec(statement);
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err);
-      const ignorable =
-        msg.includes("duplicate column name") ||
-        msg.includes("already exists") ||
-        msg.includes("no such column") ||
-        (statement.toUpperCase().includes("ADD COLUMN") &&
-          msg.includes("syntax error"));
-      if (!ignorable) throw err;
-    }
   }
 
   export function runWriteWithRetry<T>(_db: Database, fn: () => T): T {
@@ -64,29 +112,35 @@ export namespace Storage {
       .filter((f) => f.endsWith(".sql"))
       .sort();
 
-    for (const file of files) {
-      const applied = db
-        .prepare("SELECT name FROM schema_migrations WHERE name = ?")
-        .get(file);
-      if (applied) continue;
+    try {
+      for (const file of files) {
+        const applied = db
+          .prepare("SELECT name FROM schema_migrations WHERE name = ?")
+          .get(file);
+        if (applied) continue;
 
-      const sql = readFileSync(join(migrationsDir, file), "utf-8");
+        const sql = readFileSync(join(migrationsDir, file), "utf-8");
 
-      const txn = db.transaction(() => {
-        for (const stmt of splitStatements(sql)) {
-          execSafe(db, stmt);
+        const txn = db.transaction(() => {
+          for (const stmt of splitStatements(sql)) {
+            db.exec(stmt);
+          }
+          db.prepare("INSERT INTO schema_migrations (name) VALUES (?)").run(file);
+        });
+        try {
+          txn();
+        } catch (err) {
+          logger.error("migration failed", { err, file });
+          throw err;
         }
-        db.prepare("INSERT INTO schema_migrations (name) VALUES (?)").run(file);
-      });
-      try {
-        txn();
-      } catch (err) {
-        logger.error("migration failed", { err, file });
-        throw err;
       }
-    }
 
-    return db;
+      assertCoreSchema(db);
+      return db;
+    } catch (err) {
+      db.close();
+      throw err;
+    }
   }
 
   export function recoverStalePending(
@@ -156,6 +210,30 @@ export namespace Storage {
       }
     } catch {}
   }
+}
+
+function assertCoreSchema(db: Database): void {
+  const missing: string[] = [];
+
+  for (const [table, requiredColumns] of Object.entries(REQUIRED_COLUMNS)) {
+    const columns = new Set(db
+      .query<TableInfoRow, []>(`PRAGMA table_info(${table})`)
+      .all()
+      .map((row) => row.name));
+    for (const column of requiredColumns) {
+      if (!columns.has(column)) missing.push(`${table}.${column}`);
+    }
+  }
+
+  const indexes = new Set(db
+    .query<SqliteMasterRow, []>("SELECT name FROM sqlite_master WHERE type = 'index'")
+    .all()
+    .map((row) => row.name));
+  for (const index of REQUIRED_INDEXES) {
+    if (!indexes.has(index)) missing.push(`index.${index}`);
+  }
+
+  if (missing.length > 0) throw new SchemaAssertionError(missing);
 }
 
 function ensureDbParentDir(dbPath: string): void {
