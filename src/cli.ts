@@ -50,12 +50,39 @@ const packageRoot = resolve(dirname(Bun.fileURLToPath(import.meta.url)), "..");
 const packagedDistDir = dirname(Bun.fileURLToPath(import.meta.url));
 const logger = Logger.fromConfig().child({ component: "cli" });
 
+function isEpipeError(error: unknown): boolean {
+  return error instanceof Error && Reflect.get(error, "code") === "EPIPE";
+}
+
 function writeOut(message = ""): void {
-  process.stdout.write(`${message}\n`);
+  try {
+    process.stdout.write(`${message}\n`);
+  } catch (error) {
+    if (!isEpipeError(error)) throw error;
+  }
 }
 
 function writeErr(message = ""): void {
-  process.stderr.write(`${message}\n`);
+  try {
+    process.stderr.write(`${message}\n`);
+  } catch (error) {
+    if (!isEpipeError(error)) throw error;
+  }
+}
+
+type ExitProcess = (code: number) => never;
+
+export function installBrokenPipeHandlers(exitProcess: ExitProcess = process.exit): () => void {
+  const exitOnBrokenPipe = (error: unknown): void => {
+    if (isEpipeError(error)) exitProcess(0);
+    exitProcess(1);
+  };
+  process.stdout.on("error", exitOnBrokenPipe);
+  process.stderr.on("error", exitOnBrokenPipe);
+  return () => {
+    process.stdout.off("error", exitOnBrokenPipe);
+    process.stderr.off("error", exitOnBrokenPipe);
+  };
 }
 
 export function parseArgs(argv: string[]): ParsedArgs {
@@ -161,6 +188,7 @@ async function runParsedCli(args: ParsedArgs): Promise<number> {
 }
 
 function handleCliError(err: unknown): number {
+  if (isEpipeError(err)) return 0;
   if (err instanceof ConfigError || (err instanceof Error && (err as { code?: string }).code === "CONFIG_INVALID")) {
     logger.error("configuration validation failed", { event: "config.error", err, issues: (err as { issues?: unknown }).issues });
     writeErr(err instanceof Error ? err.message : String(err));
@@ -951,7 +979,10 @@ function inspectProviderRaw(source: string, raw: string): { source: string; inva
 }
 
 if (import.meta.main) {
+  const removeBrokenPipeHandlers = installBrokenPipeHandlers();
   main().catch((err) => {
+    removeBrokenPipeHandlers();
+    if (isEpipeError(err)) process.exit(0);
     writeErr(err instanceof Error ? err.message : String(err));
     process.exit(1);
   });
