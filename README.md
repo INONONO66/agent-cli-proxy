@@ -228,6 +228,7 @@ Save this as a file and set `PROVIDERS_CONFIG_PATH`, or set `PROVIDERS_JSON` to 
 | `agent-cli-proxy init` | Interactive config + DB setup |
 | `agent-cli-proxy init --non-interactive ...` | Non-interactive install (CI-friendly) |
 | `agent-cli-proxy db init` | Initialize or migrate the SQLite database |
+| `agent-cli-proxy db backup --output PATH` | Create a consistent SQLite backup snapshot |
 | `agent-cli-proxy paths` | Print default install paths |
 | `agent-cli-proxy doctor` | Validate config, DB, providers, pricing, upstream |
 | `agent-cli-proxy doctor --json` | Doctor output as JSON (for issue reports) |
@@ -246,6 +247,20 @@ Save this as a file and set `PROVIDERS_CONFIG_PATH`, or set `PROVIDERS_JSON` to 
 | `agent-cli-proxy backfill-costs --all` | Recompute all request logs |
 
 Prefer `--admin-token-env` and `--cliproxy-mgmt-key-env` for non-interactive installs so secrets do not appear in shell history or process arguments.
+
+## Operations
+
+### Database Backups
+
+Use the CLI backup command to create a consistent SQLite snapshot while the daemon is running:
+
+```bash
+agent-cli-proxy db backup --output /var/backups/agent-cli-proxy/proxy-$(date -u +%Y%m%dT%H%M%SZ).db
+```
+
+The command reads `DB_PATH` from the default `.env`; pass `--env PATH` when using a non-default config file. It creates the output parent directory when needed and refuses to overwrite an existing backup. Run it from cron or a systemd timer and apply retention outside the command, for example by deleting backups older than your recovery window.
+
+To restore, stop the daemon, copy the selected backup over `DB_PATH`, run `agent-cli-proxy db init` to apply any pending migrations for the installed version, then restart the daemon. To migrate to a new host, install the same or newer `agent-cli-proxy` version, copy the `.env` and backup file, set `DB_PATH` to the restored location, run `agent-cli-proxy db init`, and start the service.
 
 ## Admin Endpoints
 

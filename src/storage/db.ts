@@ -1,6 +1,6 @@
 import { Database } from "bun:sqlite";
-import { existsSync, mkdirSync, readFileSync, readdirSync } from "fs";
-import { dirname, join } from "path";
+import { existsSync, mkdirSync, readFileSync, readdirSync, statSync } from "fs";
+import { dirname, join, resolve } from "path";
 import { DEFAULT_STALE_PENDING_MAX_AGE_MS } from "../config/validate";
 import { Logger } from "../util/logger";
 
@@ -60,6 +60,12 @@ type TableInfoRow = {
 type SqliteMasterRow = {
   readonly name: string;
 };
+
+export interface BackupResult {
+  readonly sourcePath: string;
+  readonly outputPath: string;
+  readonly sizeBytes: number;
+}
 
 class SchemaAssertionError extends Error {
   readonly missing: readonly string[];
@@ -208,6 +214,33 @@ export namespace Storage {
         logger.info("old backup removed", { event: "db.backup_pruned", file: old });
       }
     } catch {}
+  }
+
+  export function backupDb(dbPath: string, outputPath: string): BackupResult {
+    if (dbPath === ":memory:") throw new Error("cannot back up in-memory database");
+    if (!existsSync(dbPath)) throw new Error(`database does not exist: ${dbPath}`);
+
+    const resolvedDbPath = resolve(dbPath);
+    const resolvedOutputPath = resolve(outputPath);
+    if (resolvedDbPath === resolvedOutputPath) throw new Error("backup output must differ from DB_PATH");
+    if (existsSync(resolvedOutputPath)) throw new Error(`backup output already exists: ${resolvedOutputPath}`);
+
+    ensureDbParentDir(resolvedOutputPath);
+    const db = initDb(resolvedDbPath);
+    try {
+      db.query<never, [string]>("VACUUM INTO ?").run(resolvedOutputPath);
+    } finally {
+      db.close();
+    }
+
+    const sizeBytes = statSync(resolvedOutputPath).size;
+    logger.info("database backup created", {
+      event: "db.backup",
+      path: resolvedOutputPath,
+      source_path: resolvedDbPath,
+      size: sizeBytes,
+    });
+    return { sourcePath: resolvedDbPath, outputPath: resolvedOutputPath, sizeBytes };
   }
 }
 

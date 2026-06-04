@@ -3,6 +3,7 @@ import { execFileSync } from "node:child_process";
 import { chmodSync, mkdtempSync, readFileSync, existsSync, mkdirSync, readdirSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { basename, dirname, join } from "node:path";
+import { Database } from "bun:sqlite";
 import { parseArgs, getFlagValue, writeEnvAtomic, runCli as runCliInProcess, installBrokenPipeHandlers } from "../../src/cli";
 
 class TestEpipeError extends Error {
@@ -349,4 +350,46 @@ test("db init uses AGENT_CLI_PROXY_DATA_DIR from env file when DB_PATH is omitte
   expect(result.exitCode).toBe(0);
   expect(result.stdout).toContain(join(dataDir, "proxy.db"));
   expect(existsSync(join(dataDir, "proxy.db"))).toBe(true);
+});
+
+test("db backup writes a restorable SQLite snapshot", async () => {
+  const dir = tempDir("agent-cli-proxy-db-backup-");
+  const envPath = join(dir, ".env");
+  const dbPath = join(dir, "proxy.db");
+  const outputPath = join(dir, "backups", "proxy.backup.db");
+  await Bun.write(envPath, [
+    "CLI_PROXY_API_URL=http://localhost:8317",
+    "PROXY_LOCAL_OK=1",
+    `DB_PATH=${dbPath}`,
+  ].join("\n"));
+
+  const initResult = await runCliProcess(["db", "init", "--env", envPath], testEnv());
+  expect(initResult.exitCode).toBe(0);
+  const db = new Database(dbPath);
+  db.prepare("INSERT INTO daily_usage (day, provider, model, request_count) VALUES (?, ?, ?, ?)").run("2026-06-05", "test", "model", 1);
+  db.close();
+
+  const result = await runCliProcess(["db", "backup", "--env", envPath, "--output", outputPath], testEnv());
+
+  expect(result.exitCode).toBe(0);
+  expect(result.stdout).toContain(outputPath);
+  const backup = new Database(outputPath, { readonly: true });
+  const row = backup.query<{ request_count: number }, []>("SELECT request_count FROM daily_usage WHERE provider='test'").get();
+  backup.close();
+  expect(row?.request_count).toBe(1);
+});
+
+test("db backup requires an output path", async () => {
+  const dir = tempDir("agent-cli-proxy-db-backup-missing-output-");
+  const envPath = join(dir, ".env");
+  await Bun.write(envPath, [
+    "CLI_PROXY_API_URL=http://localhost:8317",
+    "PROXY_LOCAL_OK=1",
+    `DB_PATH=${join(dir, "proxy.db")}`,
+  ].join("\n"));
+
+  const result = await runCliProcess(["db", "backup", "--env", envPath], testEnv());
+
+  expect(result.exitCode).toBe(1);
+  expect(result.stderr).toContain("--output requires a value");
 });
