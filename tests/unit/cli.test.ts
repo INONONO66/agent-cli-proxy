@@ -130,6 +130,17 @@ test("doctor returns 1 on broken config", async () => {
   expect(report.checks.config.issues.join(" ")).toContain("CLI_PROXY_API_URL");
 });
 
+test("doctor reports directory env paths without raw filesystem errors", async () => {
+  const envPath = tempDir("agent-cli-proxy-env-directory-");
+
+  const result = await runCli(["doctor", "--env", envPath, "--json"], testEnv());
+
+  expect(result.exitCode).toBe(1);
+  expect(result.stdout).toBe("");
+  expect(result.stderr).toContain(`${envPath} is a directory, expected a readable .env file`);
+  expect(result.stderr).not.toContain("EISDIR");
+});
+
 test("doctor --json keeps stdout parseable when info logging is enabled", async () => {
   const dir = tempDir("agent-cli-proxy-doctor-json-");
   const envPath = join(dir, ".env");

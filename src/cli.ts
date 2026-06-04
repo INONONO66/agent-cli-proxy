@@ -1,6 +1,6 @@
 #!/usr/bin/env bun
 import { mkdir, chmod, copyFile, rm, cp, writeFile, open, rename, stat } from "node:fs/promises";
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, readFileSync, statSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { homedir, platform } from "node:os";
 import { createInterface } from "node:readline/promises";
@@ -722,6 +722,9 @@ function quoteEnv(value: string): string {
 
 function parseEnvFile(path: string): EnvMap {
   if (!existsSync(path)) return {};
+  const info = statSync(path);
+  if (info.isDirectory()) throw new Error(`${path} is a directory, expected a readable .env file`);
+  if (!info.isFile()) throw new Error(`${path} is not a regular file, expected a readable .env file`);
   const text = readFileSync(path, "utf-8");
   const env: EnvMap = {};
   for (const line of text.split("\n")) {
