@@ -43,6 +43,19 @@ function unsupported(auth: AuthFile): ProbeResult {
   };
 }
 
+function disabled(auth: AuthFile): ProbeResult {
+  const provider = auth.type ?? "unknown";
+  return {
+    provider,
+    account: auth.email ?? provider,
+    status: "disabled",
+    unavailable: false,
+    disabled: true,
+    error: "auth file marked disabled",
+    windows: [],
+  };
+}
+
 async function readAuthFiles(): Promise<AuthFile[]> {
   if (!Config.cliproxyAuthDir) return [];
   const names = await readdir(Config.cliproxyAuthDir);
@@ -69,8 +82,12 @@ export namespace QuotaProbe {
     for (const auth of auths) {
       let result: ProbeResult;
       try {
-        const probe = probes.get(auth.type ?? "");
-        result = probe ? await probe(auth) : unsupported(auth);
+        if (auth.disabled === true) {
+          result = disabled(auth);
+        } else {
+          const probe = probes.get(auth.type ?? "");
+          result = probe ? await probe(auth) : unsupported(auth);
+        }
       } catch (err) {
         result = {
           provider: auth.type ?? "unknown",
