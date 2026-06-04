@@ -261,6 +261,18 @@ test("providers show --json lists built-ins without upstream config", async () =
   expect(result.stderr).toBe("");
 });
 
+test("providers show warns when custom provider config is empty", async () => {
+  const result = await runCliProcess(["providers", "show"], testEnv({
+    LOG_LEVEL: "info",
+    PROVIDERS_JSON: JSON.stringify({ providers: [] }),
+  }));
+
+  expect(result.exitCode).toBe(0);
+  expect(result.stdout).toContain("anthropic");
+  expect(result.stderr).toContain("provider.config.empty");
+  expect(result.stderr).toContain("PROVIDERS_JSON");
+});
+
 test("providers show --json rejects invalid upstream config when provided", async () => {
   const result = await runCliProcess(["providers", "show", "--json"], testEnv({
     CLI_PROXY_API_URL: "not-a-url",

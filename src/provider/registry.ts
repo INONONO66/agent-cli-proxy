@@ -74,6 +74,7 @@ export namespace ProviderRegistry {
     if (customResult.failure) return keepLastGoodProviders(customResult.failure, cliProxyApiUrl, shouldCache);
 
     const customProviders = customResult.providers;
+    if (customSource && customProviders.length === 0) warnEmptyCustomSource(customSource);
     const providers = mergeProviders([...builtInProviders(cliProxyApiUrl), ...customProviders]);
     const lastLoadedAt = new Date().toISOString();
 
@@ -223,6 +224,14 @@ export namespace ProviderRegistry {
       providerId: providerIdForLog(entry),
       path,
       issues,
+    });
+  }
+
+  function warnEmptyCustomSource(source: CustomSource): void {
+    logger.warn("provider config contains no custom providers", {
+      event: "provider.config.empty",
+      source: source.source,
+      configPath: source.configPath,
     });
   }
 
