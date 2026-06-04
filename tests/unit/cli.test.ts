@@ -1,7 +1,7 @@
 import { expect, test } from "bun:test";
-import { mkdtempSync, readFileSync, existsSync } from "node:fs";
+import { mkdtempSync, readFileSync, existsSync, mkdirSync, readdirSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { basename, dirname, join } from "node:path";
 import { parseArgs, getFlagValue, writeEnvAtomic, runCli as runCliInProcess, installBrokenPipeHandlers } from "../../src/cli";
 
 class TestEpipeError extends Error {
@@ -109,6 +109,16 @@ test("writeEnvAtomic force=true overwrites existing file", async () => {
   const text = readFileSync(path, "utf-8");
   expect(text).toContain("ADMIN_API_KEY=new");
   expect(text).not.toContain("ADMIN_API_KEY=old");
+});
+
+test("writeEnvAtomic cleans temp file on atomic write failure", async () => {
+  const path = join(tempDir("agent-cli-proxy-cli-env-"), ".env");
+  mkdirSync(path);
+
+  await expect(writeEnvAtomic(path, { ADMIN_API_KEY: "new" }, { force: true })).rejects.toThrow();
+
+  const tmpEntries = readdirSync(dirname(path)).filter((entry: string) => entry.startsWith(`${basename(path)}.tmp.`));
+  expect(tmpEntries).toEqual([]);
 });
 
 test("writeEnvAtomic merge=true preserves existing values", async () => {
