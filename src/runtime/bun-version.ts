@@ -37,9 +37,11 @@ export function isSupportedBunVersion(version: string): boolean {
 function parseBunVersion(version: string): BunVersion | null {
   const match = /^(\d+)\.(\d+)\.(\d+)/.exec(version.trim());
   if (!match) return null;
-  const major = Number.parseInt(match[1], 10);
-  const minor = Number.parseInt(match[2], 10);
-  const patch = Number.parseInt(match[3], 10);
+  const [, majorText, minorText, patchText] = match;
+  if (majorText === undefined || minorText === undefined || patchText === undefined) return null;
+  const major = Number.parseInt(majorText, 10);
+  const minor = Number.parseInt(minorText, 10);
+  const patch = Number.parseInt(patchText, 10);
   if (!Number.isSafeInteger(major) || !Number.isSafeInteger(minor) || !Number.isSafeInteger(patch)) return null;
   return { major, minor, patch };
 }
