@@ -333,7 +333,8 @@ export namespace PassThroughProxy {
   }
 
   function composeSignals(signals: AbortSignal[]): AbortSignal {
-    if (signals.length === 1) return signals[0];
+    const first = signals[0];
+    if (signals.length === 1 && first) return first;
     return AbortSignal.any(signals);
   }
 
