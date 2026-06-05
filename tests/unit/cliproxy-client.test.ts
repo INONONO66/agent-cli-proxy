@@ -7,13 +7,39 @@ process.env.CLIPROXY_MGMT_KEY = "test-mgmt-key";
 const { CLIProxyClient } = await import("../../src/cliproxy/client");
 const { UpstreamClient } = await import("../../src/upstream/client");
 
+let dateNowSpy: ReturnType<typeof spyOn> | null = null;
+
 beforeEach(() => {
   CLIProxyClient.resetUsageEndpointSupportForTests();
 });
 
 afterEach(() => {
+  dateNowSpy?.mockRestore();
+  dateNowSpy = null;
   CLIProxyClient.resetUsageEndpointSupportForTests();
 });
+
+function queueRecord(index: number): Record<string, unknown> {
+  return {
+    timestamp: new Date(1_780_000_000_000 + index).toISOString(),
+    latency_ms: 125,
+    source: "acct@example.com",
+    auth_index: "0",
+    provider: "openai",
+    model: "gpt-5.4-mini",
+    endpoint: "POST /v1/chat/completions",
+    api_key: "proxy",
+    request_id: `req-${index}`,
+    tokens: {
+      input_tokens: 3,
+      output_tokens: 4,
+      reasoning_tokens: 0,
+      cached_tokens: 0,
+      total_tokens: 7,
+    },
+    failed: false,
+  };
+}
 
 test("404 usage endpoint disables later correlation fetches", async () => {
   const fetchSpy = spyOn(UpstreamClient, "fetch").mockResolvedValue(new Response("not found", {
@@ -33,25 +59,7 @@ test("404 usage endpoint disables later correlation fetches", async () => {
 });
 
 test("fetchUsage prefers usage queue records over legacy usage snapshots", async () => {
-  const fetchSpy = spyOn(UpstreamClient, "fetch").mockResolvedValue(new Response(JSON.stringify([{
-    timestamp: "2026-06-05T00:00:00.000Z",
-    latency_ms: 125,
-    source: "acct@example.com",
-    auth_index: "0",
-    provider: "openai",
-    model: "gpt-5.4-mini",
-    endpoint: "POST /v1/chat/completions",
-    api_key: "proxy",
-    request_id: "req-1",
-    tokens: {
-      input_tokens: 3,
-      output_tokens: 4,
-      reasoning_tokens: 0,
-      cached_tokens: 0,
-      total_tokens: 7,
-    },
-    failed: false,
-  }]), {
+  const fetchSpy = spyOn(UpstreamClient, "fetch").mockResolvedValue(new Response(JSON.stringify([queueRecord(1)]), {
     status: 200,
     headers: { "content-type": "application/json" },
   }));
@@ -60,6 +68,7 @@ test("fetchUsage prefers usage queue records over legacy usage snapshots", async
     const response = await CLIProxyClient.fetchUsageWithEndpoints("http://localhost:8317", "test-mgmt-key");
     expect(fetchSpy).toHaveBeenCalledTimes(1);
     expect(fetchSpy.mock.calls[0][0].url).toBe("http://localhost:8317/v0/management/usage-queue?count=500");
+    expect(fetchSpy.mock.calls[0][0].idempotent).toBe(false);
     expect(response?.usage.total_requests).toBe(1);
     const details = CLIProxyClient.flattenDetails(response!);
     expect(details).toHaveLength(1);
@@ -71,6 +80,29 @@ test("fetchUsage prefers usage queue records over legacy usage snapshots", async
       failed: false,
     });
     expect(details[0]?.tokens.total_tokens).toBe(7);
+  } finally {
+    fetchSpy.mockRestore();
+  }
+});
+
+test("fetchUsage drains multiple usage queue batches before returning", async () => {
+  let calls = 0;
+  const fetchSpy = spyOn(UpstreamClient, "fetch").mockImplementation(async () => {
+    calls++;
+    const batch = calls === 1
+      ? Array.from({ length: 500 }, (_, index) => queueRecord(index))
+      : [queueRecord(500)];
+    return new Response(JSON.stringify(batch), {
+      status: 200,
+      headers: { "content-type": "application/json" },
+    });
+  });
+
+  try {
+    const response = await CLIProxyClient.fetchUsageWithEndpoints("http://localhost:8317", "test-mgmt-key");
+    expect(fetchSpy).toHaveBeenCalledTimes(2);
+    expect(response?.usage.total_requests).toBe(501);
+    expect(CLIProxyClient.flattenDetails(response!)).toHaveLength(501);
   } finally {
     fetchSpy.mockRestore();
   }
@@ -126,7 +158,35 @@ test("fetchUsage falls back to legacy usage snapshots when usage queue is unavai
     const response = await CLIProxyClient.fetchUsageWithEndpoints("http://localhost:8317", "test-mgmt-key");
     expect(fetchSpy).toHaveBeenCalledTimes(2);
     expect(fetchSpy.mock.calls[1][0].url).toBe("http://localhost:8317/v0/management/usage");
+    expect(fetchSpy.mock.calls[1][0].idempotent).toBe(true);
     expect(CLIProxyClient.flattenDetails(response!)).toHaveLength(1);
+  } finally {
+    fetchSpy.mockRestore();
+  }
+});
+
+test("usage queue unsupported cache retries after ttl", async () => {
+  let now = 1_000;
+  dateNowSpy = spyOn(Date, "now").mockImplementation(() => now);
+  let calls = 0;
+  const fetchSpy = spyOn(UpstreamClient, "fetch").mockImplementation(async () => {
+    calls++;
+    if (calls === 1) return new Response("not found", { status: 404, statusText: "Not Found" });
+    return new Response(JSON.stringify([queueRecord(1)]), {
+      status: 200,
+      headers: { "content-type": "application/json" },
+    });
+  });
+
+  try {
+    expect(await CLIProxyClient.fetchUsageQueueFrom("http://localhost:8317/v0/management/usage-queue?count=500", "test-mgmt-key")).toBeNull();
+    expect(await CLIProxyClient.fetchUsageQueueFrom("http://localhost:8317/v0/management/usage-queue?count=500", "test-mgmt-key")).toBeNull();
+    expect(fetchSpy).toHaveBeenCalledTimes(1);
+
+    now += 5 * 60 * 1000 + 1;
+    const response = await CLIProxyClient.fetchUsageQueueFrom("http://localhost:8317/v0/management/usage-queue?count=500", "test-mgmt-key");
+    expect(response?.usage.total_requests).toBe(1);
+    expect(fetchSpy).toHaveBeenCalledTimes(2);
   } finally {
     fetchSpy.mockRestore();
   }

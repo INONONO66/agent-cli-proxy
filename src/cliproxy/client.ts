@@ -4,8 +4,9 @@ import { Logger } from "../util/logger";
 
 const logger = Logger.fromConfig().child({ component: "cliproxy-client" });
 const USAGE_QUEUE_BATCH_SIZE = 500;
-let usageQueueUnsupported = false;
-let usageEndpointUnsupported = false;
+const UNSUPPORTED_RETRY_MS = 5 * 60 * 1000;
+let usageQueueUnsupportedUntil = 0;
+let usageEndpointUnsupportedUntil = 0;
 
 export namespace CLIProxyClient {
   export interface UsageDetail {
@@ -53,16 +54,24 @@ export namespace CLIProxyClient {
   }
 
   export async function fetchUsageWithEndpoints(baseUrl: string, key: string): Promise<UsageResponse | null> {
-    const queueResponse = await fetchUsageQueueFrom(
-      `${baseUrl}/v0/management/usage-queue?count=${USAGE_QUEUE_BATCH_SIZE}`,
-      key,
-    );
-    if (queueResponse) return queueResponse;
+    const queueUrl = `${baseUrl}/v0/management/usage-queue?count=${USAGE_QUEUE_BATCH_SIZE}`;
+    let queueResponse: UsageResponse | null = null;
+    while (true) {
+      const batch = await fetchUsageQueueBatchFrom(queueUrl, key);
+      if (!batch) break;
+      queueResponse = queueResponse ? mergeUsageResponses(queueResponse, batch.response) : batch.response;
+      if (batch.rawCount < USAGE_QUEUE_BATCH_SIZE) break;
+    }
+    if (queueResponse && queueResponse.usage.total_requests > 0) return queueResponse;
     return await fetchUsageFrom(`${baseUrl}/v0/management/usage`, key);
   }
 
   export async function fetchUsageQueueFrom(url: string, key: string): Promise<UsageResponse | null> {
-    if (!key || usageQueueUnsupported) return null;
+    return (await fetchUsageQueueBatchFrom(url, key))?.response ?? null;
+  }
+
+  async function fetchUsageQueueBatchFrom(url: string, key: string): Promise<UsageQueueBatch | null> {
+    if (!key || isUnsupported(usageQueueUnsupportedUntil)) return null;
 
     try {
       const res = await UpstreamClient.fetch({
@@ -70,14 +79,14 @@ export namespace CLIProxyClient {
         url,
         headers: managementHeaders(key),
         providerId: "cliproxy-management",
-        idempotent: true,
+        idempotent: false,
       });
       if (!res.ok) {
         await res.text().catch((err) => {
           logger.debug("usage queue fetch error body read failed", { err, status: res.status });
         });
         if (res.status === 404) {
-          usageQueueUnsupported = true;
+          usageQueueUnsupportedUntil = Date.now() + UNSUPPORTED_RETRY_MS;
           logger.warn("usage queue endpoint unavailable, falling back to legacy usage endpoint", { status: res.status, status_text: res.statusText });
           return null;
         }
@@ -85,7 +94,8 @@ export namespace CLIProxyClient {
         return null;
       }
 
-      return normalizeUsageQueueResponse(await res.json());
+      usageQueueUnsupportedUntil = 0;
+      return normalizeUsageQueueBatch(await res.json());
     } catch (err) {
       logger.error("usage queue fetch error", { err });
       return null;
@@ -93,7 +103,7 @@ export namespace CLIProxyClient {
   }
 
   export async function fetchUsageFrom(url: string, key: string): Promise<UsageResponse | null> {
-    if (!key || usageEndpointUnsupported) return null;
+    if (!key || isUnsupported(usageEndpointUnsupportedUntil)) return null;
 
     try {
       const res = await UpstreamClient.fetch({
@@ -108,13 +118,14 @@ export namespace CLIProxyClient {
           logger.debug("usage fetch error body read failed", { err, status: res.status });
         });
         if (res.status === 404) {
-          usageEndpointUnsupported = true;
+          usageEndpointUnsupportedUntil = Date.now() + UNSUPPORTED_RETRY_MS;
           logger.warn("usage fetch endpoint unavailable, disabling correlation", { status: res.status, status_text: res.statusText });
           return null;
         }
         logger.error("usage fetch failed", { status: res.status, status_text: res.statusText });
         return null;
       }
+      usageEndpointUnsupportedUntil = 0;
       return (await res.json()) as UsageResponse;
     } catch (err) {
       logger.error("usage fetch error", { err });
@@ -123,8 +134,8 @@ export namespace CLIProxyClient {
   }
 
   export function resetUsageEndpointSupportForTests(): void {
-    usageQueueUnsupported = false;
-    usageEndpointUnsupported = false;
+    usageQueueUnsupportedUntil = 0;
+    usageEndpointUnsupportedUntil = 0;
   }
 
   export function flattenDetails(
@@ -148,19 +159,15 @@ export namespace CLIProxyClient {
     };
   }
 
-  function normalizeUsageQueueResponse(raw: unknown): UsageResponse | null {
+  interface UsageQueueBatch {
+    response: UsageResponse;
+    rawCount: number;
+  }
+
+  function normalizeUsageQueueBatch(raw: unknown): UsageQueueBatch | null {
     if (!Array.isArray(raw)) return null;
 
-    const response: UsageResponse = {
-      failed_requests: 0,
-      usage: {
-        total_requests: 0,
-        success_count: 0,
-        failure_count: 0,
-        total_tokens: 0,
-        apis: {},
-      },
-    };
+    const response = emptyUsageResponse();
 
     for (const item of raw) {
       const record = normalizeUsageQueueRecord(item);
@@ -201,7 +208,46 @@ export namespace CLIProxyClient {
       }
     }
 
-    return response;
+    return { response, rawCount: raw.length };
+  }
+
+  function emptyUsageResponse(): UsageResponse {
+    return {
+      failed_requests: 0,
+      usage: {
+        total_requests: 0,
+        success_count: 0,
+        failure_count: 0,
+        total_tokens: 0,
+        apis: {},
+      },
+    };
+  }
+
+  function mergeUsageResponses(target: UsageResponse, source: UsageResponse): UsageResponse {
+    target.failed_requests += source.failed_requests;
+    target.usage.total_requests += source.usage.total_requests;
+    target.usage.success_count += source.usage.success_count;
+    target.usage.failure_count += source.usage.failure_count;
+    target.usage.total_tokens += source.usage.total_tokens;
+
+    for (const [apiName, sourceApi] of Object.entries(source.usage.apis)) {
+      const targetApi = target.usage.apis[apiName] ??= { total_requests: 0, total_tokens: 0, models: {} };
+      targetApi.total_requests += sourceApi.total_requests;
+      targetApi.total_tokens += sourceApi.total_tokens;
+      for (const [modelName, sourceModel] of Object.entries(sourceApi.models)) {
+        const targetModel = targetApi.models[modelName] ??= { total_requests: 0, total_tokens: 0, details: [] };
+        targetModel.total_requests += sourceModel.total_requests;
+        targetModel.total_tokens += sourceModel.total_tokens;
+        targetModel.details.push(...sourceModel.details);
+      }
+    }
+
+    return target;
+  }
+
+  function isUnsupported(unsupportedUntil: number): boolean {
+    return unsupportedUntil > Date.now();
   }
 
   interface UsageQueueRecord {
