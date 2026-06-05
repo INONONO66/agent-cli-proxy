@@ -1,4 +1,4 @@
-export type LoopHealthStatus = "pass" | "warn" | "fail";
+type LoopHealthStatus = "pass" | "warn" | "fail";
 
 export interface LoopStateInput {
   readonly name: string;
