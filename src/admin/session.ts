@@ -72,7 +72,7 @@ export namespace Session {
   export async function handleLogin(req: Request, config: LoginConfig): Promise<Response> {
     if (!config.passwordHash) return json({ error: "dashboard login not configured", code: "LOGIN_NOT_CONFIGURED" }, 403);
 
-    const clientIp = getClientIp(req, { trustProxyHeaders: config.trustProxyHeaders });
+    const clientIp = getClientIp(req, proxyHeaderOptions(config));
     if (isLoginRateLimited(clientIp)) {
       logger.warn("login rate limited", { event: "dashboard.login.rate_limited", ip: clientIp });
       return json({ error: "too many login attempts, try again later" }, 429);
@@ -95,14 +95,14 @@ export namespace Session {
 
     clearLoginAttempts(clientIp);
     const token = await signSession(config.secret);
-    const isSecure = isRequestSecure(req, { trustProxyHeaders: config.trustProxyHeaders });
+    const isSecure = isRequestSecure(req, proxyHeaderOptions(config));
     return json({ ok: true }, 200, {
       "set-cookie": buildCookie(token, Math.floor(config.ttlMs / 1000), isSecure),
     });
   }
 
   export function handleLogout(req: Request, config: RequestSecurityConfig = {}): Response {
-    const isSecure = isRequestSecure(req, { trustProxyHeaders: config.trustProxyHeaders });
+    const isSecure = isRequestSecure(req, proxyHeaderOptions(config));
     return json({ ok: true }, 200, {
       "set-cookie": `${COOKIE_NAME}=; HttpOnly; SameSite=Strict; Path=/; Max-Age=0${isSecure ? "; Secure" : ""}`,
     });
@@ -120,6 +120,10 @@ export namespace Session {
     if (!token) return false;
     return verifySession(token, secret, ttlMs);
   }
+}
+
+function proxyHeaderOptions(config: { readonly trustProxyHeaders?: boolean }): { readonly trustProxyHeaders?: boolean } {
+  return config.trustProxyHeaders === undefined ? {} : { trustProxyHeaders: config.trustProxyHeaders };
 }
 
 interface LoginBody {
