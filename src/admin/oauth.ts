@@ -23,9 +23,9 @@ export namespace OAuthAdmin {
         return json({ accounts: await readAccounts(config.authDir) });
       }
 
-      const startMatch = path.match(/^\/admin\/oauth\/([^/]+)\/start$/);
-      if (startMatch && req.method === "POST") {
-        const provider = decodeURIComponent(startMatch[1]);
+      const startProvider = path.match(/^\/admin\/oauth\/([^/]+)\/start$/)?.[1];
+      if (startProvider !== undefined && req.method === "POST") {
+        const provider = decodeURIComponent(startProvider);
         try {
           const removed = await removeProviderAuthFiles(config.authDir, provider);
           if (removed > 0) {
@@ -40,9 +40,9 @@ export namespace OAuthAdmin {
         }
       }
 
-      const eventsMatch = path.match(/^\/admin\/oauth\/jobs\/([^/]+)\/events$/);
-      if (eventsMatch && req.method === "GET") {
-        const jobId = decodeURIComponent(eventsMatch[1]);
+      const eventsJobId = path.match(/^\/admin\/oauth\/jobs\/([^/]+)\/events$/)?.[1];
+      if (eventsJobId !== undefined && req.method === "GET") {
+        const jobId = decodeURIComponent(eventsJobId);
         try {
           return sse(CLIProxyLogin.subscribe(jobId));
         } catch (err) {
@@ -51,9 +51,9 @@ export namespace OAuthAdmin {
         }
       }
 
-      const cancelMatch = path.match(/^\/admin\/oauth\/jobs\/([^/]+)\/cancel$/);
-      if (cancelMatch && req.method === "POST") {
-        const jobId = decodeURIComponent(cancelMatch[1]);
+      const cancelJobId = path.match(/^\/admin\/oauth\/jobs\/([^/]+)\/cancel$/)?.[1];
+      if (cancelJobId !== undefined && req.method === "POST") {
+        const jobId = decodeURIComponent(cancelJobId);
         const ok = CLIProxyLogin.cancelJob(jobId);
         if (!ok) return json({ error: "job not found" }, 404);
         return json({ ok: true });
