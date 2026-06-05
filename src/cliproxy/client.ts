@@ -3,7 +3,11 @@ import { UpstreamClient } from "../upstream/client";
 import { Logger } from "../util/logger";
 
 const logger = Logger.fromConfig().child({ component: "cliproxy-client" });
-let usageEndpointUnsupported = false;
+const USAGE_QUEUE_BATCH_SIZE = 500;
+const USAGE_QUEUE_MAX_BATCHES = 20;
+const UNSUPPORTED_RETRY_MS = 5 * 60 * 1000;
+let usageQueueUnsupportedUntil = 0;
+let usageEndpointUnsupportedUntil = 0;
 
 export namespace CLIProxyClient {
   export interface UsageDetail {
@@ -47,17 +51,66 @@ export namespace CLIProxyClient {
   }
 
   export async function fetchUsage(): Promise<UsageResponse | null> {
-    return await fetchUsageFrom(`${Config.cliProxyApiUrl}/v0/management/usage`, Config.cliproxyMgmtKey);
+    return await fetchUsageWithEndpoints(Config.cliProxyApiUrl, Config.cliproxyMgmtKey);
   }
 
-  export async function fetchUsageFrom(url: string, key: string): Promise<UsageResponse | null> {
-    if (!key || usageEndpointUnsupported) return null;
+  export async function fetchUsageWithEndpoints(baseUrl: string, key: string): Promise<UsageResponse | null> {
+    const queueUrl = `${baseUrl}/v0/management/usage-queue?count=${USAGE_QUEUE_BATCH_SIZE}`;
+    let queueResponse: UsageResponse | null = null;
+    for (let batchCount = 0; batchCount < USAGE_QUEUE_MAX_BATCHES; batchCount++) {
+      const batch = await fetchUsageQueueBatchFrom(queueUrl, key);
+      if (!batch) break;
+      queueResponse = queueResponse ? mergeUsageResponses(queueResponse, batch.response) : batch.response;
+      if (batch.rawCount < USAGE_QUEUE_BATCH_SIZE) break;
+    }
+    if (queueResponse) return queueResponse;
+    return await fetchUsageFrom(`${baseUrl}/v0/management/usage`, key);
+  }
+
+  export async function fetchUsageQueueFrom(url: string, key: string): Promise<UsageResponse | null> {
+    return (await fetchUsageQueueBatchFrom(url, key))?.response ?? null;
+  }
+
+  async function fetchUsageQueueBatchFrom(url: string, key: string): Promise<UsageQueueBatch | null> {
+    if (!key || isUnsupported(usageQueueUnsupportedUntil)) return null;
 
     try {
       const res = await UpstreamClient.fetch({
         method: "GET",
         url,
-        headers: { Authorization: `Bearer ${key}` },
+        headers: managementHeaders(key),
+        providerId: "cliproxy-management",
+        idempotent: false,
+      });
+      if (!res.ok) {
+        await res.text().catch((err) => {
+          logger.debug("usage queue fetch error body read failed", { err, status: res.status });
+        });
+        if (res.status === 404) {
+          usageQueueUnsupportedUntil = Date.now() + UNSUPPORTED_RETRY_MS;
+          logger.warn("usage queue endpoint unavailable, falling back to legacy usage endpoint", { status: res.status, status_text: res.statusText });
+          return null;
+        }
+        logger.error("usage queue fetch failed", { status: res.status, status_text: res.statusText });
+        return null;
+      }
+
+      usageQueueUnsupportedUntil = 0;
+      return normalizeUsageQueueBatch(await res.json());
+    } catch (err) {
+      logger.error("usage queue fetch error", { err });
+      return null;
+    }
+  }
+
+  export async function fetchUsageFrom(url: string, key: string): Promise<UsageResponse | null> {
+    if (!key || isUnsupported(usageEndpointUnsupportedUntil)) return null;
+
+    try {
+      const res = await UpstreamClient.fetch({
+        method: "GET",
+        url,
+        headers: managementHeaders(key),
         providerId: "cliproxy-management",
         idempotent: true,
       });
@@ -66,13 +119,14 @@ export namespace CLIProxyClient {
           logger.debug("usage fetch error body read failed", { err, status: res.status });
         });
         if (res.status === 404) {
-          usageEndpointUnsupported = true;
+          usageEndpointUnsupportedUntil = Date.now() + UNSUPPORTED_RETRY_MS;
           logger.warn("usage fetch endpoint unavailable, disabling correlation", { status: res.status, status_text: res.statusText });
           return null;
         }
         logger.error("usage fetch failed", { status: res.status, status_text: res.statusText });
         return null;
       }
+      usageEndpointUnsupportedUntil = 0;
       return (await res.json()) as UsageResponse;
     } catch (err) {
       logger.error("usage fetch error", { err });
@@ -81,7 +135,8 @@ export namespace CLIProxyClient {
   }
 
   export function resetUsageEndpointSupportForTests(): void {
-    usageEndpointUnsupported = false;
+    usageQueueUnsupportedUntil = 0;
+    usageEndpointUnsupportedUntil = 0;
   }
 
   export function flattenDetails(
@@ -96,5 +151,150 @@ export namespace CLIProxyClient {
       }
     }
     return out;
+  }
+
+  function managementHeaders(key: string): Record<string, string> {
+    return {
+      Authorization: `Bearer ${key}`,
+      "X-Management-Key": key,
+    };
+  }
+
+  interface UsageQueueBatch {
+    response: UsageResponse;
+    rawCount: number;
+  }
+
+  function normalizeUsageQueueBatch(raw: unknown): UsageQueueBatch | null {
+    if (!Array.isArray(raw)) return null;
+
+    const response = emptyUsageResponse();
+
+    for (const item of raw) {
+      const record = normalizeUsageQueueRecord(item);
+      if (!record) continue;
+      const model = stringValue(record.model) || stringValue(record.alias) || "unknown";
+      const api = stringValue(record.api_key) || stringValue(record.endpoint) || stringValue(record.provider) || "usage-queue";
+      const failed = booleanValue(record.failed);
+      const totalTokens = numberValue(record.tokens.total_tokens);
+      const detail: UsageDetail = {
+        timestamp: record.timestamp,
+        latency_ms: numberValue(record.latency_ms),
+        source: stringValue(record.source),
+        auth_index: stringValue(record.auth_index),
+        tokens: {
+          input_tokens: numberValue(record.tokens.input_tokens),
+          output_tokens: numberValue(record.tokens.output_tokens),
+          reasoning_tokens: numberValue(record.tokens.reasoning_tokens),
+          cached_tokens: numberValue(record.tokens.cached_tokens),
+          total_tokens: totalTokens,
+        },
+        failed,
+      };
+
+      const apiStats = response.usage.apis[api] ??= { total_requests: 0, total_tokens: 0, models: {} };
+      const modelStats = apiStats.models[model] ??= { total_requests: 0, total_tokens: 0, details: [] };
+      modelStats.details.push(detail);
+      modelStats.total_requests += 1;
+      modelStats.total_tokens += totalTokens;
+      apiStats.total_requests += 1;
+      apiStats.total_tokens += totalTokens;
+      response.usage.total_requests += 1;
+      response.usage.total_tokens += totalTokens;
+      if (failed) {
+        response.failed_requests += 1;
+        response.usage.failure_count += 1;
+      } else {
+        response.usage.success_count += 1;
+      }
+    }
+
+    return { response, rawCount: raw.length };
+  }
+
+  function emptyUsageResponse(): UsageResponse {
+    return {
+      failed_requests: 0,
+      usage: {
+        total_requests: 0,
+        success_count: 0,
+        failure_count: 0,
+        total_tokens: 0,
+        apis: {},
+      },
+    };
+  }
+
+  function mergeUsageResponses(target: UsageResponse, source: UsageResponse): UsageResponse {
+    target.failed_requests += source.failed_requests;
+    target.usage.total_requests += source.usage.total_requests;
+    target.usage.success_count += source.usage.success_count;
+    target.usage.failure_count += source.usage.failure_count;
+    target.usage.total_tokens += source.usage.total_tokens;
+
+    for (const [apiName, sourceApi] of Object.entries(source.usage.apis)) {
+      const targetApi = target.usage.apis[apiName] ??= { total_requests: 0, total_tokens: 0, models: {} };
+      targetApi.total_requests += sourceApi.total_requests;
+      targetApi.total_tokens += sourceApi.total_tokens;
+      for (const [modelName, sourceModel] of Object.entries(sourceApi.models)) {
+        const targetModel = targetApi.models[modelName] ??= { total_requests: 0, total_tokens: 0, details: [] };
+        targetModel.total_requests += sourceModel.total_requests;
+        targetModel.total_tokens += sourceModel.total_tokens;
+        targetModel.details.push(...sourceModel.details);
+      }
+    }
+
+    return target;
+  }
+
+  function isUnsupported(unsupportedUntil: number): boolean {
+    return unsupportedUntil > Date.now();
+  }
+
+  interface UsageQueueRecord {
+    timestamp: string;
+    latency_ms?: unknown;
+    source?: unknown;
+    auth_index?: unknown;
+    provider?: unknown;
+    model?: unknown;
+    alias?: unknown;
+    endpoint?: unknown;
+    api_key?: unknown;
+    tokens: Record<string, unknown>;
+    failed?: unknown;
+  }
+
+  function normalizeUsageQueueRecord(item: unknown): UsageQueueRecord | null {
+    const parsed = typeof item === "string" ? parseJsonObject(item) : item;
+    if (!isRecord(parsed)) return null;
+    const timestamp = stringValue(parsed.timestamp);
+    if (!timestamp) return null;
+    const tokens = isRecord(parsed.tokens) ? parsed.tokens : {};
+    return { ...parsed, timestamp, tokens };
+  }
+
+  function parseJsonObject(value: string): unknown {
+    try {
+      return JSON.parse(value);
+    } catch {
+      return null;
+    }
+  }
+
+  function isRecord(value: unknown): value is Record<string, unknown> {
+    return typeof value === "object" && value !== null && !Array.isArray(value);
+  }
+
+  function stringValue(value: unknown): string {
+    return typeof value === "string" ? value.trim() : "";
+  }
+
+  function numberValue(value: unknown): number {
+    return typeof value === "number" && Number.isFinite(value) ? value : 0;
+  }
+
+  function booleanValue(value: unknown): boolean {
+    return value === true;
   }
 }

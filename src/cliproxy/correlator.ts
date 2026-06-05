@@ -72,11 +72,11 @@ export namespace Correlator {
     const maxPoolSize = options.maxPoolSize ?? MAX_POOL_SIZE;
     const maxMatchDeltaMs = options.maxMatchDeltaMs ?? DEFAULT_MATCH_WINDOW_MS;
 
-    const response = await CLIProxyClient.fetchUsage();
-    if (!response) return;
-
     const uncorrelated = usageService.getUncorrelatedLogs(lookbackMs, 200);
     if (uncorrelated.length === 0) return;
+
+    const response = await CLIProxyClient.fetchUsage();
+    if (!response) return;
 
     const allDetails = CLIProxyClient.flattenDetails(response);
     if (allDetails.length === 0) {

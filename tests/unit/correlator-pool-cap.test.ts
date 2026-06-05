@@ -138,6 +138,19 @@ test("pool capped to 10,000 when details exceed limit", async () => {
   expect(applySpy.mock.calls[0][0]).toBe(2);
 });
 
+test("runTick does not fetch usage when no uncorrelated logs exist", async () => {
+  const db = Storage.initDb(":memory:");
+  const service = UsageService.create(db);
+  spyOn(service, "getUncorrelatedLogs").mockReturnValue([]);
+  fetchSpy = spyOn(CLIProxyClient, "fetchUsage").mockResolvedValue(buildResponse({
+    "test-model": [makeDetail(new Date().toISOString(), 1_000)],
+  }));
+
+  await Correlator.runTick(service, { lookbackMs: 60_000 });
+
+  expect(fetchSpy).not.toHaveBeenCalled();
+});
+
 test("details outside lookback window are excluded", async () => {
   const now = Date.now();
   const recentTs = new Date(now - 10_000).toISOString();

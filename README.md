@@ -149,7 +149,7 @@ Provider API keys are intentionally **not** stored by this proxy. The proxy rout
 | `CLIENT_NAME_MAPPING` | | API key to display name mapping (e.g. `key1=alice,key2=bob`) |
 | `PROVIDERS_CONFIG_PATH` | | Optional JSON file for custom providers |
 | `PROVIDERS_JSON` | | Inline custom provider JSON; takes precedence over `PROVIDERS_CONFIG_PATH` |
-| `CLIPROXY_MGMT_KEY` | | Optional CLIProxyAPI management key for account correlation |
+| `CLIPROXY_MGMT_KEY` | | Optional CLIProxyAPI management key for account correlation. Uses `/v0/management/usage-queue` on CLIProxyAPI v6.10+ and falls back to legacy `/v0/management/usage` for older servers. |
 | `CLIPROXY_CORRELATION_LOOKBACK_MS` | `300000` | How far back the correlator fetches local request rows and upstream usage details (5m) |
 | `CLIPROXY_CORRELATION_WINDOW_MS` | `30000` | Maximum timestamp difference allowed when matching a local row to upstream usage (30s) |
 | `CLIPROXY_AUTH_DIR` | | Optional CLIProxyAPI auth directory for quota probes |
