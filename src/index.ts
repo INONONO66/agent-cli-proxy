@@ -57,18 +57,17 @@ async function main(): Promise<void> {
     signal: shutdownController.signal,
   });
 
+  const serveOptions = {
+    port: Config.port,
+    hostname: Config.host,
+    idleTimeout: 0,
+    fetch: handleRequest,
+  };
   let server: ReturnType<typeof Bun.serve>;
   try {
-    server = Bun.serve({
-      port: Config.port,
-      hostname: Config.host,
-      idleTimeout: 0,
-      fetch: handleRequest,
-      development:
-        process.env.NODE_ENV !== "production"
-          ? { hmr: true, console: true }
-          : undefined,
-    });
+    server = process.env.NODE_ENV !== "production"
+      ? Bun.serve({ ...serveOptions, development: { hmr: true, console: true } })
+      : Bun.serve(serveOptions);
   } catch (err) {
     if (isPortInUseError(err, Config.port)) {
       logger.error("port already in use", {
