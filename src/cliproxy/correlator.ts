@@ -8,6 +8,13 @@ const logger = Logger.fromConfig().child({ component: "correlator" });
 
 export namespace Correlator {
   type Detail = CLIProxyClient.UsageDetail & { model: string };
+  type MatchLog = {
+    readonly started_at: string;
+    readonly model: string;
+    readonly total_tokens: number;
+    readonly latency_ms?: number;
+  };
+  type UncorrelatedLog = ReturnType<UsageService.UsageService["getUncorrelatedLogs"]>[number];
   type RunTickOptions = {
     readonly lookbackMs: number;
     readonly maxPoolSize?: number;
@@ -22,7 +29,7 @@ export namespace Correlator {
   let lastLowMatchWarnAt = 0;
 
   function bestMatch(
-    log: { started_at: string; model: string; total_tokens: number; latency_ms?: number },
+    log: MatchLog,
     pool: Detail[],
     maxMatchDeltaMs: number,
   ): { detail: Detail; index: number } | null {
@@ -34,6 +41,7 @@ export namespace Correlator {
 
     for (let i = 0; i < pool.length; i++) {
       const detail = pool[i];
+      if (detail === undefined) continue;
       if (detail.model !== log.model) continue;
 
       const detailTs = Date.parse(detail.timestamp);
@@ -59,7 +67,19 @@ export namespace Correlator {
     }
 
     if (bestIdx === -1) return null;
-    return { detail: pool[bestIdx], index: bestIdx };
+    const detail = pool[bestIdx];
+    if (detail === undefined) return null;
+    return { detail, index: bestIdx };
+  }
+
+  function toMatchLog(log: UncorrelatedLog): MatchLog {
+    const matchLog: MatchLog = {
+      started_at: log.started_at,
+      model: log.model,
+      total_tokens: log.total_tokens,
+    };
+    if (log.latency_ms === undefined) return matchLog;
+    return { ...matchLog, latency_ms: log.latency_ms };
   }
 
   const MAX_POOL_SIZE = 10_000;
@@ -103,12 +123,7 @@ export namespace Correlator {
     for (const log of uncorrelated) {
       if (log.id == null) continue;
       const match = bestMatch(
-        {
-          started_at: log.started_at,
-          model: log.model,
-          total_tokens: log.total_tokens,
-          latency_ms: log.latency_ms,
-        },
+        toMatchLog(log),
         pool,
         maxMatchDeltaMs,
       );
@@ -175,12 +190,12 @@ export namespace Correlator {
     const intervalMs = Config.cliproxyCorrelationIntervalMs;
     const lookbackMs = Config.cliproxyCorrelationLookbackMs;
     const maxMatchDeltaMs = Config.cliproxyCorrelationWindowMs;
+    const supervisorOptions = options.signal === undefined
+      ? { intervalMs, initialDelayMs: 5_000, runOnStart: true }
+      : { intervalMs, initialDelayMs: 5_000, runOnStart: true, signal: options.signal };
 
     Supervisor.run("correlator", () => runTick(usageService, { lookbackMs, maxMatchDeltaMs }), {
-      intervalMs,
-      initialDelayMs: 5_000,
-      runOnStart: true,
-      signal: options.signal,
+      ...supervisorOptions,
     });
 
     logger.info("started", { interval_ms: intervalMs, lookback_ms: lookbackMs, match_window_ms: maxMatchDeltaMs });
