@@ -7,11 +7,11 @@ import {
 import { ProviderTransforms, type ProviderTransform } from "../transform";
 import type { RequestInfo } from "../../server/request-inspector";
 
-export function isAnthropicMessagesPath(path: string): boolean {
+function isAnthropicMessagesPath(path: string): boolean {
   return path.includes("messages");
 }
 
-export function anthropicBypassHeaders(headers: Headers, info: RequestInfo): Headers {
+function anthropicBypassHeaders(headers: Headers, info: RequestInfo): Headers {
   if (!isAnthropicMessagesPath(info.path)) return headers;
 
   const result = new Headers(headers);
@@ -21,12 +21,12 @@ export function anthropicBypassHeaders(headers: Headers, info: RequestInfo): Hea
   return result;
 }
 
-export function anthropicBypassBody(body: unknown, info: RequestInfo): unknown {
+function anthropicBypassBody(body: unknown, info: RequestInfo): unknown {
   if (!isAnthropicMessagesPath(info.path)) return body;
   return rewriteRequestBody(body as Anthropic.Request);
 }
 
-export function anthropicBypassResponse(responseBody: string, info: RequestInfo): string {
+function anthropicBypassResponse(responseBody: string, info: RequestInfo): string {
   if (!isAnthropicMessagesPath(info.path)) return responseBody;
 
   try {
@@ -36,7 +36,7 @@ export function anthropicBypassResponse(responseBody: string, info: RequestInfo)
   }
 }
 
-export function anthropicBypassStreamLine(line: string, info: RequestInfo): string {
+function anthropicBypassStreamLine(line: string, info: RequestInfo): string {
   if (!isAnthropicMessagesPath(info.path)) return line;
   return stripToolPrefixFromLine(line);
 }
