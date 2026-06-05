@@ -87,10 +87,6 @@ export namespace RequestInspector {
     };
   }
 
-  export function isClaudeModel(model: string | null): boolean {
-    return !!model && model.startsWith("claude");
-  }
-
   export function detectTool(info: RequestInfo): string {
     if (info.agentName) {
       return info.agentName;
