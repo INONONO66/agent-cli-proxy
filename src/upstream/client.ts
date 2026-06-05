@@ -342,17 +342,17 @@ export namespace UpstreamClient {
       kind = nextKind;
       controller.abort(new Error(nextKind === "body" ? BODY_TIMEOUT_MESSAGE : `upstream ${nextKind} timeout`));
     };
-    const connectTimer = setTimeout(() => abort("connect"), connectMs);
-    const totalTimer = setTimeout(() => abort(totalKind), totalMs);
+    const connectTimer = connectMs > 0 ? setTimeout(() => abort("connect"), connectMs) : null;
+    const totalTimer = totalMs > 0 ? setTimeout(() => abort(totalKind), totalMs) : null;
     return {
       signal: controller.signal,
       beginBody() {
-        clearTimeout(connectTimer);
+        if (connectTimer) clearTimeout(connectTimer);
         totalKind = "body";
       },
       clear() {
-        clearTimeout(connectTimer);
-        clearTimeout(totalTimer);
+        if (connectTimer) clearTimeout(connectTimer);
+        if (totalTimer) clearTimeout(totalTimer);
       },
       get kind() {
         return kind;

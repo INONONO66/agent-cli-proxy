@@ -133,9 +133,9 @@ Provider API keys are intentionally **not** stored by this proxy. The proxy rout
 | `PRICING_ALIASES_JSON` | built-in aliases | Optional JSON object mapping model prefixes to pricing model names for local alias resolution. |
 | `COST_BACKFILL_INTERVAL_MS` | `1800000` | How often to backfill zero-cost request logs (30m) |
 | `COST_BACKFILL_LOOKBACK_MS` | `604800000` | How far back cost backfill looks (7d) |
-| `UPSTREAM_TIMEOUT_MS` | `300000` | Total upstream request timeout (5m) |
-| `UPSTREAM_STREAM_FIRST_BYTE_TIMEOUT_MS` | `900000` | First SSE chunk timeout for Claude `/v1/messages` streaming requests (15m). Use this to tolerate slow Claude queueing without relaxing non-streaming requests. |
-| `UPSTREAM_CONNECT_TIMEOUT_MS` | `10000` | Upstream connection timeout (10s) |
+| `UPSTREAM_TIMEOUT_MS` | `0` | Total upstream request timeout. `0` disables the proxy-side timeout so CLIProxyAPI owns upstream timing. |
+| `UPSTREAM_STREAM_FIRST_BYTE_TIMEOUT_MS` | `0` | First SSE chunk timeout for Claude `/v1/messages` streaming requests. `0` disables the proxy-side timeout. |
+| `UPSTREAM_CONNECT_TIMEOUT_MS` | `0` | Upstream response-header timeout. `0` disables the proxy-side timeout so CLIProxyAPI can return its own result. |
 | `UPSTREAM_MAX_RETRIES` | `2` | Retry attempts for retryable idempotent upstream failures |
 | `UPSTREAM_CIRCUIT_BREAKER_OPEN_AFTER_FAILURES` | `5` | Consecutive upstream failures before a provider circuit opens |
 | `UPSTREAM_CIRCUIT_BREAKER_HALF_OPEN_AFTER_MS` | `30000` | Recovery window before one half-open probe is allowed |

@@ -438,7 +438,7 @@ test("Claude streaming requests use the stream first-byte timeout override", asy
   const res = await handle(req, await inspect(req));
   await res.text();
 
-  expect(timeoutMs).toBe(900000);
+  expect(timeoutMs).toBe(0);
 });
 
 test("client-supplied forwarding headers are not trusted or forwarded upstream by default", async () => {

@@ -94,6 +94,18 @@ test("valid config is frozen and keeps typed values", () => {
   expect(config.clientNameMapping.get("key1")).toBe("alice");
 });
 
+test("upstream timeouts accept zero to disable proxy-side aborts", () => {
+  const config = Config.validate(baseEnv({
+    UPSTREAM_TIMEOUT_MS: "0",
+    UPSTREAM_STREAM_FIRST_BYTE_TIMEOUT_MS: "0",
+    UPSTREAM_CONNECT_TIMEOUT_MS: "0",
+  }));
+
+  expect(config.upstreamTimeoutMs).toBe(0);
+  expect(config.upstreamStreamFirstByteTimeoutMs).toBe(0);
+  expect(config.upstreamConnectTimeoutMs).toBe(0);
+});
+
 test("request body limit accepts positive integers up to one billion bytes", () => {
   const config = Config.validate(baseEnv({ MAX_REQUEST_BODY_BYTES: "1000000000" }));
 
@@ -129,7 +141,7 @@ test("invalid port and timeout values fail fast", () => {
     QUOTA_SNAPSHOT_RETENTION_DAYS: "0",
     READY_PRICING_MAX_AGE_MS: "0",
     STALE_PENDING_MAX_AGE_MS: "0",
-    UPSTREAM_STREAM_FIRST_BYTE_TIMEOUT_MS: "0",
+    UPSTREAM_STREAM_FIRST_BYTE_TIMEOUT_MS: "-1",
     UPSTREAM_MAX_RETRIES: "1.5",
     UPSTREAM_CIRCUIT_BREAKER_OPEN_AFTER_FAILURES: "0",
     UPSTREAM_CIRCUIT_BREAKER_HALF_OPEN_AFTER_MS: "NaN",

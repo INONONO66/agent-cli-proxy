@@ -135,9 +135,9 @@ export namespace Config {
       quotaRefreshIntervalMs: readPositiveNumber(env, "QUOTA_REFRESH_INTERVAL_MS", 300000, issues),
       quotaRefreshTimeoutMs: readPositiveNumber(env, "QUOTA_REFRESH_TIMEOUT_MS", 15000, issues),
       quotaSnapshotRetentionDays: readPositiveInteger(env, "QUOTA_SNAPSHOT_RETENTION_DAYS", 7, 3650, issues),
-      upstreamTimeoutMs: readPositiveNumber(env, "UPSTREAM_TIMEOUT_MS", 300000, issues),
-      upstreamStreamFirstByteTimeoutMs: readPositiveNumber(env, "UPSTREAM_STREAM_FIRST_BYTE_TIMEOUT_MS", 900000, issues),
-      upstreamConnectTimeoutMs: readPositiveNumber(env, "UPSTREAM_CONNECT_TIMEOUT_MS", 10000, issues),
+      upstreamTimeoutMs: readNonNegativeNumber(env, "UPSTREAM_TIMEOUT_MS", 0, issues),
+      upstreamStreamFirstByteTimeoutMs: readNonNegativeNumber(env, "UPSTREAM_STREAM_FIRST_BYTE_TIMEOUT_MS", 0, issues),
+      upstreamConnectTimeoutMs: readNonNegativeNumber(env, "UPSTREAM_CONNECT_TIMEOUT_MS", 0, issues),
       upstreamMaxRetries: readPositiveInteger(env, "UPSTREAM_MAX_RETRIES", 2, 100, issues),
       upstreamCircuitBreakerOpenAfterFailures: readPositiveInteger(
         env,
@@ -313,6 +313,17 @@ function readPositiveNumber(env: EnvLike, key: string, fallback: number, issues:
   const parsed = Number(raw);
   if (!Number.isFinite(parsed) || parsed <= 0) {
     issues.push({ path: key, message: "must be a positive finite number" });
+    return fallback;
+  }
+  return parsed;
+}
+
+function readNonNegativeNumber(env: EnvLike, key: string, fallback: number, issues: ConfigIssue[]): number {
+  const raw = env[key];
+  if (raw === undefined) return fallback;
+  const parsed = Number(raw);
+  if (!Number.isFinite(parsed) || parsed < 0) {
+    issues.push({ path: key, message: "must be a non-negative finite number" });
     return fallback;
   }
   return parsed;
