@@ -699,12 +699,22 @@ export namespace PassThroughProxy {
 
     let queuedFirstChunk: Uint8Array | null = firstRead.value;
     let shutdownAbortError: Error | null = null;
+    let outputController: ReadableStreamDefaultController<Uint8Array> | null = null;
 
     const onShutdownAbort = () => {
       const reason = lifecycle?.handle.signal.reason;
       const err = reason instanceof Error ? reason : new Error(typeof reason === "string" && reason ? reason : "shutdown");
       shutdownAbortError = err;
+      outputController?.error(err);
       void upstreamReader.cancel(err).catch(() => undefined);
+      void finalizeOnce(usageService, lifecycle, {
+        parsed: { actualModel, usage: accumulated },
+        status: 499,
+        isStreaming: true,
+        lifecycleStatus: "aborted",
+        errorMessage: errorMessage(err, "stream relay failed"),
+        errorCode: "aborted",
+      });
     };
     if (lifecycle) {
       if (lifecycle.handle.signal.aborted) onShutdownAbort();
@@ -712,6 +722,9 @@ export namespace PassThroughProxy {
     }
 
     const outputStream = new ReadableStream<Uint8Array>({
+      start(controller) {
+        outputController = controller;
+      },
       async pull(controller) {
         try {
           if (shutdownAbortError) throw shutdownAbortError;
@@ -722,6 +735,7 @@ export namespace PassThroughProxy {
               queuedFirstChunk = null;
             } else {
               const read = await upstreamReader.read();
+              if (shutdownAbortError) throw shutdownAbortError;
               if (read.done) {
                 const tail = flushPartialLine();
                 if (tail) controller.enqueue(tail);

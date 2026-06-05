@@ -152,11 +152,7 @@ test("shutdown drain lets active streams finalize before bulk abort", async () =
   cleanupDb(dbPath);
 });
 
-// TODO(#67): re-enable after stream abort path is reconciled with backpressure pull loop.
-// shutdown completes correctly and aborted_rows finalize the DB row, but the client-side
-// `res.text()` never resolves because the output ReadableStream isn't errored when the
-// shutdown abort fires before the client begins reading. Tracked as follow-up.
-test.skip("shutdown aborts active streams after drain timeout", async () => {
+test("shutdown aborts active streams after drain timeout", async () => {
   const dbPath = tempDbPath();
   let db = Storage.initDb(dbPath);
   const upstream = new ReadableStream<Uint8Array>({
