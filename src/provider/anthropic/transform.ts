@@ -45,13 +45,13 @@ function sanitizeText(text: string): string {
   return result.trim();
 }
 
-export function sanitizeSystemText(system: Anthropic.SystemBlock[]): Anthropic.SystemBlock[] {
+function sanitizeSystemText(system: Anthropic.SystemBlock[]): Anthropic.SystemBlock[] {
   return system
     .map((block) => ({ ...block, text: sanitizeText(block.text) }))
     .filter((block) => block.text.length > 0);
 }
 
-export function prependClaudeCodeIdentity(
+function prependClaudeCodeIdentity(
   system: Anthropic.SystemBlock[],
   billingHeader: string,
 ): Anthropic.SystemBlock[] {
@@ -70,7 +70,7 @@ export function prependClaudeCodeIdentity(
   return result;
 }
 
-export function prefixToolNames(body: Anthropic.Request): Anthropic.Request {
+function prefixToolNames(body: Anthropic.Request): Anthropic.Request {
   const result = { ...body };
 
   if (result.tools && Array.isArray(result.tools)) {
