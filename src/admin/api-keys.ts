@@ -19,10 +19,11 @@ export namespace ApiKeysAdmin {
         if (!name) return json({ error: "name is required" }, 400);
         const warnings = buildProviderWarnings(body.allowed_providers);
 
-        const apiKey = await ApiKeyRepo.create(db, name, {
-          allowedAccounts: body.allowed_accounts,
-          allowedProviders: body.allowed_providers,
-        });
+        const createOptions: ApiKeyRepo.CreateOptions = {
+          ...(body.allowed_accounts !== undefined ? { allowedAccounts: body.allowed_accounts } : {}),
+          ...(body.allowed_providers !== undefined ? { allowedProviders: body.allowed_providers } : {}),
+        };
+        const apiKey = await ApiKeyRepo.create(db, name, createOptions);
         return json({ ...apiKey, warnings }, 201);
       }
 
@@ -38,10 +39,11 @@ export namespace ApiKeysAdmin {
         const warnings = buildProviderWarnings(body.allowed_providers);
 
         const id = Number(keyMatch[1]);
-        if (!ApiKeyRepo.update(db, id, {
-          allowedAccounts: body.allowed_accounts,
-          allowedProviders: body.allowed_providers,
-        })) return json({ error: "Not found" }, 404);
+        const updateOptions: ApiKeyRepo.UpdateOptions = {
+          ...(body.allowed_accounts !== undefined ? { allowedAccounts: body.allowed_accounts } : {}),
+          ...(body.allowed_providers !== undefined ? { allowedProviders: body.allowed_providers } : {}),
+        };
+        if (!ApiKeyRepo.update(db, id, updateOptions)) return json({ error: "Not found" }, 404);
         return json({ ok: true, warnings });
       }
 
