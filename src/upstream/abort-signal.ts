@@ -9,7 +9,8 @@ export function composeAbortSignals(signals: readonly (AbortSignal | undefined)[
     return { signal: new AbortController().signal, cleanup: noop };
   }
   if (active.length === 1) {
-    return { signal: active[0], cleanup: noop };
+    const signal = active[0];
+    if (signal) return { signal, cleanup: noop };
   }
 
   const abortSignal = AbortSignal as typeof AbortSignal & { any?: (signals: AbortSignal[]) => AbortSignal };
