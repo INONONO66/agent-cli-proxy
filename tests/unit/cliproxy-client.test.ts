@@ -108,6 +108,38 @@ test("fetchUsage drains multiple usage queue batches before returning", async ()
   }
 });
 
+test("fetchUsage returns an empty supported queue without legacy fallback", async () => {
+  const fetchSpy = spyOn(UpstreamClient, "fetch").mockResolvedValue(new Response(JSON.stringify([]), {
+    status: 200,
+    headers: { "content-type": "application/json" },
+  }));
+
+  try {
+    const response = await CLIProxyClient.fetchUsageWithEndpoints("http://localhost:8317", "test-mgmt-key");
+    expect(fetchSpy).toHaveBeenCalledTimes(1);
+    expect(response?.usage.total_requests).toBe(0);
+  } finally {
+    fetchSpy.mockRestore();
+  }
+});
+
+test("fetchUsage caps usage queue draining under sustained backlog", async () => {
+  const fetchSpy = spyOn(UpstreamClient, "fetch").mockImplementation(async () => new Response(JSON.stringify(
+    Array.from({ length: 500 }, (_, index) => queueRecord(index)),
+  ), {
+    status: 200,
+    headers: { "content-type": "application/json" },
+  }));
+
+  try {
+    const response = await CLIProxyClient.fetchUsageWithEndpoints("http://localhost:8317", "test-mgmt-key");
+    expect(fetchSpy).toHaveBeenCalledTimes(20);
+    expect(response?.usage.total_requests).toBe(10_000);
+  } finally {
+    fetchSpy.mockRestore();
+  }
+});
+
 test("fetchUsage falls back to legacy usage snapshots when usage queue is unavailable", async () => {
   const legacyResponse: CLIProxyClientNS.UsageResponse = {
     failed_requests: 0,

@@ -4,6 +4,7 @@ import { Logger } from "../util/logger";
 
 const logger = Logger.fromConfig().child({ component: "cliproxy-client" });
 const USAGE_QUEUE_BATCH_SIZE = 500;
+const USAGE_QUEUE_MAX_BATCHES = 20;
 const UNSUPPORTED_RETRY_MS = 5 * 60 * 1000;
 let usageQueueUnsupportedUntil = 0;
 let usageEndpointUnsupportedUntil = 0;
@@ -56,13 +57,13 @@ export namespace CLIProxyClient {
   export async function fetchUsageWithEndpoints(baseUrl: string, key: string): Promise<UsageResponse | null> {
     const queueUrl = `${baseUrl}/v0/management/usage-queue?count=${USAGE_QUEUE_BATCH_SIZE}`;
     let queueResponse: UsageResponse | null = null;
-    while (true) {
+    for (let batchCount = 0; batchCount < USAGE_QUEUE_MAX_BATCHES; batchCount++) {
       const batch = await fetchUsageQueueBatchFrom(queueUrl, key);
       if (!batch) break;
       queueResponse = queueResponse ? mergeUsageResponses(queueResponse, batch.response) : batch.response;
       if (batch.rawCount < USAGE_QUEUE_BATCH_SIZE) break;
     }
-    if (queueResponse && queueResponse.usage.total_requests > 0) return queueResponse;
+    if (queueResponse) return queueResponse;
     return await fetchUsageFrom(`${baseUrl}/v0/management/usage`, key);
   }
 
