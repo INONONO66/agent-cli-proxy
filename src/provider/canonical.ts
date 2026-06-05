@@ -110,7 +110,7 @@ export namespace CanonicalProvider {
       if (fromPrefix) return fromPrefix;
     }
 
-    const resolved = ProviderRegistry.resolve({ path, model });
+    const resolved = ProviderRegistry.resolve(model === undefined ? { path } : { path, model });
     return resolved?.id ?? "generic";
   }
 

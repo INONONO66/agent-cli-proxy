@@ -8,3 +8,8 @@ test("canonical provider resolves namespaced Anthropic and OpenAI models", () =>
   expect(CanonicalProvider.fromModel("anthropic/claude-sonnet-4-6")).toBe("anthropic");
   expect(CanonicalProvider.fromModel("openai/gpt-5.4-mini")).toBe("openai");
 });
+
+test("canonical provider resolves path fallback when model is absent", () => {
+  expect(CanonicalProvider.resolve(undefined, "/v1/messages")).toBe("anthropic");
+  expect(CanonicalProvider.resolve(null, "/v1/chat/completions")).toBe("xai");
+});
