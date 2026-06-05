@@ -53,17 +53,17 @@ export namespace Admin {
           return json({ breakers: UpstreamClient.getBreakerSnapshots() });
         }
 
-        const breakerResetMatch = path.match(/^\/admin\/breakers\/([^/]+)\/reset$/);
-        if (breakerResetMatch && req.method === "POST") {
-          const providerId = decodeURIComponent(breakerResetMatch[1]);
+        const breakerResetProvider = path.match(/^\/admin\/breakers\/([^/]+)\/reset$/)?.[1];
+        if (breakerResetProvider !== undefined && req.method === "POST") {
+          const providerId = decodeURIComponent(breakerResetProvider);
           const ok = UpstreamClient.resetBreaker(providerId);
           if (!ok) return json({ error: "Breaker not found" }, 404);
           return json({ ok: true, providerId });
         }
 
-        const breakerDetailMatch = path.match(/^\/admin\/breakers\/([^/]+)$/);
-        if (breakerDetailMatch && req.method === "GET") {
-          const providerId = decodeURIComponent(breakerDetailMatch[1]);
+        const breakerDetailProvider = path.match(/^\/admin\/breakers\/([^/]+)$/)?.[1];
+        if (breakerDetailProvider !== undefined && req.method === "GET") {
+          const providerId = decodeURIComponent(breakerDetailProvider);
           const snap = UpstreamClient.getBreakerSnapshots().find((s) => s.providerId === providerId);
           if (!snap) return json({ error: "Breaker not found" }, 404);
           return json(snap);
