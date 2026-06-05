@@ -34,6 +34,12 @@ function writePackageVersion(version: string): void {
 
 function bumpVersion(current: string, bump: BumpType): string {
   const [major, minor, patch] = current.split(".").map(Number);
+  if (major === undefined || minor === undefined || patch === undefined) {
+    throw new Error(`Invalid package version: ${current}`);
+  }
+  if (!Number.isSafeInteger(major) || !Number.isSafeInteger(minor) || !Number.isSafeInteger(patch)) {
+    throw new Error(`Invalid package version: ${current}`);
+  }
   switch (bump) {
     case "major":
       return `${major + 1}.0.0`;
@@ -77,15 +83,17 @@ function parseCommitLine(line: string): Commit | null {
   const match = /^([a-f0-9]+)\s+(.*)$/.exec(line);
   if (!match) return null;
   const [, hash, message] = match;
+  if (hash === undefined || message === undefined) return null;
 
   const conventional = /^(\w+)(?:\(([^)]*)\))?(!)?:\s*(.+)$/.exec(message);
   if (!conventional) return null;
-  const [, type, scope = "", bang, description] = conventional;
+  const [, type, scope, bang, description] = conventional;
+  if (type === undefined || description === undefined) return null;
 
   return {
     hash,
     type,
-    scope,
+    scope: scope ?? "",
     description,
     breaking: bang === "!",
   };
@@ -197,6 +205,7 @@ export function parseReleaseArgs(args: string[]): ReleaseArgs {
     throw new Error("Usage: bun run scripts/release.ts [patch|minor|major] [--dry-run]");
   }
 
+  if (explicitBump === undefined) return { dryRun };
   return { explicitBump, dryRun };
 }
 
