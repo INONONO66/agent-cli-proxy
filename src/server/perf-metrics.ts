@@ -80,8 +80,8 @@ function observe(name: HistogramName, labels: Labels, rawDurationMs: number): vo
   state.count += 1;
   state.sum += durationMs;
   state.max = Math.max(state.max, durationMs);
-  for (let i = 0; i < DURATION_BUCKETS_MS.length; i += 1) {
-    if (durationMs <= DURATION_BUCKETS_MS[i]) state.buckets[i] += 1;
+  for (const [index, bucketMs] of DURATION_BUCKETS_MS.entries()) {
+    if (durationMs <= bucketMs) state.buckets[index] = (state.buckets[index] ?? 0) + 1;
   }
 }
 
@@ -96,8 +96,8 @@ function renderHistogram(lines: string[], name: HistogramName, help: string): vo
     .sort((a, b) => labelString(a.labels).localeCompare(labelString(b.labels)));
 
   for (const state of states) {
-    for (let i = 0; i < DURATION_BUCKETS_MS.length; i += 1) {
-      lines.push(`${metric}_bucket{${labelString({ ...state.labels, le: String(DURATION_BUCKETS_MS[i]) })}} ${state.buckets[i]}`);
+    for (const [index, bucketMs] of DURATION_BUCKETS_MS.entries()) {
+      lines.push(`${metric}_bucket{${labelString({ ...state.labels, le: String(bucketMs) })}} ${state.buckets[index] ?? 0}`);
     }
     lines.push(`${metric}_bucket{${labelString({ ...state.labels, le: "+Inf" })}} ${state.count}`);
     lines.push(`${metric}_sum{${labelString(state.labels)}} ${formatNumber(state.sum)}`);
