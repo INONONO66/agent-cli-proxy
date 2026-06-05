@@ -35,15 +35,16 @@ export async function fetchJson(
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), Config.quotaRefreshTimeoutMs);
   try {
-    const res = await UpstreamClient.fetch({
+    const options: UpstreamClient.FetchOptions = {
       method: init.method ?? "GET",
       url,
-      headers: init.headers,
       body: init.body ?? null,
       providerId: `quota:${new URL(url).hostname}`,
       idempotent: (init.method ?? "GET") === "GET" || (init.method ?? "GET") === "HEAD",
       signal: controller.signal,
-    });
+      ...(init.headers !== undefined ? { headers: init.headers } : {}),
+    };
+    const res = await UpstreamClient.fetch(options);
     const text = await res.text();
     let data: unknown = null;
     try {
