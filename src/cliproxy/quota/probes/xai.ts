@@ -1,4 +1,4 @@
-import type { AuthFile, ProbeFn, ProbeWindow } from "../types";
+import type { ProbeFn, ProbeWindow } from "../types";
 import { fetchJson, normalizePercent } from "../helpers";
 
 // xAI has no per-request usage-% endpoint like Claude/Codex.
@@ -129,7 +129,6 @@ export const probeXai: ProbeFn = async (auth) => {
 
   // spending limits metadata
   const limits = limitsRes.data as SpendingLimitsResponse | null;
-  const softLimitUsd = centsToUsd(limits?.spendingLimits?.softSl?.val);
   const hardLimitUsd = centsToUsd(limits?.spendingLimits?.effectiveHardSl?.val);
 
   // tier info from limit thresholds

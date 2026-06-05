@@ -1,4 +1,4 @@
-import type { AuthFile, ProbeFn, ProbeWindow } from "../types";
+import type { ProbeFn, ProbeWindow } from "../types";
 import { errorMessage, fetchJson, normalizePercent, normalizeReset } from "../helpers";
 
 function readNumber(value: unknown): number | undefined {
