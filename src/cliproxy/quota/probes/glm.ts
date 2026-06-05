@@ -1,4 +1,4 @@
-import type { AuthFile, ProbeFn, ProbeWindow } from "../types";
+import type { ProbeFn, ProbeWindow } from "../types";
 import { fetchJson, normalizePercent, normalizeReset } from "../helpers";
 
 type GlmLimit = {
