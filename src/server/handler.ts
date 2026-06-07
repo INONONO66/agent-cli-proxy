@@ -211,13 +211,14 @@ export namespace Handler {
           }));
         }
 
-        const proxyAuth = await enforceProxyApiKey(req, usageService, securityConfig);
+        const isWebSocketUpgrade = WebSocketProxy.isUpgradeRequest(req);
+        const proxyAuth = await enforceProxyApiKey(req, usageService, securityConfig, { allowWebSocketCredentials: isWebSocketUpgrade });
         if (proxyAuth.response) {
-          logger.warn("proxy request rejected: invalid API key", { event: "proxy.auth.rejected", path });
+          logger.warn("proxy request rejected: invalid API key", { event: "proxy.auth.rejected", path, websocket: isWebSocketUpgrade, auth: authHeaderPresence(req) });
           return withSecurityHeaders(req, securityConfig, proxyAuth.response);
         }
 
-        if (WebSocketProxy.isUpgradeRequest(req)) {
+        if (isWebSocketUpgrade) {
           const info = await RequestInspector.inspect(req);
           const authContext = proxyAuth.context;
           if (!authContext) throw new Error("proxy auth context missing");
@@ -257,10 +258,11 @@ export namespace Handler {
     req: Request,
     usageService: UsageService.UsageService,
     securityConfig: SecurityConfig,
+    options: { allowWebSocketCredentials?: boolean } = {},
   ): Promise<{ response?: Response; context?: ProxyAuthContext }> {
     if (!securityConfig.proxyRequireApiKey) return undefinedProxyAuth();
 
-    const proxyApiKey = extractProxyApiKey(req.headers);
+    const proxyApiKey = extractProxyApiKey(req, options);
     if (!proxyApiKey) return { response: proxyApiKeyRequiredResponse() };
 
     const found = await ApiKeyRepo.findByKeyFull(usageService.db, proxyApiKey);
@@ -302,13 +304,49 @@ export namespace Handler {
     });
   }
 
-  function extractProxyApiKey(headers: Headers): string | null {
+  function extractProxyApiKey(req: Request, options: { allowWebSocketCredentials?: boolean } = {}): string | null {
+    const headers = req.headers;
     const authorization = headers.get("authorization")?.trim();
     const match = authorization?.match(/^Bearer\s+(.+)$/i);
     const bearer = match?.[1]?.trim();
     if (bearer) return bearer;
     const apiKey = headers.get("x-api-key")?.trim();
-    return apiKey || null;
+    if (apiKey) return apiKey;
+
+    if (!options.allowWebSocketCredentials) return null;
+
+    const legacyProxyKey = headers.get("x-proxy-key")?.trim();
+    if (legacyProxyKey) return legacyProxyKey;
+
+    const protocolKey = extractProtocolProxyKey(headers.get("sec-websocket-protocol"));
+    if (protocolKey) return protocolKey;
+
+    const url = new URL(req.url);
+    return url.searchParams.get("x-api-key")?.trim()
+      || url.searchParams.get("proxy_api_key")?.trim()
+      || url.searchParams.get("api_key")?.trim()
+      || null;
+  }
+
+  function extractProtocolProxyKey(protocolHeader: string | null): string | null {
+    if (!protocolHeader) return null;
+    for (const part of protocolHeader.split(",")) {
+      const protocol = part.trim();
+      const match = protocol.match(/^(?:proxy-key|x-api-key|api-key)\.(.+)$/i);
+      if (match?.[1]) return match[1].trim();
+    }
+    return null;
+  }
+
+  function authHeaderPresence(req: Request): Record<string, boolean> {
+    const url = new URL(req.url);
+    return {
+      authorization: req.headers.has("authorization"),
+      xApiKey: req.headers.has("x-api-key"),
+      xProxyKey: req.headers.has("x-proxy-key"),
+      secWebSocketProtocol: req.headers.has("sec-websocket-protocol"),
+      queryCredential: url.searchParams.has("x-api-key") || url.searchParams.has("proxy_api_key") || url.searchParams.has("api_key"),
+    };
   }
 
   function touchProxyApiKeyLastUsed(usageService: UsageService.UsageService, id: number): void {

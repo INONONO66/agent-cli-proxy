@@ -89,6 +89,29 @@ test("websocket upgrade requires managed proxy key in public mode", async () => 
       assert(acceptedWithoutServer.status === 501, "valid key should reach upgrade handling");
       const touched = ApiKeyRepo.list(db).find((key) => key.id === apiKey.id);
       assert(typeof touched?.lastUsedAt === "string", "valid websocket key should update last_used_at");
+
+      const queryCredential = await handle(new Request("http://proxy.test/v1/realtime?api_key=" + apiKey.key, {
+        headers: { connection: "Upgrade", upgrade: "websocket" },
+      }));
+      assert(queryCredential.status === 501, "websocket query credential should reach upgrade handling");
+
+      const protocolCredential = await handle(new Request("http://proxy.test/v1/realtime", {
+        headers: {
+          connection: "Upgrade",
+          upgrade: "websocket",
+          "sec-websocket-protocol": "responses, proxy-key." + apiKey.key,
+        },
+      }));
+      assert(protocolCredential.status === 501, "websocket protocol credential should reach upgrade handling");
+
+      const legacyHeaderCredential = await handle(new Request("http://proxy.test/v1/realtime", {
+        headers: {
+          connection: "Upgrade",
+          upgrade: "websocket",
+          "x-proxy-key": apiKey.key,
+        },
+      }));
+      assert(legacyHeaderCredential.status === 501, "websocket legacy proxy key should reach upgrade handling");
     } finally {
       db.close();
     }
