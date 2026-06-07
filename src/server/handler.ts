@@ -15,6 +15,7 @@ import { PerfMetrics } from "./perf-metrics";
 import { isRequestSecure } from "../util/proxy-headers";
 import { ApiKeyRepo } from "../storage/api-keys";
 import { PerClientRateLimiter } from "./rate-limit";
+import { WebSocketProxy } from "./websocket-proxy";
 
 const logger = Logger.fromConfig().child({ component: "handler" });
 const readyLogger = logger.child({ component: "handler.ready" });
@@ -66,7 +67,7 @@ type ReadyCheckOverrides = {
   pricing?: () => ReadyCheckResult;
 };
 
-type RequestContext = Pick<Server<unknown>, "requestIP"> | undefined;
+type RequestContext = (Pick<Server<WebSocketProxy.Data>, "requestIP"> & Partial<Pick<Server<WebSocketProxy.Data>, "upgrade">>) | undefined;
 
 const READY_TOTAL_TIMEOUT_MS = 1_500;
 const READY_CACHE_TTL_MS = 3_000;
@@ -216,6 +217,16 @@ export namespace Handler {
           return withSecurityHeaders(req, securityConfig, proxyAuth.response);
         }
 
+        if (WebSocketProxy.isUpgradeRequest(req)) {
+          const info = await RequestInspector.inspect(req);
+          const authContext = proxyAuth.context;
+          if (!authContext) throw new Error("proxy auth context missing");
+          if (authContext.mode === "resolved") {
+            touchProxyApiKeyLastUsed(usageService, authContext.proxyApiKey.id);
+          }
+          return WebSocketProxy.upgrade(req, context, authContext.mode === "resolved" ? { ...info, apiKey: null } : info, authContext);
+        }
+
         // Body limit enforcement only for methods that carry a body
         const needsBodyLimit = method === "POST" || method === "PUT" || method === "PATCH";
         const bounded = needsBodyLimit ? enforceRequestBodyLimit(req, maxRequestBodyBytes) : req;
@@ -298,6 +309,14 @@ export namespace Handler {
     if (bearer) return bearer;
     const apiKey = headers.get("x-api-key")?.trim();
     return apiKey || null;
+  }
+
+  function touchProxyApiKeyLastUsed(usageService: UsageService.UsageService, id: number): void {
+    try {
+      ApiKeyRepo.touchLastUsed(usageService.db, id);
+    } catch (err) {
+      logger.warn("proxy API key last-used update failed", { event: "proxy_api_key.touch_failed", err, proxy_api_key_id: id });
+    }
   }
 
   async function isAdminAuthorized(

@@ -13,6 +13,7 @@ async function main(): Promise<void> {
   const { UsageService } = await import("./storage/service");
   const { Pricing } = await import("./storage/pricing");
   const { Handler } = await import("./server/handler");
+  const { WebSocketProxy } = await import("./server/websocket-proxy");
   const { Session } = await import("./admin/session");
   const { Correlator } = await import("./cliproxy/correlator");
   const { Supervisor } = await import("./runtime/supervisor");
@@ -62,6 +63,7 @@ async function main(): Promise<void> {
     hostname: Config.host,
     idleTimeout: 0,
     fetch: handleRequest,
+    websocket: WebSocketProxy.handler,
   };
   let server: ReturnType<typeof Bun.serve>;
   try {
