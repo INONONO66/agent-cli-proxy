@@ -11,6 +11,7 @@ process.env.CLI_PROXY_API_URL ??= "http://localhost:8317";
 
 const { RequestInspector } = await import("../../src/server/request-inspector");
 const { PassThroughProxy } = await import("../../src/server/pass-through");
+const { Config } = await import("../../src/config");
 const { Storage } = await import("../../src/storage/db");
 const { UsageService } = await import("../../src/storage/service");
 const { RequestRepo } = await import("../../src/storage/repo");
@@ -20,6 +21,7 @@ const { ProviderRegistry } = await import("../../src/provider");
 
 const encoder = new TextEncoder();
 const price = { input: 1, output: 1, cache_read: 1, cache_write: 1, reasoning: 1 };
+const upstreamAuthorization = `Bearer ${Config.cliProxyApiKey}`;
 const originalProvidersJson = process.env.PROVIDERS_JSON;
 const originalCustomProviderKey = process.env.CUSTOM_PROVIDER_KEY;
 
@@ -501,7 +503,7 @@ test("Bearer token identifies the request, updates last used, and stays off upst
   const res = await handle(req, await inspect(req));
   await res.text();
 
-  expect(forwardedHeaders.get("authorization")).toBe("Bearer proxy");
+  expect(forwardedHeaders.get("authorization")).toBe(upstreamAuthorization);
   expect(forwardedHeaders.get("x-proxy-key")).toBeNull();
   expect(latest(db)).toMatchObject({
     proxy_api_key_id: apiKey.id,
@@ -533,7 +535,7 @@ test("x-api-key identifies the request, updates last used, and never reaches ups
   const res = await handle(req, await inspect(req));
   await res.text();
 
-  expect(forwardedHeaders.get("authorization")).toBe("Bearer proxy");
+  expect(forwardedHeaders.get("authorization")).toBe(upstreamAuthorization);
   expect(forwardedHeaders.get("x-api-key")).toBeNull();
   expect(forwardedHeaders.get("x-proxy-key")).toBeNull();
   expect(latest(db)).toMatchObject({
