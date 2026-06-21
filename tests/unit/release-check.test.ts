@@ -35,6 +35,7 @@ test("release package metadata is populated for npm publishing", async () => {
   expect(pkg.module).toBe("./dist/index.js");
   expect(pkg.bin).toEqual({ "agent-cli-proxy": "./dist/cli.js" });
   expect(pkg.files).toEqual(["dist", "README.md", "CHANGELOG.md", "LICENSE"]);
+  expect(pkg.publishConfig).toEqual({ access: "public", provenance: true });
 });
 
 test("pack dry-run includes only required install artifacts after build", async () => {

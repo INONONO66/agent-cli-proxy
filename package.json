@@ -39,6 +39,10 @@
     "CHANGELOG.md",
     "LICENSE"
   ],
+  "publishConfig": {
+    "access": "public",
+    "provenance": true
+  },
   "scripts": {
     "dev": "bun run --watch src/index.ts",
     "build": "bun build src/index.ts src/cli.ts --target=bun --outdir=./dist && rm -rf dist/migrations && cp -R src/storage/migrations dist/migrations && bun run scripts/post-build.ts",

@@ -7,6 +7,7 @@ on:
 
 permissions:
   contents: write
+  id-token: write
 
 concurrency:
   group: release-${{ github.ref }}
@@ -21,7 +22,16 @@ jobs:
         with:
           persist-credentials: false
 
+      - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e
+        with:
+          node-version: "24"
+          registry-url: https://registry.npmjs.org
+          package-manager-cache: false
+
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6
+
+      - name: Install latest npm
+        run: npm install -g npm@latest
 
       - name: Install dependencies
         run: bun install --frozen-lockfile
@@ -37,14 +47,6 @@ jobs:
             exit 1
           fi
 
-      - name: Configure npm registry auth
-        run: |
-          test -n "${NODE_AUTH_TOKEN}"
-          printf '%s\n' '//registry.npmjs.org/:_authToken=${NODE_AUTH_TOKEN}' > ~/.npmrc
-          chmod 0600 ~/.npmrc
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
-
       - name: Publish to npm
         continue-on-error: true
         run: |
@@ -55,8 +57,6 @@ jobs:
           else
             npm publish --access public
           fi
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 
       - name: Package GitHub Release artifact
         run: bun run scripts/package-release.ts

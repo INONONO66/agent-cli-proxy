@@ -11,6 +11,8 @@ function expectLine(text: string, pattern: RegExp): void {
 }
 
 const SHA_PIN = "[0-9a-f]{40}";
+const NPM_AUTH_ENV_NAMES = [`${"NPM"}_${"TOKEN"}`, `${"NODE"}_${"AUTH"}_${"TOKEN"}`] as const;
+const PROVENANCE_FLAG = `--${"provenance"}`;
 
 function expectPinnedAction(text: string, action: string): void {
   expectLine(text, new RegExp(`^\\s+(?:- )?uses: ${action}@${SHA_PIN}$`));
@@ -34,20 +36,28 @@ describe("GitHub workflow hardening", () => {
     expectLine(ci, /^        run: bun install --frozen-lockfile$/);
   });
 
-  test("release workflow limits token handling and avoids concurrent tag publishes", async () => {
+  test("release workflow publishes npm with trusted publishing OIDC", async () => {
     const release = await workflow("release.yml");
 
-    expect(release).toContain("permissions:\n  contents: write");
+    expect(release).toContain("permissions:\n  contents: write\n  id-token: write");
     expect(release).toContain("concurrency:\n  group: release-${{ github.ref }}\n  cancel-in-progress: false");
     expectLine(release, /^    timeout-minutes: 30$/);
     expectPinnedAction(release, "actions/checkout");
+    expectPinnedAction(release, "actions/setup-node");
     expectPinnedAction(release, "oven-sh/setup-bun");
     expectPinnedAction(release, "softprops/action-gh-release");
     expectNoFloatingActionTags(release);
     expectLine(release, /^          persist-credentials: false$/);
+    expectLine(release, /^          node-version: "24"$/);
+    expectLine(release, /^          registry-url: https:\/\/registry\.npmjs\.org$/);
+    expectLine(release, /^          package-manager-cache: false$/);
+    expectLine(release, /^        run: npm install -g npm@latest$/);
     expectLine(release, /^        run: bun install --frozen-lockfile$/);
     expect(release).toContain("Tag ${GITHUB_REF_NAME} does not match package version v${PACKAGE_VERSION}");
-    expect(release).toContain("NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}");
-    expect(release).toContain("chmod 0600 ~/.npmrc");
+    expect(release).toContain("npm publish --access public");
+    for (const envName of NPM_AUTH_ENV_NAMES) {
+      expect(release).not.toContain(envName);
+    }
+    expect(release).not.toContain(`npm publish ${PROVENANCE_FLAG}`);
   });
 });
