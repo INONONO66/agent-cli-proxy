@@ -424,7 +424,7 @@ On Linux this proxies to `journalctl --user -u agent-cli-proxy.service -f`; on m
 
 ## Releasing
 
-For maintainers: run `bun run release-check` to verify the build and package contents before tagging. Push a `v*` tag and the `.github/workflows/release.yml` GitHub Actions workflow runs `bun publish --access public --tolerate-republish` against the npm registry using the `NPM_TOKEN` repository secret, then creates a GitHub Release with `agent-cli-proxy.tar.gz` runtime assets for server installs.
+For maintainers: run `bun run release-check` to verify the build and package contents before tagging. Push a `v*` tag and the `.github/workflows/release.yml` GitHub Actions workflow publishes to npm, then creates a GitHub Release with `agent-cli-proxy.tar.gz` runtime assets for server installs.
 
 ## Contributing
 

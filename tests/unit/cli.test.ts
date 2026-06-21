@@ -29,6 +29,11 @@ function testEnv(overrides: Record<string, string> = {}): Record<string, string>
   delete env.PROVIDERS_CONFIG_PATH;
   delete env.PLANS_JSON;
   delete env.PLANS_PATH;
+  delete env.DB_PATH;
+  delete env.PRICING_CACHE_PATH;
+  delete env.AGENT_CLI_PROXY_DATA_DIR;
+  delete env.AGENT_CLI_PROXY_RUNTIME_DIR;
+  delete env.AGENT_CLI_PROXY_ENV;
   delete env.PROXY_LOCAL_OK;
   delete env.CLI_PROXY_API_URL;
   env.LOG_LEVEL = "error";

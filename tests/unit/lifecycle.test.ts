@@ -11,6 +11,7 @@ process.env.CLI_PROXY_API_URL ??= "http://localhost:8317";
 
 const { RequestInspector } = await import("../../src/server/request-inspector");
 const { PassThroughProxy } = await import("../../src/server/pass-through");
+const { Config } = await import("../../src/config");
 const { Storage } = await import("../../src/storage/db");
 const { UsageService } = await import("../../src/storage/service");
 const { RequestRepo } = await import("../../src/storage/repo");
@@ -20,10 +21,17 @@ const { ProviderRegistry } = await import("../../src/provider");
 
 const encoder = new TextEncoder();
 const price = { input: 1, output: 1, cache_read: 1, cache_write: 1, reasoning: 1 };
+const upstreamAuthorization = `Bearer ${Config.cliProxyApiKey}`;
+const originalCliProxyApiUrl = process.env.CLI_PROXY_API_URL;
 const originalProvidersJson = process.env.PROVIDERS_JSON;
+const originalProvidersConfigPath = process.env.PROVIDERS_CONFIG_PATH;
 const originalCustomProviderKey = process.env.CUSTOM_PROVIDER_KEY;
 
 beforeEach(() => {
+  process.env.CLI_PROXY_API_URL = Config.cliProxyApiUrl;
+  delete process.env.PROVIDERS_JSON;
+  delete process.env.PROVIDERS_CONFIG_PATH;
+  ProviderRegistry.forceReload();
   Pricing.__setPricingForTests([
     ["openai/gpt-5.4-mini", price],
     ["gpt-5.4-mini", price],
@@ -35,7 +43,9 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+  restoreEnv("CLI_PROXY_API_URL", originalCliProxyApiUrl);
   restoreEnv("PROVIDERS_JSON", originalProvidersJson);
+  restoreEnv("PROVIDERS_CONFIG_PATH", originalProvidersConfigPath);
   restoreEnv("CUSTOM_PROVIDER_KEY", originalCustomProviderKey);
   ProviderRegistry.forceReload();
   Pricing.__setPricingForTests([
@@ -44,7 +54,7 @@ afterEach(() => {
   ]);
 });
 
-function restoreEnv(key: "PROVIDERS_JSON" | "CUSTOM_PROVIDER_KEY", value: string | undefined): void {
+function restoreEnv(key: "CLI_PROXY_API_URL" | "PROVIDERS_JSON" | "PROVIDERS_CONFIG_PATH" | "CUSTOM_PROVIDER_KEY", value: string | undefined): void {
   if (value === undefined) {
     delete process.env[key];
     return;
@@ -501,7 +511,7 @@ test("Bearer token identifies the request, updates last used, and stays off upst
   const res = await handle(req, await inspect(req));
   await res.text();
 
-  expect(forwardedHeaders.get("authorization")).toBe("Bearer proxy");
+  expect(forwardedHeaders.get("authorization")).toBe(upstreamAuthorization);
   expect(forwardedHeaders.get("x-proxy-key")).toBeNull();
   expect(latest(db)).toMatchObject({
     proxy_api_key_id: apiKey.id,
@@ -533,7 +543,7 @@ test("x-api-key identifies the request, updates last used, and never reaches ups
   const res = await handle(req, await inspect(req));
   await res.text();
 
-  expect(forwardedHeaders.get("authorization")).toBe("Bearer proxy");
+  expect(forwardedHeaders.get("authorization")).toBe(upstreamAuthorization);
   expect(forwardedHeaders.get("x-api-key")).toBeNull();
   expect(forwardedHeaders.get("x-proxy-key")).toBeNull();
   expect(latest(db)).toMatchObject({

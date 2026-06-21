@@ -10,6 +10,7 @@ const { CLIProxyClient } = await import("../../src/cliproxy/client");
 const { Correlator } = await import("../../src/cliproxy/correlator");
 const { Storage } = await import("../../src/storage/db");
 const { UsageService } = await import("../../src/storage/service");
+const { Logger } = await import("../../src/util/logger");
 
 function makeDetail(ts: string, totalTokens: number): CLIProxyClientNS.UsageDetail {
   return {
@@ -214,13 +215,17 @@ test("persistent low match rate emits an operator warning", async () => {
   const logs = Array.from({ length: 4 }, (_, index) => makeLog(index + 1, "test-model", now, 1_000));
   const { service } = createService(response, logs);
 
-  for (let i = 0; i < 5; i++) {
-    await Correlator.runTick(service, { lookbackMs: 60_000 });
-  }
+  await Logger.withLevel("warn", async () => {
+    for (let i = 0; i < 5; i++) {
+      await Correlator.runTick(service, { lookbackMs: 60_000 });
+    }
+  });
 
-  for (let i = 0; i < 5; i++) {
-    await Correlator.runTick(service, { lookbackMs: 60_000 });
-  }
+  await Logger.withLevel("warn", async () => {
+    for (let i = 0; i < 5; i++) {
+      await Correlator.runTick(service, { lookbackMs: 60_000 });
+    }
+  });
 
   const warnings = stderrLines.filter((line) => line.includes("correlator.low_match_rate"));
   expect(warnings).toHaveLength(1);
@@ -233,9 +238,11 @@ test("persistent empty upstream details emit an operator warning", async () => {
   const logs = Array.from({ length: 2 }, (_, index) => makeLog(index + 1, "test-model", now, 1_000));
   const { service } = createService(response, logs);
 
-  for (let i = 0; i < 5; i++) {
-    await Correlator.runTick(service, { lookbackMs: 60_000 });
-  }
+  await Logger.withLevel("warn", async () => {
+    for (let i = 0; i < 5; i++) {
+      await Correlator.runTick(service, { lookbackMs: 60_000 });
+    }
+  });
 
   const warnings = stderrLines.filter((line) => line.includes("correlator.low_match_rate"));
   expect(warnings).toHaveLength(1);
