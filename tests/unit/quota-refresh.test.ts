@@ -63,9 +63,10 @@ test("quota refresh shares an in-flight probe", async () => {
   const gate = new Promise<void>((resolve) => {
     releaseProbe = resolve;
   });
+  const refreshedAt = new Date().toISOString();
   refreshSpy = spyOn(QuotaProbe, "refresh").mockImplementation(async () => {
     await gate;
-    return quotaResult("2026-06-05T00:00:00.000Z");
+    return quotaResult(refreshedAt);
   });
 
   const first = service.refreshQuotas();
