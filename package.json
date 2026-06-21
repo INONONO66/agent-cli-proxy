@@ -47,7 +47,7 @@
     "dev": "bun run --watch src/index.ts",
     "build": "bun build src/index.ts src/cli.ts --target=bun --outdir=./dist && rm -rf dist/migrations && cp -R src/storage/migrations dist/migrations && bun run scripts/post-build.ts",
     "typecheck": "bunx tsc --noEmit",
-    "test": "bun test",
+    "test": "bun test --max-concurrency=1",
     "release-check": "bun run typecheck && bun run test && bun run build && (bunx publint . || bun run scripts/release-fallback-check.ts)",
     "prepublishOnly": "bun run release-check",
     "pack:check": "bun pm pack --dry-run",
