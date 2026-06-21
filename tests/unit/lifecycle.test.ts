@@ -23,9 +23,13 @@ const encoder = new TextEncoder();
 const price = { input: 1, output: 1, cache_read: 1, cache_write: 1, reasoning: 1 };
 const upstreamAuthorization = `Bearer ${Config.cliProxyApiKey}`;
 const originalProvidersJson = process.env.PROVIDERS_JSON;
+const originalProvidersConfigPath = process.env.PROVIDERS_CONFIG_PATH;
 const originalCustomProviderKey = process.env.CUSTOM_PROVIDER_KEY;
 
 beforeEach(() => {
+  delete process.env.PROVIDERS_JSON;
+  delete process.env.PROVIDERS_CONFIG_PATH;
+  ProviderRegistry.forceReload();
   Pricing.__setPricingForTests([
     ["openai/gpt-5.4-mini", price],
     ["gpt-5.4-mini", price],
@@ -38,6 +42,7 @@ beforeEach(() => {
 
 afterEach(() => {
   restoreEnv("PROVIDERS_JSON", originalProvidersJson);
+  restoreEnv("PROVIDERS_CONFIG_PATH", originalProvidersConfigPath);
   restoreEnv("CUSTOM_PROVIDER_KEY", originalCustomProviderKey);
   ProviderRegistry.forceReload();
   Pricing.__setPricingForTests([
@@ -46,7 +51,7 @@ afterEach(() => {
   ]);
 });
 
-function restoreEnv(key: "PROVIDERS_JSON" | "CUSTOM_PROVIDER_KEY", value: string | undefined): void {
+function restoreEnv(key: "PROVIDERS_JSON" | "PROVIDERS_CONFIG_PATH" | "CUSTOM_PROVIDER_KEY", value: string | undefined): void {
   if (value === undefined) {
     delete process.env[key];
     return;
