@@ -22,11 +22,13 @@ const { ProviderRegistry } = await import("../../src/provider");
 const encoder = new TextEncoder();
 const price = { input: 1, output: 1, cache_read: 1, cache_write: 1, reasoning: 1 };
 const upstreamAuthorization = `Bearer ${Config.cliProxyApiKey}`;
+const originalCliProxyApiUrl = process.env.CLI_PROXY_API_URL;
 const originalProvidersJson = process.env.PROVIDERS_JSON;
 const originalProvidersConfigPath = process.env.PROVIDERS_CONFIG_PATH;
 const originalCustomProviderKey = process.env.CUSTOM_PROVIDER_KEY;
 
 beforeEach(() => {
+  process.env.CLI_PROXY_API_URL = Config.cliProxyApiUrl;
   delete process.env.PROVIDERS_JSON;
   delete process.env.PROVIDERS_CONFIG_PATH;
   ProviderRegistry.forceReload();
@@ -41,6 +43,7 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+  restoreEnv("CLI_PROXY_API_URL", originalCliProxyApiUrl);
   restoreEnv("PROVIDERS_JSON", originalProvidersJson);
   restoreEnv("PROVIDERS_CONFIG_PATH", originalProvidersConfigPath);
   restoreEnv("CUSTOM_PROVIDER_KEY", originalCustomProviderKey);
@@ -51,7 +54,7 @@ afterEach(() => {
   ]);
 });
 
-function restoreEnv(key: "PROVIDERS_JSON" | "PROVIDERS_CONFIG_PATH" | "CUSTOM_PROVIDER_KEY", value: string | undefined): void {
+function restoreEnv(key: "CLI_PROXY_API_URL" | "PROVIDERS_JSON" | "PROVIDERS_CONFIG_PATH" | "CUSTOM_PROVIDER_KEY", value: string | undefined): void {
   if (value === undefined) {
     delete process.env[key];
     return;
