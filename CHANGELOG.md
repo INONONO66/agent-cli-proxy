@@ -2,6 +2,20 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.2.7](https://github.com/INONONO66/agent-cli-proxy/compare/v0.2.6...v0.2.7) (2026-06-21)
+
+### Features
+
+- **server:** proxy websocket upgrade requests (c7f5e64)
+
+### Bug Fixes
+
+- **release:** publish npm with oidc (79c18d3)
+- **server:** accept websocket proxy credentials (6339a29)
+
+### Tests
+
+- **server:** cover websocket proxy relay (504d366)
 ## [0.2.1](https://github.com/INONONO66/agent-cli-proxy/compare/v0.2.0...v0.2.1) (2026-05-29)
 
 ### Bug Fixes
